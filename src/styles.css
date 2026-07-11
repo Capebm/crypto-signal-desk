@@ -1,0 +1,81 @@
+:root { color: #edf3ff; background: #08111f; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button { border: 0; border-radius: 10px; padding: 12px 16px; color: white; background: #3973dd; font: inherit; font-weight: 750; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+
+.agent-shell { max-width: 1080px; margin: 0 auto; padding: 52px 24px 64px; }
+.agent-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 20px; }
+.agent-header h1 { margin: 6px 0 10px; font-size: clamp(2.2rem, 6vw, 4.5rem); letter-spacing: -.07em; }
+.agent-header p:not(.eyebrow) { max-width: 630px; margin: 0; color: #aabbd2; font-size: 1.05rem; line-height: 1.55; }
+.eyebrow { margin: 0; color: #76a7ff; font-size: .72rem; font-weight: 800; letter-spacing: .13em; }
+
+.agent-rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; }
+.agent-rules div { display: grid; gap: 7px; padding: 17px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
+.agent-rules strong { font-size: 1.1rem; }
+.agent-rules span { color: #aabbd2; line-height: 1.4; font-size: .88rem; }
+.agent-rules div:first-child strong, .comprar .decision-top strong { color: #42d99e; }
+.agent-rules div:nth-child(2) strong, .vender .decision-top strong { color: #f57b88; }
+.agent-rules div:nth-child(3) strong, .esperar .decision-top strong { color: #f5c451; }
+.agent-status { color: #aabbd2; margin: 20px 0 12px; }
+.risk-control { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); gap: 10px 24px; align-items: center; margin: 18px 0; padding: 16px; border: 1px solid #344d70; border-radius: 12px; background: #0d1a2c; }
+.risk-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }
+.risk-control input { accent-color: #76a7ff; }
+.risk-labels { grid-column: 2; display: flex; justify-content: space-between; color: #9db0c9; font-size: .72rem; }
+.agent-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 16px 0; padding: 12px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
+.agent-summary button { padding: 8px 10px; color: #c6d3e3; background: #1c2b42; font-size: .84rem; }
+.agent-summary button.active { outline: 2px solid #76a7ff; }
+.agent-summary button.buy { color: #42d99e; }
+.agent-summary button.sell { color: #f57b88; }
+.agent-summary button.wait { color: #f5c451; }
+.agent-summary span { margin-left: 4px; opacity: .75; }
+.agent-summary label { margin-left: auto; display: grid; gap: 4px; color: #aabbd2; font-size: .78rem; }
+.agent-summary input { width: 130px; color: #edf3ff; border: 1px solid #304766; border-radius: 7px; padding: 7px; background: #08111f; font: inherit; }
+
+.decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.decision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.decision-item:has(.card-expanded) { grid-column: 1 / -1; }
+.card-expanded { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 14px; margin-top: 10px; }
+.decision-card { padding: 21px; border: 1px solid #263b5a; border-radius: 14px; background: #101d30; }
+.decision-card { cursor: pointer; }
+.decision-card.selected { outline: 2px solid #76a7ff; }
+.decision-card.comprar { border-color: #267e5e; background: linear-gradient(130deg, #102d28, #101d30); }
+.decision-card.vender { border-color: #874451; background: linear-gradient(130deg, #321d25, #101d30); }
+.decision-card.esperar { border-color: #806b30; background: linear-gradient(130deg, #292617, #101d30); }
+.decision-top { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.decision-top p { margin: 0 0 5px; color: #aabbd2; font-size: .85rem; font-weight: 700; }
+.decision-top strong { font-size: 1.7rem; letter-spacing: -.04em; }
+.decision-top span { padding: 5px 8px; color: #d1dcec; background: #1d304c; border-radius: 6px; font-size: .75rem; }
+.decision-price { margin: 19px 0 10px; font-size: 1.24rem; font-weight: 750; }
+.decision-price span { margin-left: 7px; font-size: .9rem; }
+.decision-card > p:not(.decision-price) { min-height: 44px; color: #bac9db; line-height: 1.45; }
+.positive { color: #42d99e; } .negative { color: #f57b88; }
+dl { margin: 14px 0 0; }
+dl div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid #293c58; }
+dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
+.agent-disclaimer { margin-top: 20px; padding: 17px; border: 1px solid #3d4e69; border-radius: 12px; color: #b7c6d8; background: #142239; line-height: 1.5; }
+.terminal-workspace { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 14px; margin-bottom: 14px; }
+.chart-panel, .evidence-panel { padding: 16px; border: 1px solid #263b5a; border-radius: 12px; background: #0d192a; }
+.chart-panel header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.chart-panel h2, .evidence-panel h2 { margin: 5px 0 14px; font-size: 1.08rem; }
+.chart-panel header > span { color: #9db0c9; font-size: .78rem; }
+.chart-host { position: relative; min-height: 470px; }
+.chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.chart-legend { display: flex; gap: 10px; padding: 0; color: #9db0c9; font-size: .74rem; }
+.timeframe-tabs { display: flex; gap: 6px; }
+.timeframe-tabs button { padding: 6px 10px; color: #9db0c9; background: #1c2b42; font-size: .74rem; font-weight: 700; border-radius: 7px; }
+.timeframe-tabs button.active { color: #edf3ff; background: #3973dd; outline: 2px solid #76a7ff; }
+.chart-legend span:first-child { color: #76a7ff; } .chart-legend span:nth-child(2) { color: #f5c451; }
+.chart-message { margin: 10px 0 0; padding: 10px 12px; border: 1px solid #806b30; border-radius: 8px; color: #f5c451; background: #292617; font-size: .82rem; line-height: 1.4; }
+.evidence-panel p { color: #b7c6d8; line-height: 1.5; }
+
+@media (max-width: 700px) {
+  .agent-shell { padding: 32px 16px 48px; }
+  .agent-header { flex-direction: column; }
+  .agent-header button { width: 100%; }
+  .agent-rules, .decision-grid, .decision-list, .card-expanded { grid-template-columns: 1fr; }
+  .risk-control { grid-template-columns: 1fr; }
+  .risk-labels { grid-column: 1; }
+  .agent-summary label { width: 100%; margin-left: 0; }
+  .agent-summary input { width: 100%; }
+}
