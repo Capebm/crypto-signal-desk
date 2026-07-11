@@ -1,5 +1,39 @@
+import { useEffect, useState } from 'react'
 import AgentDashboard from './features/agent/AgentDashboard'
+import Garimpo from './features/garimpo/Garimpo'
+
+type ActiveApp = 'garimpo' | 'crypto'
 
 export default function App() {
-  return <AgentDashboard />
+  const [app, setApp] = useState<ActiveApp>(() => {
+    const saved = localStorage.getItem('active-app')
+    return saved === 'crypto' ? 'crypto' : 'garimpo'
+  })
+
+  useEffect(() => {
+    localStorage.setItem('active-app', app)
+    document.title = app === 'crypto' ? 'Crypto Signal Desk' : 'GARIMPO — compra no mundo, vende em PT'
+  }, [app])
+
+  return (
+    <>
+      <nav className="app-switcher" aria-label="Escolher aplicação">
+        <button
+          type="button"
+          className={app === 'garimpo' ? 'active' : ''}
+          onClick={() => setApp('garimpo')}
+        >
+          GARIMPO
+        </button>
+        <button
+          type="button"
+          className={app === 'crypto' ? 'active' : ''}
+          onClick={() => setApp('crypto')}
+        >
+          Crypto Desk
+        </button>
+      </nav>
+      {app === 'garimpo' ? <Garimpo /> : <AgentDashboard />}
+    </>
+  )
 }

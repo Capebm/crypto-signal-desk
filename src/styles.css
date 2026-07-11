@@ -1,6 +1,41 @@
 :root { color: #edf3ff; background: #08111f; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
+
+.app-switcher {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #344d70;
+  border-radius: 10px;
+  background: rgba(8, 17, 31, 0.92);
+  backdrop-filter: blur(8px);
+}
+.app-switcher button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 11px;
+  color: #9db0c9;
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.app-switcher button.active {
+  color: #edf3ff;
+  background: #3973dd;
+}
+.app-switcher button:not(.active):hover {
+  color: #c6d3e3;
+  background: #1c2b42;
+}
+
 button { border: 0; border-radius: 10px; padding: 12px 16px; color: white; background: #3973dd; font: inherit; font-weight: 750; cursor: pointer; }
 button:disabled { cursor: wait; opacity: .65; }
 
@@ -78,4 +113,50 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .risk-labels { grid-column: 1; }
   .agent-summary label { width: 100%; margin-left: 0; }
   .agent-summary input { width: 100%; }
+}
+
+/* Vinted arbitrage desk */
+.vinted-shell { max-width: 1180px; margin: 0 auto; padding: 52px 24px 64px; }
+.vinted-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 20px; }
+.vinted-header h1 { margin: 6px 0 10px; font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -.06em; }
+.vinted-header p:not(.eyebrow) { max-width: 680px; margin: 0; color: #aabbd2; font-size: 1.02rem; line-height: 1.55; }
+.vinted-rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; }
+.vinted-rules div { display: grid; gap: 7px; padding: 17px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
+.vinted-rules strong { font-size: 1.05rem; color: #76a7ff; }
+.vinted-rules span { color: #aabbd2; line-height: 1.4; font-size: .88rem; }
+.vinted-filters { display: grid; grid-template-columns: 2fr repeat(3, 1fr); gap: 12px; margin: 20px 0; padding: 16px; border: 1px solid #344d70; border-radius: 12px; background: #0d1a2c; }
+.vinted-filters label { display: grid; gap: 6px; color: #9db0c9; font-size: .78rem; }
+.vinted-filters input[type="text"], .vinted-filters input[type="number"] { color: #edf3ff; border: 1px solid #304766; border-radius: 7px; padding: 9px; background: #08111f; font: inherit; }
+.checkbox-label { flex-direction: row; align-items: center; gap: 8px; align-self: end; }
+.vinted-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.vinted-presets > span { color: #9db0c9; font-size: .82rem; }
+.vinted-presets button { padding: 8px 12px; color: #c6d3e3; background: #1c2b42; font-size: .82rem; font-weight: 600; }
+.vinted-status { color: #aabbd2; margin: 12px 0; }
+.vinted-error { color: #f57b88; margin: 12px 0; }
+.vinted-warnings { margin: 12px 0; padding: 12px; border: 1px solid #806b30; border-radius: 8px; background: #292617; color: #f5c451; font-size: .84rem; }
+.vinted-warnings p { margin: 4px 0; }
+.vinted-empty { color: #9db0c9; padding: 24px; text-align: center; border: 1px dashed #344d70; border-radius: 12px; }
+.opportunity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.opportunity-card { padding: 20px; border: 1px solid #263b5a; border-radius: 14px; background: #101d30; }
+.opportunity-card.confidence-high { border-color: #267e5e; background: linear-gradient(130deg, #102d28, #101d30); }
+.opportunity-card.confidence-medium { border-color: #4a6080; }
+.opportunity-card.confidence-low { border-color: #806b30; }
+.opportunity-top { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.opportunity-top h3 { margin: 4px 0 0; font-size: 1.05rem; line-height: 1.35; }
+.confidence-badge { padding: 5px 8px; color: #d1dcec; background: #1d304c; border-radius: 6px; font-size: .72rem; white-space: nowrap; }
+.opportunity-image { width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; margin: 12px 0; }
+.opportunity-profit { margin: 14px 0 8px; font-size: 1.1rem; }
+.opportunity-profit strong { font-size: 1.3rem; margin-left: 6px; }
+.opportunity-metrics { margin: 0; }
+.opportunity-notes { margin: 12px 0 0; padding-left: 18px; color: #9db0c9; font-size: .84rem; line-height: 1.45; }
+.opportunity-actions { display: flex; gap: 10px; margin-top: 14px; }
+.opportunity-actions a { display: inline-block; padding: 9px 14px; border-radius: 8px; color: #edf3ff; background: #3973dd; text-decoration: none; font-size: .84rem; font-weight: 700; }
+.opportunity-actions a:last-child { background: #1c2b42; color: #c6d3e3; }
+.vinted-disclaimer { margin-top: 24px; padding: 17px; border: 1px solid #3d4e69; border-radius: 12px; color: #b7c6d8; background: #142239; line-height: 1.5; font-size: .9rem; }
+
+@media (max-width: 800px) {
+  .vinted-shell { padding: 32px 16px 48px; }
+  .vinted-header { flex-direction: column; }
+  .vinted-header button { width: 100%; }
+  .vinted-rules, .vinted-filters, .opportunity-grid { grid-template-columns: 1fr; }
 }

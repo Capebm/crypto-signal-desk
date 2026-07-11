@@ -1,6 +1,22 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/search-opportunities"
+  status = 200
+
+[[redirects]]
+  from = "/api/hunt"
+  to = "/.netlify/functions/hunt-opportunities"
+  status = 200
+
+[[redirects]]
+  from = "/api/estimate"
+  to = "/.netlify/functions/hunt-opportunities"
+  status = 200
 
 [[headers]]
   for = "/*"
