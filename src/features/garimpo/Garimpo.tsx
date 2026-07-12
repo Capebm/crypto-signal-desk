@@ -119,8 +119,13 @@ export default function Garimpo() {
         setHuntErr(`${result.items.length} encontrada(s) — uma das pesquisas paralelas falhou.`)
       }
       setHuntResults(result.items)
-    } catch {
-      setHuntErr('A caça falhou. Define ANTHROPIC_API_KEY no .env para pesquisa mundial com IA.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      setHuntErr(
+        msg.includes('ANTHROPIC_API_KEY')
+          ? 'API key em falta no Netlify Production. Site settings → Environment variables → adiciona ANTHROPIC_API_KEY ao scope Production.'
+          : msg,
+      )
     } finally {
       setHunting(false)
     }

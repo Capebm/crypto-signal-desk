@@ -1,5 +1,5 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
-import { huntOpportunities, estimateResale } from '../../server/hunt'
+import { huntOpportunities, estimateResale, huntBatch } from '../../server/hunt'
 import type { HuntBrief, HuntSettings } from '../../server/types'
 
 const headers = {
@@ -23,10 +23,25 @@ export const handler: Handler = async (event: HandlerEvent) => {
       brief?: HuntBrief
       settings?: HuntSettings
       candidate?: Parameters<typeof estimateResale>[0]
+      angle?: string
+      batchTag?: string
+      perBatch?: number
     }
 
     if (body.candidate) {
       const result = await estimateResale(body.candidate, apiKey)
+      return { statusCode: 200, headers, body: JSON.stringify(result) }
+    }
+
+    if (body.brief && body.settings && body.angle) {
+      const result = await huntBatch(
+        body.brief,
+        body.angle,
+        body.batchTag ?? 'b0',
+        body.perBatch ?? 3,
+        body.settings,
+        apiKey,
+      )
       return { statusCode: 200, headers, body: JSON.stringify(result) }
     }
 

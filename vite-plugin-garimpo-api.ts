@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { searchOpportunities } from './server/analyze'
-import { estimateResale, huntOpportunities } from './server/hunt'
+import { estimateResale, huntBatch, huntOpportunities } from './server/hunt'
 import type { HuntBrief, HuntSettings, SearchRequest } from './server/types'
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -60,7 +60,28 @@ export function garimpoApiPlugin(): Plugin {
             return
           }
           try {
-            const body = JSON.parse(await readBody(req)) as { brief: HuntBrief; settings: HuntSettings }
+            const body = JSON.parse(await readBody(req)) as {
+              brief: HuntBrief
+              settings: HuntSettings
+              angle?: string
+              batchTag?: string
+              perBatch?: number
+            }
+            if (body.angle) {
+              sendJson(
+                res,
+                200,
+                await huntBatch(
+                  body.brief,
+                  body.angle,
+                  body.batchTag ?? 'b0',
+                  body.perBatch ?? 3,
+                  body.settings,
+                  apiKey,
+                ),
+              )
+              return
+            }
             sendJson(res, 200, await huntOpportunities(body.brief, body.settings, apiKey))
           } catch (error) {
             sendJson(res, 500, { error: error instanceof Error ? error.message : 'Hunt failed' })

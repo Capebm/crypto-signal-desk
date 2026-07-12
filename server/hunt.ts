@@ -4,6 +4,7 @@ import {
   resolveListing,
   textFromAnthropic,
 } from './garimpo-json'
+import { getHuntAngles, mergeHuntResults } from './hunt-angles'
 import type { HuntBrief, HuntCandidate, HuntResponse, HuntSettings } from './types'
 
 interface HuntResultItem {
@@ -114,7 +115,7 @@ Return ONLY raw JSON, no markdown:
   }
 }
 
-async function huntBatch(
+export async function huntBatch(
   brief: HuntBrief,
   angle: string,
   batchTag: string,
@@ -208,66 +209,10 @@ export async function huntOpportunities(
   apiKey: string,
 ): Promise<HuntResponse> {
   const target = settings.huntTarget || 20
-  const isAll = brief.category === 'Tudo'
-  const lotsOnly = !!brief.lotsOnly
-
-  const angles = lotsOnly
-    ? isAll
-      ? [
-          'wholesale job lots and liquidation pallets of clothing/shoes',
-          'multi-item bundles of sneakers/streetwear (2+ pairs/pieces per listing)',
-          'bulk bags of secondhand clothing job lots',
-          'clearance / overstock multi-item packs',
-        ]
-      : [
-          `wholesale job lots of ${brief.category}`,
-          `multi-item bundles/packs of ${brief.category}`,
-          `bulk lots of ${brief.category} from clearance sales`,
-        ]
-    : isAll
-      ? [
-          'single hero items with highest ROI (sneakers, streetwear, designer)',
-          'job lots, bundles and wholesale pallets of clothing/shoes',
-          'trending/hyped brands selling fast right now',
-          'underpriced coats, denim and jackets with strong PT demand',
-          'bags, accessories and kids clothing with good margin',
-        ]
-      : [
-          `underpriced single ${brief.category} items with best ROI`,
-          `job lots and bundles of ${brief.category}`,
-          `trending / high-demand ${brief.category} right now`,
-        ]
-
+  const angles = getHuntAngles(brief)
   const perBatch = Math.min(4, Math.max(3, Math.ceil(target / angles.length)))
   const batches = await Promise.all(
     angles.map((a, i) => huntBatch(brief, a, `b${i}`, perBatch, settings, apiKey)),
   )
-
-  const merged = batches.flatMap((b) => b.items)
-  const allFailed = batches.every((b) => b.failed)
-  const anyFailed = batches.some((b) => b.failed)
-
-  const seenKey = new Set<string>()
-  const seenUrl = new Set<string>()
-  const unique: HuntCandidate[] = []
-
-  for (const r of merged) {
-    const key = (r.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 40)
-    const urlKey = normUrlLocal(r.sourceUrl || '')
-    if (!key || seenKey.has(key) || seenUrl.has(urlKey)) continue
-    seenKey.add(key)
-    seenUrl.add(urlKey)
-    unique.push(r)
-  }
-
-  return { items: unique.slice(0, target), allFailed, anyFailed, batchCount: angles.length }
-}
-
-function normUrlLocal(u: string) {
-  try {
-    const url = new URL(u)
-    return `${url.origin.toLowerCase()}${url.pathname.replace(/\/$/, '')}`
-  } catch {
-    return u
-  }
+  return mergeHuntResults(batches, target)
 }

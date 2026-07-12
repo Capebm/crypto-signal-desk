@@ -3,6 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[functions."hunt-opportunities"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/search"
   to = "/.netlify/functions/search-opportunities"
