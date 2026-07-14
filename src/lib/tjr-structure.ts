@@ -84,20 +84,13 @@ export function recentLiquiditySweep(candles: Candle[], swings: SwingPoint[], lo
   return undefined
 }
 
-/** BOS: candle body closes beyond most recent swing (not wick only). */
-export function breakOfStructure(candles: Candle[], swings: SwingPoint[], trend: Direction): Direction | undefined {
+/** BOS: body close beyond the most recent swing high (bullish) or low (bearish). */
+export function breakOfStructure(candles: Candle[], swings: SwingPoint[]): Direction | undefined {
   const close = candles.at(-1)?.close ?? 0
-  const highs = swings.filter((s) => s.type === 'high')
-  const lows = swings.filter((s) => s.type === 'low')
-  const lastHigh = highs.at(-1)?.price
-  const lastLow = lows.at(-1)?.price
-
-  if (trend === 'bullish' && lastLow !== undefined && close < lastLow) return 'bearish'
-  if (trend === 'bearish' && lastHigh !== undefined && close > lastHigh) return 'bullish'
-  if (trend === 'neutral') {
-    if (lastHigh !== undefined && close > lastHigh) return 'bullish'
-    if (lastLow !== undefined && close < lastLow) return 'bearish'
-  }
+  const lastHigh = swings.filter((s) => s.type === 'high').at(-1)?.price
+  const lastLow = swings.filter((s) => s.type === 'low').at(-1)?.price
+  if (lastHigh !== undefined && close > lastHigh) return 'bullish'
+  if (lastLow !== undefined && close < lastLow) return 'bearish'
   return undefined
 }
 
@@ -173,7 +166,7 @@ export function structureSnapshot(candles: Candle[]) {
   const trend = trendFromSwings(swings)
   const gaps = findFairValueGaps(candles)
   const sweep = recentLiquiditySweep(candles, swings)
-  const bos = breakOfStructure(candles, swings, trend)
+  const bos = breakOfStructure(candles, swings)
   const inverse = recentInverseFvg(gaps, trend)
   const eq = equilibriumPrice(swings)
   const fvg = activeFairValueGap(gaps, trend)

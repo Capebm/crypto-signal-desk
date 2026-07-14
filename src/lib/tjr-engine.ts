@@ -1,5 +1,5 @@
 import type { Action, Decision } from './decision-engine'
-import { riskProfiles, type RiskProfile } from './risk-profile'
+import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   activeFairValueGap,
@@ -54,6 +54,12 @@ const continuationHit = (snap: ReturnType<typeof structureSnapshot>, side: Trade
   return false
 }
 
+const hasContinuationZone = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) => {
+  const trend = side === 'long' ? 'bullish' : 'bearish'
+  if (snap.eq !== undefined) return true
+  return activeFairValueGap(snap.gaps, trend) !== undefined
+}
+
 const liquidityTargets = (candles: Candle[], side: TradeSide): number[] => {
   const session = latestSessionLevels(candles)
   const prevDay = previousDayLevels(candles)
@@ -70,15 +76,22 @@ const liquidityTargets = (candles: Candle[], side: TradeSide): number[] => {
   return levels.filter((l) => l < price).sort((a, b) => b - a)
 }
 
-const buildLevels = (side: TradeSide, entry: number, targetCandles: Candle[], exec: ReturnType<typeof structureSnapshot>) => {
+const buildLevels = (side: TradeSide, entry: number, targetCandles: Candle[], exec: ReturnType<typeof structureSnapshot>, minRr: number) => {
   const lowPrices = exec.swings.filter((s) => s.type === 'low').slice(-2).map((s) => s.price)
   const highPrices = exec.swings.filter((s) => s.type === 'high').slice(-2).map((s) => s.price)
-  const stop = side === 'long'
+  const rawStop = side === 'long'
     ? (lowPrices.length ? Math.min(...lowPrices) : entry * 0.99) * 0.998
     : (highPrices.length ? Math.max(...highPrices) : entry * 1.01) * 1.002
+  const maxRiskPct = 0.03
+  const stop = side === 'long'
+    ? Math.max(rawStop, entry * (1 - maxRiskPct))
+    : Math.min(rawStop, entry * (1 + maxRiskPct))
   const targets = liquidityTargets(targetCandles, side)
-  const target = targets[0] ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
+  let target = targets[0] ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
   const risk = Math.abs(entry - stop)
+  const minTarget = side === 'long' ? entry + risk * minRr : entry - risk * minRr
+  if (side === 'long' && target < minTarget) target = minTarget
+  if (side === 'short' && target > minTarget) target = minTarget
   const reward = Math.abs(target - entry)
   const riskReward = risk > 0 ? reward / risk : 0
   return { entry, stop, target, riskReward }
@@ -122,38 +135,50 @@ function evaluate(
     }
   }
 
+  const gates = tjrGates[profile]
   const sweep = h1.sweep ?? h4.sweep
-  const liquidityOk = isAligned(sweep, side) || (side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')
-  const confirmOk = confirmationHit(h1, side) || confirmationHit(exec, side)
-  const continueOk = continuationHit(exec, side) || continuationHit(h1, side)
+  const biasOk = (side === 'long' && (h4.trend === 'bullish' || h1.trend === 'bullish')) || (side === 'short' && (h4.trend === 'bearish' || h1.trend === 'bearish'))
+  const sweepOk = isAligned(sweep, side)
+  const liquidityOk = sweepOk || biasOk
+  const confirmOk = confirmationHit(h1, side) || confirmationHit(exec, side) || confirmationHit(h4, side)
+  const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
+  const continueZone = hasContinuationZone(exec, side) || hasContinuationZone(h1, side)
+  const continueOk = continueTouch || (!gates.requireContinuationTouch && continueZone)
   const smt = symbol !== 'BTCUSDT' ? smtDivergence(primary1h, btc1h) : undefined
-  const smtOk = symbol === 'BTCUSDT' || isAligned(smt, side) || smt === undefined
+  const smtAligned = symbol === 'BTCUSDT' || isAligned(smt, side)
+  const smtOk = !gates.requireSmtAlign || smtAligned || smt === undefined
+  const smtBlocked = gates.requireSmtAlign && smt !== undefined && !isAligned(smt, side)
 
-  const { entry, stop, target, riskReward } = buildLevels(side, exec.price, primary1h, exec)
+  const { entry, stop, target, riskReward } = buildLevels(side, exec.price, primary1h, exec, minRr)
   const rrOk = riskReward >= minRr
 
   const checklist = [
-    { label: 'Bias HTF (4h/1h)', complete: liquidityOk, note: side === 'long' ? 'Compras após sweep de lows ou tendência altista.' : 'Vendas após sweep de highs ou tendência baixista.' },
-    { label: 'Sweep de liquidez', complete: isAligned(sweep, side), note: sweep ? `Sweep ${sweep === 'bullish' ? 'abaixo de lows' : 'acima de highs'}.` : 'Aguardar manipulação de highs/lows.' },
+    { label: 'Bias HTF (4h/1h)', complete: biasOk, note: side === 'long' ? 'Tendência altista no 4h ou 1h.' : 'Tendência baixista no 4h ou 1h.' },
+    { label: 'Sweep de liquidez', complete: sweepOk, note: sweep ? `Sweep ${sweep === 'bullish' ? 'abaixo de lows' : 'acima de highs'}.` : gates.requireSweep ? 'Obrigatório neste perfil.' : 'Opcional — bias HTF basta.' },
     { label: 'Confirmação (BOS / inverse FVG)', complete: confirmOk, note: confirmOk ? 'Ordens preenchidas — estrutura mudou.' : `Precisa BOS ou inverse FVG no 1h ou ${execLabel}.` },
-    { label: 'Continuação (FVG / equilibrium)', complete: continueOk, note: continueOk ? 'Retrace à zona de continuação.' : 'Aguardar FVG ou equilibrium.' },
-    { label: 'SMT vs BTC', complete: smtOk, note: symbol === 'BTCUSDT' ? 'Par de referência.' : smt ? `Divergência ${smt}.` : 'Sem divergência clara vs BTC.' },
+    { label: 'Continuação (FVG / equilibrium)', complete: continueTouch, note: continueTouch ? 'Retrace à zona de continuação.' : continueZone ? 'Zona disponível — aguardar retrace.' : 'Sem FVG/equilibrium ativo.' },
+    { label: 'SMT vs BTC', complete: smtAligned || smt === undefined, note: symbol === 'BTCUSDT' ? 'Par de referência.' : smt ? `Divergência ${smt}.` : 'Sem divergência clara vs BTC.' },
     { label: `Risco/retorno ≥ ${minRr}×`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× estimado.` : 'R:R insuficiente.' },
   ]
 
-  const coreComplete = liquidityOk && confirmOk && continueOk && rrOk && smtOk
-  const setupStatus = coreComplete ? 'CONFIRMADA' : liquidityOk || confirmOk ? 'A_AGUARDAR' : 'BLOQUEADA'
+  const sweepGate = !gates.requireSweep || sweepOk
+  const continueGate = gates.requireContinuationTouch ? continueTouch : continueOk
+  const canAct = liquidityOk && sweepGate && confirmOk && continueGate && rrOk && smtOk && !smtBlocked
+  const setupStatus = canAct ? 'CONFIRMADA' : confirmOk && liquidityOk ? 'A_AGUARDAR' : 'BLOQUEADA'
 
   const reasons: string[] = []
-  if (isAligned(sweep, side)) reasons.push(`Liquidez: sweep ${side === 'long' ? 'abaixo de lows' : 'acima de highs'}.`)
+  if (sweepOk) reasons.push(`Liquidez: sweep ${side === 'long' ? 'abaixo de lows' : 'acima de highs'}.`)
+  else if (biasOk) reasons.push(`Bias HTF ${side === 'long' ? 'altista' : 'baixista'}.`)
   if (confirmOk) reasons.push('Confirmação: BOS ou inverse fair value gap.')
-  if (continueOk) reasons.push(`Continuação: FVG/equilibrium (${execLabel}).`)
+  if (continueTouch) reasons.push(`Continuação: retrace a FVG/equilibrium (${execLabel}).`)
+  else if (continueZone && !gates.requireContinuationTouch) reasons.push('Zona de continuação identificada.')
   if (smt && isAligned(smt, side)) reasons.push('SMT vs BTC alinhado.')
-  if (!coreComplete) reasons.push('Setup TJR incompleto — aguardar.')
+  if (smtBlocked) reasons.push('SMT vs BTC em conflito — bloqueado.')
+  if (!canAct) reasons.push('Setup TJR incompleto — aguardar.')
 
   return {
-    action: coreComplete ? sideToAction(side) : 'ESPERAR',
-    confidence: coreComplete ? (riskReward >= minRr + 0.5 ? 'Alta' : 'Média') : 'Baixa',
+    action: canAct ? sideToAction(side) : 'ESPERAR',
+    confidence: canAct ? (riskReward >= minRr + 0.5 && continueTouch ? 'Alta' : 'Média') : 'Baixa',
     reasons,
     entry,
     stop,

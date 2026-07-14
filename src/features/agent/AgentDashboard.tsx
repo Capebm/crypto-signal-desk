@@ -94,9 +94,9 @@ export default function AgentDashboard() {
       </header>
 
       <section className="agent-rules">
-        <div><strong>COMPRAR</strong><span>Sweep de lows + BOS/inverse FVG + retrace a FVG/equilibrium + SMT vs BTC alinhado + R:R mínimo.</span></div>
-        <div><strong>VENDER</strong><span>Sweep de highs + confirmação baixista + continuação + SMT + R:R. Em Spot = sair ou reduzir.</span></div>
-        <div><strong>ESPERAR</strong><span>Checklist TJR incompleto. Liquidez sem confirmação, ou SMT/R:R em conflito.</span></div>
+        <div><strong>COMPRAR</strong><span>Long TJR: bias altista + confirmação (BOS/inverse FVG). Agressivo não exige retrace nem SMT.</span></div>
+        <div><strong>VENDER</strong><span>Short TJR: bias baixista + confirmação. Em Spot = sair, reduzir ou evitar entrada long.</span></div>
+        <div><strong>ESPERAR</strong><span>Sem bias, sem confirmação, R:R fraco, ou (conservador) checklist incompleto.</span></div>
       </section>
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
