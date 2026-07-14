@@ -21,6 +21,9 @@ export default function AgentDashboard() {
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
   const [query, setQuery] = useState('')
   const [riskIndex, setRiskIndex] = useState(1)
+  const [stakeIndex, setStakeIndex] = useState(1)
+  const stakeOptions = [10, 20, 50, 100]
+  const stakeUsdc = stakeOptions[stakeIndex]
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('1h')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -114,6 +117,11 @@ export default function AgentDashboard() {
         <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))} />
         <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
       </section>
+      <section className="stake-control">
+        <div><strong>Montante por trade: {stakeUsdc} {AGENT_QUOTE_ASSET}</strong><p>Quantidade sugerida nos guias Binance (10–100 {AGENT_QUOTE_ASSET}). Mínimo da Binance: 1 {AGENT_QUOTE_ASSET} por ordem.</p></div>
+        <input aria-label="Montante por trade" type="range" min="0" max="3" step="1" value={stakeIndex} onChange={(event) => setStakeIndex(Number(event.target.value))} />
+        <div className="risk-labels"><span>10</span><span>20</span><span>50</span><span>100</span></div>
+      </section>
 
       <p className="agent-status">{status}</p>
       {rows.length > 0 && <>
@@ -146,7 +154,7 @@ export default function AgentDashboard() {
                 <div><dt>Alvo (venda)</dt><dd>{price(row.target)}</dd></div>
                 <div><dt>Risco/retorno</dt><dd>{row.riskReward?.toFixed(1) ?? '—'}×</dd></div>
               </dl>
-              <BinanceGuideTeaser row={row} />
+              <BinanceGuideTeaser row={row} stakeUsdc={stakeUsdc} />
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
@@ -160,7 +168,7 @@ export default function AgentDashboard() {
                   <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
                 </article>
                 <aside className="evidence-panel">
-                  <BinanceTradeGuide row={row} />
+                  <BinanceTradeGuide row={row} stakeUsdc={stakeUsdc} />
                   <h2>Checklist TJR</h2>
                   <section className="bos-guide">
                     <h3>Como ler BOS (Break of Structure)</h3>

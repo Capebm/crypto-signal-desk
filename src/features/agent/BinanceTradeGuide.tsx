@@ -3,7 +3,10 @@ import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 
 type Row = TjrDecision & { symbol: string; price: number }
 
-const DEFAULT_STAKE = 20
+export const STAKE_OPTIONS = [10, 20, 50, 100] as const
+export const DEFAULT_STAKE = 20
+
+type GuideProps = { row: Row; stakeUsdc?: number }
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
@@ -22,15 +25,17 @@ const suggestedQuantity = (entry?: number, stake = DEFAULT_STAKE) => {
 
 type Step = { title: string; body: string }
 
-function buildSteps(row: Row): Step[] {
+function buildSteps(row: Row, stake: number): Step[] {
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const entry = binancePrice(row.entry)
   const stop = binancePrice(row.stop)
   const target = binancePrice(row.target)
   const stopLimit = row.stop !== undefined ? binancePrice(row.stop * 0.999) : '—'
-  const qty = suggestedQuantity(row.entry)
-  const qtyLabel = qty ? `${qty.toLocaleString('pt-PT')} ${base}` : `≈ ${DEFAULT_STAKE} ${AGENT_QUOTE_ASSET} ÷ ${entry}`
+  const qty = suggestedQuantity(row.entry, stake)
+  const orderTotal = row.entry && qty ? row.entry * qty : 0
+  const qtyLabel = qty ? `${qty.toLocaleString('pt-PT')} ${base}` : `≈ ${stake} ${AGENT_QUOTE_ASSET} ÷ ${entry}`
+  const minNote = orderTotal > 0 && orderTotal < 1 ? ' Atenção: total abaixo de 1 USDC — aumenta o montante.' : ''
 
   if (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') {
     return [
@@ -49,8 +54,8 @@ function buildSteps(row: Row): Step[] {
 
   const buyStep =
     row.entryTiming === 'AGORA'
-      ? { title: '3. Comprar', body: `Comprar → Mercado (Market) ou Limite a ${entry}. Quantidade sugerida (~${DEFAULT_STAKE} ${AGENT_QUOTE_ASSET}): ${qtyLabel}. Não uses todo o saldo numa trade.` }
-      : { title: '3. Ordem limit (aguardar)', body: `Comprar → Limite a ${entry} (zona FVG/equilibrium). Quantidade: ${qtyLabel}. Só executa quando o preço chegar à zona.` }
+      ? { title: '3. Comprar', body: `Comprar → Mercado (Market) ou Limite a ${entry}. Quantidade sugerida (${stake} ${AGENT_QUOTE_ASSET}): ${qtyLabel}.${minNote} Não uses todo o saldo numa trade.` }
+      : { title: '3. Ordem limit (aguardar)', body: `Comprar → Limite a ${entry} (zona FVG/equilibrium). Quantidade (${stake} ${AGENT_QUOTE_ASSET}): ${qtyLabel}.${minNote} Só executa quando o preço chegar à zona.` }
 
   return [
     { title: '1. Saldo', body: `Carteiras → Spot → confirma ${AGENT_QUOTE_ASSET}. Se só tens EUR: Converter → EUR → ${AGENT_QUOTE_ASSET}.` },
@@ -71,24 +76,26 @@ function buildSteps(row: Row): Step[] {
   ]
 }
 
-export function BinanceGuideTeaser({ row }: { row: Row }) {
+export function BinanceGuideTeaser({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps) {
   if (row.action === 'ESPERAR' && row.positionGuidance !== 'SAIR') return null
   const pair = formatTradingPair(row.symbol)
   const label = tjrActionLabel(row)
+  const qty = suggestedQuantity(row.entry, stakeUsdc)
   return (
     <p className="binance-teaser">
       Binance Spot: <strong>{pair}</strong> · {label}
-      {row.entryTiming === 'AGORA' && row.entry !== undefined && (
-        <> · ~{suggestedQuantity(row.entry)?.toLocaleString('pt-PT')} {baseAsset(row.symbol)}</>
+      {qty !== undefined && row.action === 'COMPRAR' && (
+        <> · ~{qty.toLocaleString('pt-PT')} {baseAsset(row.symbol)} ({stakeUsdc} {AGENT_QUOTE_ASSET})</>
       )}
     </p>
   )
 }
 
-export default function BinanceTradeGuide({ row }: { row: Row }) {
-  const steps = buildSteps(row)
+export default function BinanceTradeGuide({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps) {
+  const steps = buildSteps(row, stakeUsdc)
   const pair = formatTradingPair(row.symbol)
-  const qty = suggestedQuantity(row.entry)
+  const qty = suggestedQuantity(row.entry, stakeUsdc)
+  const orderTotal = row.entry && qty ? row.entry * qty : 0
 
   return (
     <section className="binance-guide">
@@ -102,7 +109,10 @@ export default function BinanceTradeGuide({ row }: { row: Row }) {
           <div><dt>Stop</dt><dd><code>{binancePrice(row.stop)}</code></dd></div>
           <div><dt>Alvo</dt><dd><code>{binancePrice(row.target)}</code></dd></div>
           {qty && row.action === 'COMPRAR' && (
-            <div><dt>Qtd. sugerida (~{DEFAULT_STAKE} {AGENT_QUOTE_ASSET})</dt><dd><code>{qty.toLocaleString('pt-PT')}</code></dd></div>
+            <div><dt>Qtd. ({stakeUsdc} {AGENT_QUOTE_ASSET})</dt><dd><code>{qty.toLocaleString('pt-PT')}</code></dd></div>
+          )}
+          {orderTotal > 0 && row.action === 'COMPRAR' && (
+            <div><dt>Total estimado</dt><dd className={orderTotal < 1 ? 'warn' : ''}><code>{orderTotal.toFixed(2)} {AGENT_QUOTE_ASSET}</code></dd></div>
           )}
         </dl>
       )}

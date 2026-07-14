@@ -57,6 +57,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .risk-control { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); gap: 10px 24px; align-items: center; margin: 18px 0; padding: 16px; border: 1px solid #344d70; border-radius: 12px; background: #0d1a2c; }
 .risk-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }
 .risk-control input { accent-color: #76a7ff; }
+.stake-control { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); gap: 10px 24px; align-items: center; margin: 0 0 18px; padding: 16px; border: 1px solid #3d5a28; border-radius: 12px; background: #0f1a14; }
+.stake-control strong { color: #42d99e; }
+.stake-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }
+.stake-control input { accent-color: #42d99e; }
 .risk-labels { grid-column: 2; display: flex; justify-content: space-between; color: #9db0c9; font-size: .72rem; }
 .agent-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 16px 0; padding: 12px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
 .agent-summary button { padding: 8px 10px; color: #c6d3e3; background: #1c2b42; font-size: .84rem; }
@@ -136,6 +140,7 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .binance-copy-values dt { font-size: .72rem; color: #9cb1cd; }
 .binance-copy-values dd { margin: 0; }
 .binance-copy-values code { font-size: .82rem; color: #f5c451; font-weight: 700; }
+.binance-copy-values .warn code { color: #f57b88; }
 .binance-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
 .binance-steps li { color: #b7c6d8; font-size: .84rem; line-height: 1.45; }
 .binance-steps li strong { display: block; color: #e8f0ff; margin-bottom: 2px; }
@@ -147,6 +152,7 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .agent-header button { width: 100%; }
   .agent-rules, .decision-grid, .decision-list, .card-expanded { grid-template-columns: 1fr; }
   .risk-control { grid-template-columns: 1fr; }
+  .stake-control { grid-template-columns: 1fr; }
   .risk-labels { grid-column: 1; }
   .agent-summary label { width: 100%; margin-left: 0; }
   .agent-summary input { width: 100%; }
