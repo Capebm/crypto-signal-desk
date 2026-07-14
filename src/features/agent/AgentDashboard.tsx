@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getCandles, getLiquidUsdtMarkets, getPlaybookCandles } from '../../lib/binance'
-import { evaluateTjrFull, evaluateTjrQuick, type TjrDecision } from '../../lib/tjr-engine'
+import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrSortRank, type TjrDecision } from '../../lib/tjr-engine'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import type { Interval } from '../../lib/types'
@@ -17,7 +17,7 @@ export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
   const [status, setStatus] = useState('Pronto para analisar o mercado.')
   const [running, setRunning] = useState(false)
-  const [filter, setFilter] = useState<'TODAS' | 'COMPRAR' | 'VENDER' | 'ESPERAR'>('TODAS')
+  const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
   const [query, setQuery] = useState('')
   const [riskIndex, setRiskIndex] = useState(1)
   const [selected, setSelected] = useState<AgentRow>()
@@ -67,8 +67,7 @@ export default function AgentDashboard() {
         }))
         results.push(...batch.filter((row): row is AgentRow => row !== undefined))
       }
-      const rank = { COMPRAR: 0, VENDER: 1, ESPERAR: 2 }
-      const sorted = results.sort((left, right) => rank[left.action] - rank[right.action] || (right.riskReward ?? 0) - (left.riskReward ?? 0))
+      const sorted = results.sort((left, right) => tjrSortRank(left) - tjrSortRank(right) || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
       setSelected(sorted[0])
       setStatus(`${results.length} moedas analisadas.`)
@@ -80,11 +79,19 @@ export default function AgentDashboard() {
   }
 
   const counts = {
-    COMPRAR: rows.filter((row) => row.action === 'COMPRAR').length,
+    COMPRAR_JA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA').length,
+    AGUARDAR_COMPRA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'RETRACE').length,
     VENDER: rows.filter((row) => row.action === 'VENDER').length,
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
   }
-  const visibleRows = rows.filter((row) => (filter === 'TODAS' || row.action === filter) && row.symbol.includes(query.toUpperCase()))
+  const visibleRows = rows.filter((row) => {
+    if (!row.symbol.includes(query.toUpperCase())) return false
+    if (filter === 'TODAS') return true
+    if (filter === 'COMPRAR_JA') return row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
+    if (filter === 'AGUARDAR_COMPRA') return row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
+    if (filter === 'VENDER') return row.action === 'VENDER'
+    return row.action === 'ESPERAR'
+  })
 
   return (
     <main className="agent-shell">
@@ -94,9 +101,10 @@ export default function AgentDashboard() {
       </header>
 
       <section className="agent-rules">
-        <div><strong>COMPRAR</strong><span>Long TJR: bias altista + confirmação (BOS/inverse FVG). Agressivo não exige retrace nem SMT.</span></div>
-        <div><strong>VENDER</strong><span>Short TJR: bias baixista + confirmação. Em Spot = sair, reduzir ou evitar entrada long.</span></div>
-        <div><strong>ESPERAR</strong><span>Sem bias, sem confirmação, R:R fraco, ou (conservador) checklist incompleto.</span></div>
+        <div><strong>COMPRAR JÁ</strong><span>Preço já está na zona FVG/equilibrium — entrada válida agora.</span></div>
+        <div><strong>AGUARDAR COMPRA</strong><span>Setup confirmado, mas espera retrace à zona antes de entrar.</span></div>
+        <div><strong>VENDER / SAIR</strong><span>Setup baixista — em Spot sai, reduz ou evita novas compras.</span></div>
+        <div><strong>ESPERAR</strong><span>Sem setup completo ou R:R insuficiente.</span></div>
       </section>
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
@@ -108,7 +116,8 @@ export default function AgentDashboard() {
       {rows.length > 0 && <>
         <section className="agent-summary">
           <button className={filter === 'TODAS' ? 'active' : ''} onClick={() => setFilter('TODAS')}>Todas <span>{rows.length}</span></button>
-          <button className={filter === 'COMPRAR' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR')}>Comprar <span>{counts.COMPRAR}</span></button>
+          <button className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Comprar já <span>{counts.COMPRAR_JA}</span></button>
+          <button className={filter === 'AGUARDAR_COMPRA' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR_COMPRA')}>Aguardar compra <span>{counts.AGUARDAR_COMPRA}</span></button>
           <button className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Vender <span>{counts.VENDER}</span></button>
           <button className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
           <label>Pesquisar<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ex.: BTC" /></label>
@@ -122,13 +131,16 @@ export default function AgentDashboard() {
               tabIndex={0}
               title="Clica para abrir ou fechar o gráfico desta moeda."
             >
-              <div className="decision-top"><div><p>{row.symbol}</p><strong>{row.action}</strong></div><span>{row.setupStatus} · {row.confidence}</span></div>
+              <div className="decision-top">
+                <div><p>{row.symbol}</p><strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong></div>
+                <span>{row.setupStatus} · {row.confidence}</span>
+              </div>
               <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
               <p>{row.reasons[0]}</p>
               <dl>
-                <div><dt>Entrada</dt><dd>{price(row.entry)}</dd></div>
+                <div><dt>{row.entryTiming === 'RETRACE' ? 'Zona entrada' : 'Entrada'}</dt><dd>{price(row.entry)}</dd></div>
                 <div><dt>Stop</dt><dd>{price(row.stop)}</dd></div>
-                <div><dt>Alvo</dt><dd>{price(row.target)}</dd></div>
+                <div><dt>Alvo (venda)</dt><dd>{price(row.target)}</dd></div>
                 <div><dt>Risco/retorno</dt><dd>{row.riskReward?.toFixed(1) ?? '—'}×</dd></div>
               </dl>
             </article>
@@ -136,7 +148,7 @@ export default function AgentDashboard() {
               <section className="card-expanded">
                 <article className="chart-panel">
                   <header>
-                    <div><p className="eyebrow">{row.symbol}</p><h2>{row.action} · {row.confidence} confiança</h2></div>
+                    <div><p className="eyebrow">{row.symbol}</p><h2>{tjrActionLabel(row)} · {row.confidence} confiança</h2></div>
                     <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
                       {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
                     </span>
@@ -145,7 +157,10 @@ export default function AgentDashboard() {
                 </article>
                 <aside className="evidence-panel">
                   <h2>Checklist TJR</h2>
-                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Setup:</strong> {row.setupStatus}</p>
+                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}</p>
+                  {row.entryZone && row.entryTiming === 'RETRACE' && (
+                    <p><strong>Zona de entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
+                  )}
                   <ul className="tjr-checklist">
                     {row.checklist.map((item) => (
                       <li key={item.label} className={item.complete ? 'done' : 'pending'}>
@@ -155,8 +170,21 @@ export default function AgentDashboard() {
                     ))}
                   </ul>
                   {row.reasons[0] && <p><strong>Resumo:</strong> {row.reasons.join(' ')}</p>}
+                  {row.exitPlan && (
+                    <section className="exit-plan">
+                      <h3>Plano de saída (depois de comprar)</h3>
+                      <p>{row.exitPlan.note}</p>
+                      <dl>
+                        <div><dt>Stop-loss</dt><dd>{price(row.exitPlan.stopLoss)}</dd></div>
+                        <div><dt>Take-profit</dt><dd>{price(row.exitPlan.takeProfit)}</dd></div>
+                      </dl>
+                      <ol className="exit-steps">
+                        {row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}
+                      </ol>
+                    </section>
+                  )}
                   <dl>
-                    <div><dt title="Preço de referência da ideia.">Entrada ⓘ</dt><dd>{price(row.entry)}</dd></div>
+                    <div><dt title="Preço de referência da ideia.">{row.entryTiming === 'RETRACE' ? 'Zona entrada ⓘ' : 'Entrada ⓘ'}</dt><dd>{price(row.entry)}</dd></div>
                     <div><dt title="Invalidação abaixo/acima do swing.">Stop ⓘ</dt><dd>{price(row.stop)}</dd></div>
                     <div><dt title="Liquidez oposta (sessão/swing/dia anterior).">Alvo ⓘ</dt><dd>{price(row.target)}</dd></div>
                   </dl>
