@@ -12,7 +12,7 @@ import {
 import './garimpo.css'
 import FlipCard from './FlipCard'
 import SettingsModal from './SettingsModal'
-import { fetchEstimate, fetchHunt, fetchScrape } from '../../lib/garimpo/api'
+import { fetchEstimate, fetchHunt, fetchScrape, humanizeErrorMessage } from '../../lib/garimpo/api'
 import {
   CATEGORIES,
   CONDITIONS,
@@ -51,7 +51,7 @@ export default function Garimpo() {
   const [brief, setBrief] = useState<HuntBrief>({
     what: '',
     category: 'Tudo',
-    sources: ['Vinted ES', 'eBay UK'],
+    sources: ['Vinted ES', 'Vinted FR'],
     region: 'any',
     maxBuy: '40',
     lotsOnly: false,
@@ -109,18 +109,30 @@ export default function Garimpo() {
     try {
       const result = await fetchHunt(brief, settings)
       if (!result.items.length) {
-        setHuntErr(
-          result.allFailed
-            ? 'Problema técnico na pesquisa web. Verifica ANTHROPIC_API_KEY no .env e tenta outra vez.'
-            : 'Nada de jeito com link real desta vez. Refina o alvo ou sobe o preço máximo.',
-        )
-      } else if (result.anyFailed) {
+        const scanned = result.scannedBuyListings ?? 0
+        if (scanned === 0) {
+          setHuntErr(
+            result.searchErrors?.[0] ||
+              result.hint ||
+              'Scrapers não devolveram anúncios. Escreve o que queres caçar (ex. Nike, lote roupa).',
+          )
+        } else {
+          setHuntErr(
+            result.hint
+              ? `${scanned} anúncios analisados, 0 com margem · ${result.hint}`
+              : `${scanned} anúncios analisados, 0 com margem ≥10%. Refina o alvo ou sobe o máximo €.`,
+          )
+        }
+      } else if (result.hint || result.anyFailed) {
         setHuntErrKind('info')
-        setHuntErr(`${result.items.length} encontrada(s) — uma das pesquisas paralelas falhou.`)
+        const parts = [`${result.items.length} encontrada(s)`]
+        if (result.hint) parts.push(result.hint)
+        else if (result.anyFailed) parts.push('algumas fontes falharam')
+        setHuntErr(parts.join(' · '))
       }
       setHuntResults(result.items)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      const msg = humanizeErrorMessage(err instanceof Error ? err.message : 'Erro desconhecido')
       setHuntErr(
         msg.includes('ANTHROPIC_API_KEY')
           ? 'API key em falta no Netlify Production. Site settings → Environment variables → adiciona ANTHROPIC_API_KEY ao scope Production.'
@@ -282,13 +294,13 @@ export default function Garimpo() {
 
           {mode === 'hunt' ? (
             <>
-              <div className="panel-eyebrow">definir o alvo · mundial</div>
+              <div className="panel-eyebrow">definir o alvo · Vinted/OLX (grátis)</div>
               <label className="fl">
                 O que caçar
                 <input
                   className="in"
                   value={brief.what}
-                  placeholder="ex. Nike/Adidas, denim vintage, Stone Island…"
+                  placeholder="ex. Nike/Adidas, lote roupa, denim vintage…"
                   onChange={(e) => setBrief((b) => ({ ...b, what: e.target.value }))}
                 />
               </label>
@@ -367,11 +379,11 @@ export default function Garimpo() {
               {huntErr ? <div className={`err${huntErrKind === 'info' ? ' info' : ''}`}>{huntErr}</div> : null}
               <button type="button" className="cta" onClick={runHunt} disabled={hunting}>
                 {hunting ? <Loader2 size={16} className="spin" /> : <Radar size={16} />}
-                {hunting ? 'A vasculhar a web…' : 'Caçar oportunidades'}
+                {hunting ? 'A procurar…' : 'Caçar oportunidades'}
               </button>
               <div className="form-note">
-                Pesquisa mundial com IA + web search: eBay UK/DE, Vinted ES/FR/DE/UK, Wallapop, lotes atacado, AliExpress, etc.
-                Requer <code>ANTHROPIC_API_KEY</code> no .env.
+                Grátis — APIs diretas Vinted + OLX, compara com preços Vinted PT.
+                eBay/Wallapop/AliExpress: sem scraper; usa Vinted/OLX ou modo Manual (IA ~0,01€).
               </div>
             </>
           ) : mode === 'scrape' ? (
@@ -549,8 +561,7 @@ export default function Garimpo() {
               <Package size={30} strokeWidth={1.4} />
               <p>Fila vazia.</p>
               <span>
-                Usa <b>Caçar na web</b> para oportunidades mundiais (eBay, Vinted ES, Wallapop, lotes…) ou <b>Scrapers UE</b> para
-                APIs diretas.
+                Usa <b>Caçar na web</b> (Vinted/OLX grátis) ou <b>Scrapers UE</b> para pesquisa manual por fonte.
               </span>
             </div>
           ) : null}

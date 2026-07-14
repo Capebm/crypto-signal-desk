@@ -96,13 +96,24 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .chart-panel header > span { color: #9db0c9; font-size: .78rem; }
 .chart-host { position: relative; min-height: 470px; }
 .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.chart-legend { display: flex; gap: 10px; padding: 0; color: #9db0c9; font-size: .74rem; }
+.chart-toolbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chart-legend { display: flex; gap: 10px; padding: 0; color: #9db0c9; font-size: .74rem; flex-wrap: wrap; }
+.session-toggle { border: 1px solid #29415f; background: #0d1a2b; color: #9db0c9; border-radius: 8px; padding: 6px 10px; font-size: .74rem; cursor: pointer; }
+.session-toggle.active { border-color: #76a7ff; color: #e8f0ff; background: #152a45; }
+.chart-legend .legend-asia { color: #f5c451; } .chart-legend .legend-london { color: #76a7ff; }
+.chart-legend .legend-ny { color: #f57b88; } .chart-legend .legend-prev { color: #9cb1cd; }
 .timeframe-tabs { display: flex; gap: 6px; }
 .timeframe-tabs button { padding: 6px 10px; color: #9db0c9; background: #1c2b42; font-size: .74rem; font-weight: 700; border-radius: 7px; }
 .timeframe-tabs button.active { color: #edf3ff; background: #3973dd; outline: 2px solid #76a7ff; }
 .chart-legend span:first-child { color: #76a7ff; } .chart-legend span:nth-child(2) { color: #f5c451; }
 .chart-message { margin: 10px 0 0; padding: 10px 12px; border: 1px solid #806b30; border-radius: 8px; color: #f5c451; background: #292617; font-size: .82rem; line-height: 1.4; }
 .evidence-panel p { color: #b7c6d8; line-height: 1.5; }
+.tjr-checklist { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
+.tjr-checklist li { display: flex; gap: 10px; padding: 10px; border-radius: 8px; background: #15243a; }
+.tjr-checklist li.done { border-left: 3px solid #42d99e; }
+.tjr-checklist li.pending { border-left: 3px solid #806b30; }
+.tjr-checklist li span { font-weight: 700; color: #76a7ff; }
+.tjr-checklist li p { margin: 4px 0 0; font-size: .85rem; color: #9cb1cd; }
 
 @media (max-width: 700px) {
   .agent-shell { padding: 32px 16px 48px; }

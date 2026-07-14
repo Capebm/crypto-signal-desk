@@ -116,4 +116,7 @@ export interface HuntResponse {
   allFailed: boolean
   anyFailed: boolean
   batchCount: number
+  hint?: string
+  scannedBuyListings?: number
+  searchErrors?: string[]
 }

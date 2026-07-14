@@ -61,29 +61,47 @@ function mapResult(
   }
 }
 
-async function callAnthropic(body: Record<string, unknown>, apiKey: string): Promise<{
+async function callAnthropic(
+  body: Record<string, unknown>,
+  apiKey: string,
+  options?: { timeoutMs?: number },
+): Promise<{
   type?: string
   content?: Array<{ type: string; text?: string; content?: Array<{ url?: string; title?: string }>; citations?: Array<{ url?: string; title?: string }> }>
 }> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  })
+  const controller = new AbortController()
+  const timeoutMs = options?.timeoutMs ?? 55_000
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Anthropic API error (${res.status}): ${err.slice(0, 200)}`)
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Anthropic API error (${res.status}): ${err.slice(0, 200)}`)
+    }
+
+    return res.json() as Promise<{
+      type?: string
+      content?: Array<{ type: string; text?: string; content?: Array<{ url?: string; title?: string }>; citations?: Array<{ url?: string; title?: string }> }>
+    }>
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('timeout: pesquisa demorou demasiado')
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
-
-  return res.json() as Promise<{
-    type?: string
-    content?: Array<{ type: string; text?: string; content?: Array<{ url?: string; title?: string }>; citations?: Array<{ url?: string; title?: string }> }>
-  }>
 }
 
 export async function estimateResale(
@@ -101,7 +119,7 @@ Return ONLY raw JSON, no markdown:
 {"low":number,"mid":number,"high":number,"demand":"hot"|"steady"|"slow","confidence":"high"|"medium"|"low","note":"max 9 words about PT demand"}`
 
   const data = await callAnthropic(
-    { model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] },
+    { model: 'claude-haiku-4-5', max_tokens: 350, messages: [{ role: 'user', content: prompt }] },
     apiKey,
   )
   const p = extractJSON(textFromAnthropic(data)) as Record<string, unknown>
@@ -139,7 +157,7 @@ export async function huntBatch(
       ? `\n- Max buy price: ${brief.maxBuy} EUR — HARD CAP on total listing price.`
       : '\n- Max buy price: no hard limit'
 
-  const prompt = `You are a sourcing scout for a reseller who BUYS WORLDWIDE and SELLS on Vinted PORTUGAL. Use web search (up to 3 searches total) to find REAL, currently-listed opportunities to flip for margin in Portugal.
+  const prompt = `You are a sourcing scout for a reseller who BUYS WORLDWIDE and SELLS on Vinted PORTUGAL. Use web search (exactly 1 search) to find REAL, currently-listed opportunities to flip for margin in Portugal.
 
 BRIEF
 - Hunting: ${brief.what || (isAll ? 'the best flips available right now' : 'profitable resale items')}
@@ -158,12 +176,13 @@ Exactly ${perBatch} items max, all DIFFERENT, short fields:
   try {
     const data = await callAnthropic(
       {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        model: 'claude-haiku-4-5',
+        max_tokens: 800,
         messages: [{ role: 'user', content: prompt }],
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
       },
       apiKey,
+      { timeoutMs: 22_000 },
     )
 
     if (data.type === 'error') return { items: [] as HuntCandidate[], failed: true, reason: 'api_error' }
@@ -198,8 +217,9 @@ Exactly ${perBatch} items max, all DIFFERENT, short fields:
     })
 
     return { items: out, failed: false, reason: pool.length ? null : 'no_urls' }
-  } catch {
-    return { items: [], failed: true, reason: 'network' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'network'
+    return { items: [] as HuntCandidate[], failed: true, reason: message }
   }
 }
 

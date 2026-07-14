@@ -1,5 +1,9 @@
 import type { HuntBrief, HuntCandidate, HuntResponse, HuntSettings } from '../../../server/types'
-import { getHuntAngles, mergeHuntResults } from '../../../server/hunt-angles'
+import { briefToScraperIds, unsupportedHuntSources } from './constants'
+import { opportunityToCandidate } from './helpers'
+import { humanizeErrorText, humanizeErrorMessage } from './errors'
+
+export { humanizeErrorMessage }
 
 const API = {
   hunt: '/api/hunt',
@@ -9,11 +13,13 @@ const API = {
 
 async function parseError(res: Response, fallback: string) {
   const text = await res.text()
+  const friendly = humanizeErrorText(text, res.status)
+  if (friendly) return friendly
   try {
     const payload = JSON.parse(text) as { error?: string; errorMessage?: string }
     return payload.error ?? payload.errorMessage ?? fallback
   } catch {
-    return text.slice(0, 120) || fallback
+    return fallback
   }
 }
 
@@ -32,33 +38,43 @@ export async function fetchScrape(request: import('../../../server/types').Searc
   return res.json()
 }
 
-async function fetchHuntBatch(
-  brief: HuntBrief,
-  settings: HuntSettings,
-  angle: string,
-  batchTag: string,
-  perBatch: number,
-) {
-  const res = await fetch(API.hunt, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brief, settings, angle, batchTag, perBatch }),
-  })
-  if (!res.ok) throw new Error(await parseError(res, `Caça falhou (${res.status})`))
-  return res.json() as Promise<{ items: HuntCandidate[]; failed: boolean }>
+function huntQuery(brief: HuntBrief): string {
+  const what = brief.what.trim()
+  if (what) return what
+  if (brief.category !== 'Tudo') return brief.category
+  return brief.lotsOnly ? 'lote roupa pack bundle' : 'lote roupa'
 }
 
-/** Runs one Netlify-safe batch per request to avoid 30s function timeout. */
+/** Free scraper hunt — Vinted + OLX APIs, compares to Vinted PT. No Anthropic calls. */
 export async function fetchHunt(brief: HuntBrief, settings: HuntSettings): Promise<HuntResponse> {
-  const target = settings.huntTarget || 20
-  const angles = getHuntAngles(brief)
-  const perBatch = Math.min(3, Math.max(2, Math.ceil(target / angles.length)))
+  const unsupported = unsupportedHuntSources(brief.sources)
+  const sourceIds = briefToScraperIds(brief.sources)
 
-  const batches = await Promise.all(
-    angles.map((angle, i) => fetchHuntBatch(brief, settings, angle, `b${i}`, perBatch)),
-  )
+  const result = await fetchScrape({
+    query: huntQuery(brief),
+    sourceIds,
+    bundlesOnly: brief.lotsOnly,
+    minProfitPct: 10,
+    maxBuyPrice: Number(brief.maxBuy) || 0,
+    packagingCost: 2,
+    limit: settings.huntTarget || 20,
+  })
 
-  return mergeHuntResults(batches, target)
+  const items = result.opportunities.map(opportunityToCandidate)
+  const hint =
+    unsupported.length > 0
+      ? `${unsupported.join(', ')} não têm scraper automático — só Vinted/OLX são pesquisados.`
+      : undefined
+
+  return {
+    items,
+    allFailed: items.length === 0,
+    anyFailed: result.errors.length > 0,
+    batchCount: result.sourcesSearched.length,
+    hint,
+    scannedBuyListings: result.scannedBuyListings,
+    searchErrors: result.errors,
+  }
 }
 
 export async function fetchEstimate(

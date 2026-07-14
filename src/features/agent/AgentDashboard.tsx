@@ -1,12 +1,11 @@
-import { useState } from 'react'
-import { getCandles, getLiquidUsdtMarkets } from '../../lib/binance'
-import { decide, type Decision } from '../../lib/decision-engine'
-import { analyse } from '../../lib/indicators'
+import { useEffect, useState } from 'react'
+import { getCandles, getLiquidUsdtMarkets, getPlaybookCandles } from '../../lib/binance'
+import { evaluateTjrFull, evaluateTjrQuick, type TjrDecision } from '../../lib/tjr-engine'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import type { Interval } from '../../lib/types'
 
-type AgentRow = Decision & {
+type AgentRow = TjrDecision & {
   symbol: string
   price: number
   change24h: number
@@ -23,22 +22,45 @@ export default function AgentDashboard() {
   const [riskIndex, setRiskIndex] = useState(1)
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('1h')
+  const [loadingFull, setLoadingFull] = useState<string>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
+
+  useEffect(() => {
+    if (!selected) return
+    const symbol = selected.symbol
+    setLoadingFull(symbol)
+    void (async () => {
+      try {
+        const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles('BTCUSDT')])
+        const decision = evaluateTjrFull(symbol, data, btc, riskProfile)
+        const patch = (row: AgentRow): AgentRow =>
+          row.symbol === symbol ? { ...decision, symbol, price: row.price, change24h: row.change24h } : row
+        setRows((prev) => prev.map(patch))
+        setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
+      } catch {
+        /* scan rápido 1h permanece */
+      } finally {
+        setLoadingFull(undefined)
+      }
+    })()
+  }, [selected?.symbol, riskProfile])
 
   const scan = async () => {
     setRunning(true)
     setRows([])
+    setSelected(undefined)
     try {
-      const markets = await getLiquidUsdtMarkets(10_000)
+      const [markets, btc1h] = await Promise.all([getLiquidUsdtMarkets(10_000), getCandles('BTCUSDT', '1h')])
       const results: AgentRow[] = []
       for (let index = 0; index < markets.length; index += 5) {
-        setStatus(`A analisar ${Math.min(index + 5, markets.length)} de ${markets.length} moedas…`)
+        setStatus(`TJR · ${Math.min(index + 5, markets.length)} / ${markets.length} moedas…`)
         const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
           try {
-            const analysis = analyse(await getCandles(market.symbol, '1h'), market.priceChangePercent)
-            const decision = decide(analysis, riskProfile)
-            return { ...decision, symbol: market.symbol, price: analysis.price, change24h: analysis.change24h }
+            const candles1h = await getCandles(market.symbol, '1h')
+            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile)
+            const price = candles1h.at(-1)?.close ?? 0
+            return { ...decision, symbol: market.symbol, price, change24h: market.priceChangePercent }
           } catch {
             return undefined
           }
@@ -67,14 +89,14 @@ export default function AgentDashboard() {
   return (
     <main className="agent-shell">
       <header className="agent-header">
-        <div><p className="eyebrow">AGENTE DE DAY TRADING · BINANCE GLOBAL</p><h1>O que fazer agora?</h1><p>O agente analisa todos os mercados Spot USDT ativos e decide: comprar, vender ou esperar.</p></div>
+        <div><p className="eyebrow">AGENTE TJR · BINANCE GLOBAL</p><h1>O que fazer agora?</h1><p>Metodologia TJR: liquidez → confirmação (BOS / inverse FVG) → continuação (FVG / equilibrium) → SMT vs BTC.</p></div>
         <button onClick={() => void scan()} disabled={running}>{running ? 'A analisar…' : 'Analisar mercado'}</button>
       </header>
 
       <section className="agent-rules">
-        <div><strong>COMPRAR</strong><span>Tendência, momentum, volume e risco/retorno estão alinhados.</span></div>
-        <div><strong>VENDER</strong><span>O movimento técnico é negativo; para Spot, significa sair ou reduzir uma posição.</span></div>
-        <div><strong>ESPERAR</strong><span>Falta qualidade ou há sinais contraditórios. Não fazer nada é uma decisão.</span></div>
+        <div><strong>COMPRAR</strong><span>Sweep de lows + BOS/inverse FVG + retrace a FVG/equilibrium + SMT vs BTC alinhado + R:R mínimo.</span></div>
+        <div><strong>VENDER</strong><span>Sweep de highs + confirmação baixista + continuação + SMT + R:R. Em Spot = sair ou reduzir.</span></div>
+        <div><strong>ESPERAR</strong><span>Checklist TJR incompleto. Liquidez sem confirmação, ou SMT/R:R em conflito.</span></div>
       </section>
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
@@ -100,7 +122,7 @@ export default function AgentDashboard() {
               tabIndex={0}
               title="Clica para abrir ou fechar o gráfico desta moeda."
             >
-              <div className="decision-top"><div><p>{row.symbol}</p><strong>{row.action}</strong></div><span>{row.confidence} confiança</span></div>
+              <div className="decision-top"><div><p>{row.symbol}</p><strong>{row.action}</strong></div><span>{row.setupStatus} · {row.confidence}</span></div>
               <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
               <p>{row.reasons[0]}</p>
               <dl>
@@ -115,18 +137,28 @@ export default function AgentDashboard() {
                 <article className="chart-panel">
                   <header>
                     <div><p className="eyebrow">{row.symbol}</p><h2>{row.action} · {row.confidence} confiança</h2></div>
-                    <span title="O sinal foi calculado em 1h. Podes mudar o gráfico para ver outros timeframes.">Sinal: 1h · gráfico: {chartInterval}</span>
+                    <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
+                      {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
+                    </span>
                   </header>
-                  <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} />
+                  <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
                 </article>
                 <aside className="evidence-panel">
-                  <h2>Porque esta decisão?</h2>
-                  <p><strong>Principal:</strong> {row.reasons[0]}</p>
-                  <p title="Tendência, momentum, volatilidade, volume e risco têm de concordar para COMPRAR ou VENDER.">O agente compara vários grupos de sinais. Se houver conflito, diz ESPERAR.</p>
+                  <h2>Checklist TJR</h2>
+                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Setup:</strong> {row.setupStatus}</p>
+                  <ul className="tjr-checklist">
+                    {row.checklist.map((item) => (
+                      <li key={item.label} className={item.complete ? 'done' : 'pending'}>
+                        <span>{item.complete ? '✓' : '○'}</span>
+                        <div><strong>{item.label}</strong><p>{item.note}</p></div>
+                      </li>
+                    ))}
+                  </ul>
+                  {row.reasons[0] && <p><strong>Resumo:</strong> {row.reasons.join(' ')}</p>}
                   <dl>
                     <div><dt title="Preço de referência da ideia.">Entrada ⓘ</dt><dd>{price(row.entry)}</dd></div>
-                    <div><dt title="Se este preço for atingido, a ideia deixa de fazer sentido.">Stop ⓘ</dt><dd>{price(row.stop)}</dd></div>
-                    <div><dt title="Alvo técnico estimado.">Alvo ⓘ</dt><dd>{price(row.target)}</dd></div>
+                    <div><dt title="Invalidação abaixo/acima do swing.">Stop ⓘ</dt><dd>{price(row.stop)}</dd></div>
+                    <div><dt title="Liquidez oposta (sessão/swing/dia anterior).">Alvo ⓘ</dt><dd>{price(row.target)}</dd></div>
                   </dl>
                 </aside>
               </section>
