@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
-import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrSortRank, type TjrDecision } from '../../lib/tjr-engine'
+import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
 import BinanceTradeGuide, { BinanceGuideTeaser } from './BinanceTradeGuide'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -71,7 +71,7 @@ export default function AgentDashboard() {
         }))
         results.push(...batch.filter((row): row is AgentRow => row !== undefined))
       }
-      const sorted = results.sort((left, right) => tjrSortRank(left) - tjrSortRank(right) || (right.riskReward ?? 0) - (left.riskReward ?? 0))
+      const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
       setSelected(sorted[0])
       setStatus(`${results.length} moedas analisadas.`)
@@ -102,7 +102,7 @@ export default function AgentDashboard() {
   return (
     <main className="agent-shell">
       <header className="agent-header">
-        <div><p className="eyebrow">AGENTE TJR · BINANCE SPOT {AGENT_QUOTE_ASSET}</p><h1>O que fazer agora?</h1><p>Pares {AGENT_QUOTE_ASSET} (UE/MiCA): liquidez → confirmação → continuação → SMT vs BTC.</p></div>
+        <div><p className="eyebrow">AGENTE TJR · BINANCE SPOT {AGENT_QUOTE_ASSET}</p><h1>O que fazer agora?</h1><p>Pares {AGENT_QUOTE_ASSET} (UE/MiCA): liquidez → confirmação → continuação → SMT vs BTC. Ordenado por score (0–100).</p></div>
         <button onClick={() => void scan()} disabled={running}>{running ? 'A analisar…' : 'Analisar mercado'}</button>
       </header>
 
@@ -144,8 +144,11 @@ export default function AgentDashboard() {
             >
               <div className="decision-top">
                 <div><p>{formatTradingPair(row.symbol)}</p><strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong></div>
-                <span>{row.setupStatus} · {row.confidence}</span>
+                <span className="tjr-score-badge" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties} title="Score de oportunidade TJR (0–100)">
+                  <strong>{row.score}</strong><small>/100</small>
+                </span>
               </div>
+              <p className="decision-meta">{row.setupStatus} · {row.confidence} confiança · R:R {row.riskReward?.toFixed(1) ?? '—'}×</p>
               <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
               <p>{row.reasons[0]}</p>
               <dl>
@@ -160,7 +163,7 @@ export default function AgentDashboard() {
               <section className="card-expanded">
                 <article className="chart-panel">
                   <header>
-                    <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · {row.confidence} confiança</h2></div>
+                    <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · score {row.score}/100</h2></div>
                     <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
                       {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
                     </span>

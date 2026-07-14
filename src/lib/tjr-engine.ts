@@ -25,6 +25,7 @@ export type ExitPlan = {
 export type PositionGuidance = 'ENTRAR_AGORA' | 'AGUARDAR_ENTRADA' | 'MANTER' | 'SAIR' | 'REALIZAR_ALVO' | 'NEUTRO'
 
 export type TjrDecision = Decision & {
+  score: number
   bias: Direction
   setupStatus: 'CONFIRMADA' | 'A_AGUARDAR' | 'BLOQUEADA'
   entryTiming: EntryTiming
@@ -186,6 +187,7 @@ function evaluate(
     return {
       action: 'ESPERAR',
       confidence: 'Baixa',
+      score: 0,
       reasons: ['Sem bias claro no 4h/1h e sem sweep de liquidez recente.'],
       bias: 'neutral',
       setupStatus: 'BLOQUEADA',
@@ -291,7 +293,7 @@ function evaluate(
     if (!setupReadyWithRr) reasons.push(setupReady && !rrOk ? 'R:R insuficiente para entrar.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto — aguardar.')
   }
 
-  return {
+  return finalize({
     action,
     confidence: positionGuidance === 'SAIR' ? 'Alta' : setupReadyWithRr ? (resolvedTiming === 'AGORA' && riskReward >= minRr + 0.5 ? 'Alta' : 'Média') : 'Baixa',
     reasons,
@@ -309,7 +311,43 @@ function evaluate(
     executionInterval: execLabel,
     zones: collectZones(h4, h1, exec),
     exitPlan: buildExitPlan(side, stop, target, resolvedTiming === 'NENHUM' ? 'RETRACE' : resolvedTiming),
-  }
+  }, minRr)
+}
+
+/** Score 0–100: checklist TJR, timing, setup, confiança e R:R. */
+export function computeTjrScore(decision: TjrDecision, minRr = 1.5): number {
+  const checklistPct = decision.checklist.filter((item) => item.complete).length / Math.max(decision.checklist.length, 1)
+
+  const actionWeight =
+    decision.positionGuidance === 'SAIR' ? 0.92
+      : decision.positionGuidance === 'REALIZAR_ALVO' ? 0.88
+        : decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA' ? 1
+          : decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE' ? 0.78
+            : decision.action === 'VENDER' && decision.entryTiming === 'AGORA' ? 0.72
+              : decision.action === 'VENDER' && decision.entryTiming === 'RETRACE' ? 0.6
+                : 0.25
+
+  const rr = decision.riskReward ?? 0
+  const rrFactor = rr >= minRr ? Math.min(1, 0.55 + (rr - minRr) / 3) : rr > 0 ? (rr / minRr) * 0.4 : 0
+
+  const setupFactor = decision.setupStatus === 'CONFIRMADA' ? 1 : decision.setupStatus === 'A_AGUARDAR' ? 0.65 : 0.2
+  const confFactor = decision.confidence === 'Alta' ? 1 : decision.confidence === 'Média' ? 0.7 : 0.35
+  const raw = actionWeight * (checklistPct * 0.4 + setupFactor * 0.25 + confFactor * 0.15 + rrFactor * 0.2)
+
+  return Math.round(Math.min(100, Math.max(0, raw * 100)))
+}
+
+function finalize(decision: Omit<TjrDecision, 'score'>, minRr: number): TjrDecision {
+  const scored = { ...decision, score: 0 } as TjrDecision
+  scored.score = computeTjrScore(scored, minRr)
+  return scored
+}
+
+export function tjrScoreColor(score: number): string {
+  if (score >= 75) return '#42d99e'
+  if (score >= 50) return '#76a7ff'
+  if (score >= 30) return '#f5c451'
+  return '#9db0c9'
 }
 
 export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): string {

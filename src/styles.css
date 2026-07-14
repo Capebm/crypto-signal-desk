@@ -87,6 +87,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .decision-top p { margin: 0 0 5px; color: #aabbd2; font-size: .85rem; font-weight: 700; }
 .decision-top strong { font-size: 1.7rem; letter-spacing: -.04em; }
 .decision-top span { padding: 5px 8px; color: #d1dcec; background: #1d304c; border-radius: 6px; font-size: .75rem; }
+.tjr-score-badge { display: inline-flex; align-items: baseline; gap: 1px; padding: 6px 10px !important; background: #152238 !important; border: 1px solid color-mix(in srgb, var(--score-color, #76a7ff) 55%, transparent); }
+.tjr-score-badge strong { font-size: 1.05rem; color: var(--score-color, #76a7ff); line-height: 1; }
+.tjr-score-badge small { font-size: .68rem; color: #9db0c9; }
+.decision-meta { margin: 8px 0 0; color: #9db0c9; font-size: .78rem; }
 .decision-price { margin: 19px 0 10px; font-size: 1.24rem; font-weight: 750; }
 .decision-price span { margin-left: 7px; font-size: .9rem; }
 .decision-card > p:not(.decision-price) { min-height: 44px; color: #bac9db; line-height: 1.45; }
