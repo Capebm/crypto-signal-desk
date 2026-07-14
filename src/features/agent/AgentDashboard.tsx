@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getCandles, getLiquidUsdtMarkets, getPlaybookCandles } from '../../lib/binance'
+import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrSortRank, type TjrDecision } from '../../lib/tjr-engine'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -32,7 +32,7 @@ export default function AgentDashboard() {
     setLoadingFull(symbol)
     void (async () => {
       try {
-        const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles('BTCUSDT')])
+        const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
         const decision = evaluateTjrFull(symbol, data, btc, riskProfile)
         const patch = (row: AgentRow): AgentRow =>
           row.symbol === symbol ? { ...decision, symbol, price: row.price, change24h: row.change24h } : row
@@ -51,7 +51,7 @@ export default function AgentDashboard() {
     setRows([])
     setSelected(undefined)
     try {
-      const [markets, btc1h] = await Promise.all([getLiquidUsdtMarkets(10_000), getCandles('BTCUSDT', '1h')])
+      const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
       const results: AgentRow[] = []
       for (let index = 0; index < markets.length; index += 5) {
         setStatus(`TJR · ${Math.min(index + 5, markets.length)} / ${markets.length} moedas…`)
@@ -84,8 +84,10 @@ export default function AgentDashboard() {
     VENDER: rows.filter((row) => row.action === 'VENDER').length,
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
   }
+  const normalizedQuery = query.toUpperCase().replace(/[^A-Z0-9]/g, '')
   const visibleRows = rows.filter((row) => {
-    if (!row.symbol.includes(query.toUpperCase())) return false
+    const symbolMatch = !normalizedQuery || row.symbol.includes(normalizedQuery) || row.symbol.replace(/USDC$/, '').includes(normalizedQuery)
+    if (!symbolMatch) return false
     if (filter === 'TODAS') return true
     if (filter === 'COMPRAR_JA') return row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
     if (filter === 'AGUARDAR_COMPRA') return row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
@@ -96,7 +98,7 @@ export default function AgentDashboard() {
   return (
     <main className="agent-shell">
       <header className="agent-header">
-        <div><p className="eyebrow">AGENTE TJR · BINANCE GLOBAL</p><h1>O que fazer agora?</h1><p>Metodologia TJR: liquidez → confirmação (BOS / inverse FVG) → continuação (FVG / equilibrium) → SMT vs BTC.</p></div>
+        <div><p className="eyebrow">AGENTE TJR · BINANCE SPOT {AGENT_QUOTE_ASSET}</p><h1>O que fazer agora?</h1><p>Pares {AGENT_QUOTE_ASSET} (UE/MiCA): liquidez → confirmação → continuação → SMT vs BTC.</p></div>
         <button onClick={() => void scan()} disabled={running}>{running ? 'A analisar…' : 'Analisar mercado'}</button>
       </header>
 
@@ -120,7 +122,7 @@ export default function AgentDashboard() {
           <button className={filter === 'AGUARDAR_COMPRA' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR_COMPRA')}>Aguardar compra <span>{counts.AGUARDAR_COMPRA}</span></button>
           <button className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Vender <span>{counts.VENDER}</span></button>
           <button className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
-          <label>Pesquisar<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ex.: BTC" /></label>
+          <label>Pesquisar<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Ex.: BTC/${AGENT_QUOTE_ASSET}`} /></label>
         </section>
         <section className="decision-list">
         {visibleRows.map((row) => (
@@ -132,7 +134,7 @@ export default function AgentDashboard() {
               title="Clica para abrir ou fechar o gráfico desta moeda."
             >
               <div className="decision-top">
-                <div><p>{row.symbol}</p><strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong></div>
+                <div><p>{formatTradingPair(row.symbol)}</p><strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong></div>
                 <span>{row.setupStatus} · {row.confidence}</span>
               </div>
               <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
@@ -148,7 +150,7 @@ export default function AgentDashboard() {
               <section className="card-expanded">
                 <article className="chart-panel">
                   <header>
-                    <div><p className="eyebrow">{row.symbol}</p><h2>{tjrActionLabel(row)} · {row.confidence} confiança</h2></div>
+                    <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · {row.confidence} confiança</h2></div>
                     <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
                       {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
                     </span>

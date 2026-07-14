@@ -1,4 +1,5 @@
 import type { Action, Decision } from './decision-engine'
+import { BTC_REFERENCE_SYMBOL } from './binance'
 import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
@@ -210,8 +211,8 @@ function evaluate(
   const confirmOk = confirmationHit(h1, side) || confirmationHit(exec, side) || confirmationHit(h4, side)
   const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
   const entryZone = continuationEntryZone(exec, side) ?? continuationEntryZone(h1, side)
-  const smt = symbol !== 'BTCUSDT' ? smtDivergence(primary1h, btc1h) : undefined
-  const smtAligned = symbol === 'BTCUSDT' || isAligned(smt, side)
+  const smt = symbol !== BTC_REFERENCE_SYMBOL ? smtDivergence(primary1h, btc1h) : undefined
+  const smtAligned = symbol === BTC_REFERENCE_SYMBOL || isAligned(smt, side)
   const smtOk = !gates.requireSmtAlign || smtAligned || smt === undefined
   const smtBlocked = gates.requireSmtAlign && smt !== undefined && !isAligned(smt, side)
 
@@ -263,7 +264,7 @@ function evaluate(
         ? `${bosInvalidationNote(side, invalidationLabel, invalidationSnap!)} Não entres; se já compraste, vende.`
         : `Sem BOS contrário no ${execLabel} — setup ainda válido.`,
     },
-    { label: 'SMT vs BTC', complete: smtAligned || smt === undefined, note: symbol === 'BTCUSDT' ? 'Par de referência.' : smt ? `Divergência ${smt}.` : 'Sem divergência clara vs BTC.' },
+    { label: 'SMT vs BTC', complete: smtAligned || smt === undefined, note: symbol === BTC_REFERENCE_SYMBOL ? 'Par de referência.' : smt ? `Divergência ${smt}.` : 'Sem divergência clara vs BTC.' },
     { label: `Risco/retorno ≥ ${minRr}×`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× estimado.` : 'R:R insuficiente.' },
   ]
 
