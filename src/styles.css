@@ -116,6 +116,12 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .tjr-checklist li.pending { border-left: 3px solid #806b30; }
 .tjr-checklist li span { font-weight: 700; color: #76a7ff; }
 .tjr-checklist li p { margin: 4px 0 0; font-size: .85rem; color: #9cb1cd; }
+.decision-card.vender.invalidated { border-color: #f57b88; background: linear-gradient(130deg, #3a1520, #101d30); outline: 1px solid #f57b8866; }
+.decision-card.vender.invalidated .decision-top strong { color: #ff9aa5; }
+.bos-guide { margin: 0 0 14px; padding: 12px; border: 1px solid #304766; border-radius: 10px; background: #0c1626; }
+.bos-guide h3 { margin: 0 0 8px; font-size: .9rem; color: #e8f0ff; }
+.bos-guide p { margin: 0 0 6px; font-size: .82rem; color: #9cb1cd; line-height: 1.45; }
+.invalidation-alert { padding: 10px 12px; border: 1px solid #874451; border-radius: 8px; background: #321d25; color: #ffb4bc; font-size: .85rem; line-height: 1.45; }
 .exit-plan { margin: 16px 0; padding: 12px; border: 1px solid #29415f; border-radius: 10px; background: #0f1c2e; }
 .exit-plan h3 { margin: 0 0 8px; font-size: .95rem; color: #e8f0ff; }
 .exit-plan p { margin: 0 0 10px; font-size: .85rem; color: #9cb1cd; }

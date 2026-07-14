@@ -103,7 +103,7 @@ export default function AgentDashboard() {
       <section className="agent-rules">
         <div><strong>COMPRAR JÁ</strong><span>Preço já está na zona FVG/equilibrium — entrada válida agora.</span></div>
         <div><strong>AGUARDAR COMPRA</strong><span>Setup confirmado, mas espera retrace à zona antes de entrar.</span></div>
-        <div><strong>VENDER / SAIR</strong><span>Setup baixista — em Spot sai, reduz ou evita novas compras.</span></div>
+        <div><strong>VENDER / SAIR</strong><span>BOS contrário no 15m/5m, stop atingido ou alvo — o agente deteta automaticamente.</span></div>
         <div><strong>ESPERAR</strong><span>Sem setup completo ou R:R insuficiente.</span></div>
       </section>
       <section className="risk-control">
@@ -126,7 +126,7 @@ export default function AgentDashboard() {
         {visibleRows.map((row) => (
           <div className="decision-item" key={row.symbol}>
             <article
-              className={`decision-card ${row.action.toLowerCase()} ${selected?.symbol === row.symbol ? 'selected' : ''}`}
+              className={`decision-card ${row.positionGuidance === 'SAIR' ? 'vender invalidated' : row.action.toLowerCase()} ${selected?.symbol === row.symbol ? 'selected' : ''}`}
               onClick={() => setSelected(selected?.symbol === row.symbol ? undefined : row)}
               tabIndex={0}
               title="Clica para abrir ou fechar o gráfico desta moeda."
@@ -157,7 +157,16 @@ export default function AgentDashboard() {
                 </article>
                 <aside className="evidence-panel">
                   <h2>Checklist TJR</h2>
-                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}</p>
+                  <section className="bos-guide">
+                    <h3>Como ler BOS (Break of Structure)</h3>
+                    <p><strong>Long:</strong> válido enquanto o close no {row.executionInterval ?? '15m'} <em>não</em> fechar abaixo do último swing low. Se fechar abaixo → <strong>SAIR — INVALIDADO</strong>.</p>
+                    <p><strong>Short / sair:</strong> válido enquanto o close <em>não</em> fechar acima do último swing high.</p>
+                    <p>Re-analisa após comprar: se o cartão mudar para <strong>SAIR — INVALIDADO</strong>, vende — não esperes só pelo alvo.</p>
+                  </section>
+                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}{row.positionGuidance === 'SAIR' && ' · ⚠ Invalidado'}{row.positionGuidance === 'REALIZAR_ALVO' && ' · ✓ Alvo atingido'}</p>
+                  {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
+                    <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
+                  )}
                   {row.entryZone && row.entryTiming === 'RETRACE' && (
                     <p><strong>Zona de entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
                   )}

@@ -21,11 +21,15 @@ export type ExitPlan = {
   steps: string[]
 }
 
+export type PositionGuidance = 'ENTRAR_AGORA' | 'AGUARDAR_ENTRADA' | 'MANTER' | 'SAIR' | 'REALIZAR_ALVO' | 'NEUTRO'
+
 export type TjrDecision = Decision & {
   bias: Direction
   setupStatus: 'CONFIRMADA' | 'A_AGUARDAR' | 'BLOQUEADA'
   entryTiming: EntryTiming
   entryZone?: { low: number; high: number }
+  positionGuidance: PositionGuidance
+  invalidationReason?: string
   checklist: { label: string; complete: boolean; note: string }[]
   executionInterval?: '5m' | '15m'
   zones: PriceZone[]
@@ -54,6 +58,16 @@ const confirmationHit = (snap: ReturnType<typeof structureSnapshot>, side: Trade
   const last = snap.gaps.filter((g) => g.disrespected).at(-1)
   if (!last) return false
   return (side === 'long' && !last.bullish) || (side === 'short' && last.bullish)
+}
+
+/** BOS contrário no TF de execução = invalidação da ideia (não entrar / sair se já dentro). */
+const opposingBos = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) =>
+  (side === 'long' && snap.bos === 'bearish') || (side === 'short' && snap.bos === 'bullish')
+
+const bosInvalidationNote = (side: TradeSide, tfLabel: string, _snap: ReturnType<typeof structureSnapshot>) => {
+  const dir = side === 'long' ? 'baixista' : 'altista'
+  const swing = side === 'long' ? 'swing low' : 'swing high'
+  return `BOS ${dir} no ${tfLabel}: close rompeu o último ${swing} — estrutura contra a tua posição.`
 }
 
 const continuationHit = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) => {
@@ -126,7 +140,7 @@ const buildExitPlan = (side: TradeSide, stop: number, target: number, entryTimin
       steps: [
         'Ao entrar: stop-loss em stop (ordem stop-limit ou OCO).',
         'Take-profit limit em target — liquidez oposta (sessão/swing).',
-        'Se aparecer BOS baixista no 15m/5m antes do alvo, sai manualmente.',
+        'Re-analisa periodicamente: se o agente mostrar SAIR — INVALIDADO, vende.',
         'Após +1R de lucro, podes subir o stop para abaixo do último swing low.',
       ],
     }
@@ -179,9 +193,14 @@ function evaluate(
         { label: 'Sweep de liquidez', complete: false, note: 'Nenhum sweep recente.' },
       ],
       entryTiming: 'NENHUM',
+      positionGuidance: 'NEUTRO',
       zones: [],
     }
   }
+
+  const execInvalidated = opposingBos(exec, side)
+  const h1Invalidated = opposingBos(h1, side)
+  const structureBroken = execInvalidated || h1Invalidated
 
   const gates = tjrGates[profile]
   const sweep = h1.sweep ?? h4.sweep
@@ -197,7 +216,7 @@ function evaluate(
   const smtBlocked = gates.requireSmtAlign && smt !== undefined && !isAligned(smt, side)
 
   const sweepGate = !gates.requireSweep || sweepOk
-  const setupReady = liquidityOk && sweepGate && confirmOk && smtOk && !smtBlocked
+  const setupReady = liquidityOk && sweepGate && confirmOk && smtOk && !smtBlocked && !structureBroken
   const entryTiming: EntryTiming = !setupReady ? 'NENHUM' : continueTouch ? 'AGORA' : 'RETRACE'
   const entryRef = entryTiming === 'AGORA' ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
   const { entry: levelsEntry, stop, target, riskReward } = buildLevels(side, entryRef, primary1h, exec, minRr)
@@ -206,34 +225,74 @@ function evaluate(
   const finalTiming: EntryTiming = !setupReadyWithRr ? 'NENHUM' : entryTiming
   const entry = finalTiming === 'AGORA' ? exec.price : entryZone ? zoneMid(entryZone) : levelsEntry
 
+  const stopTriggered = side === 'long' ? exec.price <= stop : exec.price >= stop
+  const targetReached = side === 'long' ? exec.price >= target : exec.price <= target
+  const invalidationSnap = execInvalidated ? exec : h1Invalidated ? h1 : undefined
+  const invalidationLabel = execInvalidated ? execLabel : h1Invalidated ? '1h' : execLabel
+
+  let positionGuidance: PositionGuidance = 'NEUTRO'
+  let invalidationReason: string | undefined
+  let action: Action = setupReadyWithRr ? sideToAction(side) : 'ESPERAR'
+  let resolvedTiming: EntryTiming = finalTiming
+
+  if (structureBroken || stopTriggered) {
+    action = 'VENDER'
+    resolvedTiming = 'AGORA'
+    positionGuidance = 'SAIR'
+    invalidationReason = structureBroken
+      ? bosInvalidationNote(side, invalidationLabel, invalidationSnap!)
+      : `Preço ${side === 'long' ? 'abaixo' : 'acima'} do stop — sai da posição.`
+  } else if (targetReached) {
+    action = 'VENDER'
+    resolvedTiming = 'AGORA'
+    positionGuidance = 'REALIZAR_ALVO'
+    invalidationReason = 'Alvo de liquidez atingido — realiza lucro.'
+  } else if (setupReadyWithRr) {
+    positionGuidance = finalTiming === 'AGORA' ? 'ENTRAR_AGORA' : 'AGUARDAR_ENTRADA'
+  }
+
   const checklist = [
     { label: 'Bias HTF (4h/1h)', complete: biasOk, note: side === 'long' ? 'Tendência altista no 4h ou 1h.' : 'Tendência baixista no 4h ou 1h.' },
     { label: 'Sweep de liquidez', complete: sweepOk, note: sweep ? `Sweep ${sweep === 'bullish' ? 'abaixo de lows' : 'acima de highs'}.` : gates.requireSweep ? 'Obrigatório neste perfil.' : 'Opcional — bias HTF basta.' },
     { label: 'Confirmação (BOS / inverse FVG)', complete: confirmOk, note: confirmOk ? 'Ordens preenchidas — estrutura mudou.' : `Precisa BOS ou inverse FVG no 1h ou ${execLabel}.` },
     { label: 'Continuação (FVG / equilibrium)', complete: continueTouch, note: continueTouch ? 'Preço na zona — entrada válida agora.' : entryZone ? `Aguardar retrace a ${priceZoneLabel(entryZone)}.` : 'Sem FVG/equilibrium ativo.' },
+    {
+      label: `Estrutura ${execLabel} intacta`,
+      complete: !structureBroken,
+      note: structureBroken
+        ? `${bosInvalidationNote(side, invalidationLabel, invalidationSnap!)} Não entres; se já compraste, vende.`
+        : `Sem BOS contrário no ${execLabel} — setup ainda válido.`,
+    },
     { label: 'SMT vs BTC', complete: smtAligned || smt === undefined, note: symbol === 'BTCUSDT' ? 'Par de referência.' : smt ? `Divergência ${smt}.` : 'Sem divergência clara vs BTC.' },
     { label: `Risco/retorno ≥ ${minRr}×`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× estimado.` : 'R:R insuficiente.' },
   ]
 
-  const setupStatus = setupReadyWithRr
-    ? (finalTiming === 'AGORA' ? 'CONFIRMADA' : 'A_AGUARDAR')
-    : confirmOk && liquidityOk
-      ? 'A_AGUARDAR'
-      : 'BLOQUEADA'
+  const setupStatus = positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO'
+    ? 'BLOQUEADA'
+    : setupReadyWithRr
+      ? (resolvedTiming === 'AGORA' ? 'CONFIRMADA' : 'A_AGUARDAR')
+      : confirmOk && liquidityOk && !structureBroken
+        ? 'A_AGUARDAR'
+        : 'BLOQUEADA'
 
   const reasons: string[] = []
-  if (sweepOk) reasons.push(`Liquidez: sweep ${side === 'long' ? 'abaixo de lows' : 'acima de highs'}.`)
-  else if (biasOk) reasons.push(`Bias HTF ${side === 'long' ? 'altista' : 'baixista'}.`)
-  if (confirmOk) reasons.push('Confirmação: BOS ou inverse fair value gap.')
-  if (finalTiming === 'AGORA') reasons.push(`Entrada agora — preço na zona FVG/equilibrium (${execLabel}).`)
-  else if (finalTiming === 'RETRACE') reasons.push(`Aguardar retrace a ${entryZone ? priceZoneLabel(entryZone) : 'zona de continuação'}.`)
-  if (smt && isAligned(smt, side)) reasons.push('SMT vs BTC alinhado.')
-  if (smtBlocked) reasons.push('SMT vs BTC em conflito — bloqueado.')
-  if (!setupReadyWithRr) reasons.push(setupReady && !rrOk ? 'R:R insuficiente para entrar.' : 'Setup TJR incompleto — aguardar.')
+  if (positionGuidance === 'SAIR') reasons.push(invalidationReason!)
+  else if (positionGuidance === 'REALIZAR_ALVO') reasons.push(invalidationReason!)
+  else {
+    if (sweepOk) reasons.push(`Liquidez: sweep ${side === 'long' ? 'abaixo de lows' : 'acima de highs'}.`)
+    else if (biasOk) reasons.push(`Bias HTF ${side === 'long' ? 'altista' : 'baixista'}.`)
+    if (confirmOk) reasons.push('Confirmação: BOS ou inverse fair value gap.')
+    if (resolvedTiming === 'AGORA') reasons.push(`Entrada agora — preço na zona FVG/equilibrium (${execLabel}).`)
+    else if (resolvedTiming === 'RETRACE') reasons.push(`Aguardar retrace a ${entryZone ? priceZoneLabel(entryZone) : 'zona de continuação'}.`)
+    if (structureBroken) reasons.push('BOS contrário bloqueia entrada.')
+    if (smt && isAligned(smt, side)) reasons.push('SMT vs BTC alinhado.')
+    if (smtBlocked) reasons.push('SMT vs BTC em conflito — bloqueado.')
+    if (!setupReadyWithRr) reasons.push(setupReady && !rrOk ? 'R:R insuficiente para entrar.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto — aguardar.')
+  }
 
   return {
-    action: setupReadyWithRr ? sideToAction(side) : 'ESPERAR',
-    confidence: setupReadyWithRr ? (finalTiming === 'AGORA' && riskReward >= minRr + 0.5 ? 'Alta' : 'Média') : 'Baixa',
+    action,
+    confidence: positionGuidance === 'SAIR' ? 'Alta' : setupReadyWithRr ? (resolvedTiming === 'AGORA' && riskReward >= minRr + 0.5 ? 'Alta' : 'Média') : 'Baixa',
     reasons,
     entry,
     stop,
@@ -241,16 +300,20 @@ function evaluate(
     riskReward,
     bias,
     setupStatus,
-    entryTiming: finalTiming,
+    entryTiming: resolvedTiming,
     entryZone,
+    positionGuidance,
+    invalidationReason,
     checklist,
     executionInterval: execLabel,
     zones: collectZones(h4, h1, exec),
-    exitPlan: buildExitPlan(side, stop, target, finalTiming),
+    exitPlan: buildExitPlan(side, stop, target, resolvedTiming === 'NENHUM' ? 'RETRACE' : resolvedTiming),
   }
 }
 
-export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTiming'>): string {
+export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): string {
+  if (decision.positionGuidance === 'SAIR') return 'SAIR — INVALIDADO'
+  if (decision.positionGuidance === 'REALIZAR_ALVO') return 'REALIZAR ALVO'
   if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 'COMPRAR JÁ'
   if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 'AGUARDAR COMPRA'
   if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 'SAIR JÁ'
@@ -259,11 +322,13 @@ export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTimi
 }
 
 export function tjrSortRank(decision: TjrDecision): number {
-  if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 0
-  if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 1
-  if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 2
-  if (decision.action === 'VENDER' && decision.entryTiming === 'RETRACE') return 3
-  return 4
+  if (decision.positionGuidance === 'SAIR') return 0
+  if (decision.positionGuidance === 'REALIZAR_ALVO') return 1
+  if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 2
+  if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 3
+  if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 4
+  if (decision.action === 'VENDER' && decision.entryTiming === 'RETRACE') return 5
+  return 6
 }
 
 export function evaluateTjrQuick(symbol: string, candles1h: Candle[], btc1h: Candle[], profile: RiskProfile): TjrDecision {
