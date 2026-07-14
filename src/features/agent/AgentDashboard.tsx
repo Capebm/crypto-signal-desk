@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
-import BinanceTradeGuide, { BinanceGuideTeaser } from './BinanceTradeGuide'
+import { BinanceGuideTeaser, BinanceOrderPanel } from './BinanceTradeGuide'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import type { Interval } from '../../lib/types'
@@ -161,59 +161,45 @@ export default function AgentDashboard() {
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
-                <article className="chart-panel">
-                  <header>
-                    <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · score {row.score}/100</h2></div>
-                    <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
-                      {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
-                    </span>
-                  </header>
-                  <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
-                </article>
-                <aside className="evidence-panel">
-                  <BinanceTradeGuide row={row} stakeUsdc={stakeUsdc} />
-                  <h2>Checklist TJR</h2>
-                  <section className="bos-guide">
-                    <h3>Como ler BOS (Break of Structure)</h3>
-                    <p><strong>Long:</strong> válido enquanto o close no {row.executionInterval ?? '15m'} <em>não</em> fechar abaixo do último swing low. Se fechar abaixo → <strong>SAIR — INVALIDADO</strong>.</p>
-                    <p><strong>Short / sair:</strong> válido enquanto o close <em>não</em> fechar acima do último swing high.</p>
-                    <p>Re-analisa após comprar: se o cartão mudar para <strong>SAIR — INVALIDADO</strong>, vende — não esperes só pelo alvo.</p>
-                  </section>
-                  <p><strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'} · <strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}{row.positionGuidance === 'SAIR' && ' · ⚠ Invalidado'}{row.positionGuidance === 'REALIZAR_ALVO' && ' · ✓ Alvo atingido'}</p>
-                  {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
-                    <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
-                  )}
-                  {row.entryZone && row.entryTiming === 'RETRACE' && (
-                    <p><strong>Zona de entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
-                  )}
-                  <ul className="tjr-checklist">
-                    {row.checklist.map((item) => (
-                      <li key={item.label} className={item.complete ? 'done' : 'pending'}>
-                        <span>{item.complete ? '✓' : '○'}</span>
-                        <div><strong>{item.label}</strong><p>{item.note}</p></div>
-                      </li>
-                    ))}
-                  </ul>
-                  {row.reasons[0] && <p><strong>Resumo:</strong> {row.reasons.join(' ')}</p>}
-                  {row.exitPlan && (
-                    <section className="exit-plan">
-                      <h3>Plano de saída (depois de comprar)</h3>
-                      <p>{row.exitPlan.note}</p>
-                      <dl>
-                        <div><dt>Stop-loss</dt><dd>{price(row.exitPlan.stopLoss)}</dd></div>
-                        <div><dt>Take-profit</dt><dd>{price(row.exitPlan.takeProfit)}</dd></div>
-                      </dl>
-                      <ol className="exit-steps">
-                        {row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}
-                      </ol>
-                    </section>
-                  )}
-                  <dl>
-                    <div><dt title="Preço de referência da ideia.">{row.entryTiming === 'RETRACE' ? 'Zona entrada ⓘ' : 'Entrada ⓘ'}</dt><dd>{price(row.entry)}</dd></div>
-                    <div><dt title="Invalidação abaixo/acima do swing.">Stop ⓘ</dt><dd>{price(row.stop)}</dd></div>
-                    <div><dt title="Liquidez oposta (sessão/swing/dia anterior).">Alvo ⓘ</dt><dd>{price(row.target)}</dd></div>
-                  </dl>
-                </aside>
+                <BinanceOrderPanel row={row} stakeUsdc={stakeUsdc} />
+                <div className="card-expanded-main">
+                  <article className="chart-panel">
+                    <header>
+                      <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · score {row.score}/100</h2></div>
+                      <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
+                        {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
+                      </span>
+                    </header>
+                    <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
+                  </article>
+                  <aside className="evidence-panel compact">
+                    {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
+                      <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
+                    )}
+                    <p className="evidence-summary">
+                      <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
+                      {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
+                      {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
+                    </p>
+                    <ul className="tjr-checklist inline">
+                      {row.checklist.map((item) => (
+                        <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
+                          <span>{item.complete ? '✓' : '○'}</span> {item.label}
+                        </li>
+                      ))}
+                    </ul>
+                    <details className="evidence-details">
+                      <summary>Detalhes &amp; notas</summary>
+                      {row.entryZone && row.entryTiming === 'RETRACE' && (
+                        <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
+                      )}
+                      {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
+                      <section className="bos-guide compact">
+                        <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
+                      </section>
+                    </details>
+                  </aside>
+                </div>
               </section>
             )}
           </div>

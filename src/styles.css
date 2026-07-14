@@ -76,7 +76,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .decision-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .decision-item:has(.card-expanded) { grid-column: 1 / -1; }
-.card-expanded { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 14px; margin-top: 10px; }
+.card-expanded { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; grid-column: 1 / -1; }
+.card-expanded-main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(220px, .75fr); gap: 14px; align-items: start; }
 .decision-card { padding: 21px; border: 1px solid #263b5a; border-radius: 14px; background: #101d30; }
 .decision-card { cursor: pointer; }
 .decision-card.selected { outline: 2px solid #76a7ff; }
@@ -124,6 +125,17 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .tjr-checklist li.pending { border-left: 3px solid #806b30; }
 .tjr-checklist li span { font-weight: 700; color: #76a7ff; }
 .tjr-checklist li p { margin: 4px 0 0; font-size: .85rem; color: #9cb1cd; }
+.tjr-checklist.inline { flex-direction: row; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.tjr-checklist.inline li { padding: 5px 9px; font-size: .72rem; border-left: none; border-radius: 999px; }
+.tjr-checklist.inline li.done { border: 1px solid #267e5e; background: #102820; }
+.tjr-checklist.inline li.pending { border: 1px solid #4a6080; background: #15243a; opacity: .75; }
+.tjr-checklist.inline li span { margin-right: 2px; }
+.evidence-panel.compact { padding: 12px 14px; }
+.evidence-summary { margin: 0 0 10px; font-size: .82rem; color: #b7c6d8; line-height: 1.45; }
+.evidence-details { margin-top: 8px; }
+.evidence-details summary { cursor: pointer; color: #9db0c9; font-size: .82rem; font-weight: 600; padding: 6px 0; }
+.evidence-details p { margin: 8px 0 0; font-size: .82rem; color: #9cb1cd; line-height: 1.45; }
+.bos-guide.compact { margin: 10px 0 0; padding: 10px; }
 .decision-card.vender.invalidated { border-color: #f57b88; background: linear-gradient(130deg, #3a1520, #101d30); outline: 1px solid #f57b8866; }
 .decision-card.vender.invalidated .decision-top strong { color: #ff9aa5; }
 .bos-guide { margin: 0 0 14px; padding: 12px; border: 1px solid #304766; border-radius: 10px; background: #0c1626; }
@@ -136,6 +148,27 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .exit-steps { margin: 10px 0 0; padding-left: 18px; color: #b7c6d8; font-size: .84rem; line-height: 1.45; }
 .binance-teaser { margin: 12px 0 0; padding: 8px 10px; border-radius: 8px; background: #0f1c2e; color: #9cb1cd; font-size: .78rem; line-height: 1.4; }
 .binance-teaser strong { color: #f5c451; }
+.binance-order-panel { padding: 14px 16px; border: 1px solid #3d5a28; border-radius: 12px; background: linear-gradient(160deg, #142210, #0f1c2e); }
+.binance-order-panel.muted { border-color: #304766; background: #0f1c2e; }
+.binance-order-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.binance-order-head strong { color: #f5c451; font-size: 1.05rem; }
+.binance-order-head span { color: #9cb1cd; font-size: .74rem; }
+.binance-order-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.binance-order-groups.single { grid-template-columns: 1fr; max-width: 480px; }
+.binance-order-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; align-content: start; }
+.binance-group-title { grid-column: 1 / -1; margin: 0 0 2px; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.binance-group-title.buy { color: #42d99e; }
+.binance-group-title.sell { color: #f57b88; }
+.binance-field { display: grid; gap: 3px; padding: 10px 11px; text-align: left; border: 1px solid #263b5a; border-radius: 9px; background: #0c1626; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s; }
+.binance-field:hover { border-color: #76a7ff; }
+.binance-field span { font-size: .68rem; color: #9cb1cd; line-height: 1.2; }
+.binance-field code { font-size: .95rem; font-weight: 700; line-height: 1.2; word-break: break-all; }
+.binance-field small { font-size: .65rem; color: #7a8fa8; }
+.binance-field-buy code { color: #42d99e; }
+.binance-field-sell code { color: #f5c451; }
+.binance-field-neutral code { color: #e8f0ff; }
+.binance-order-foot { margin: 10px 0 0; font-size: .72rem; color: #7a8fa8; line-height: 1.4; }
+.binance-order-wait { margin: 0; font-size: .85rem; color: #9cb1cd; }
 .binance-guide { margin: 0 0 18px; padding: 14px; border: 1px solid #3d5a28; border-radius: 12px; background: linear-gradient(160deg, #142210, #0f1c2e); }
 .binance-guide h3 { margin: 0 0 6px; font-size: 1rem; color: #42d99e; }
 .binance-guide-intro { margin: 0 0 12px; font-size: .85rem; color: #b7c6d8; }
@@ -154,7 +187,8 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .agent-shell { padding: 32px 16px 48px; }
   .agent-header { flex-direction: column; }
   .agent-header button { width: 100%; }
-  .agent-rules, .decision-grid, .decision-list, .card-expanded { grid-template-columns: 1fr; }
+  .agent-rules, .decision-grid, .decision-list, .card-expanded-main { grid-template-columns: 1fr; }
+  .binance-order-groups { grid-template-columns: 1fr; }
   .risk-control { grid-template-columns: 1fr; }
   .stake-control { grid-template-columns: 1fr; }
   .risk-labels { grid-column: 1; }
