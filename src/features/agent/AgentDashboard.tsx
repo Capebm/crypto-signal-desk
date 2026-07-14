@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrSortRank, type TjrDecision } from '../../lib/tjr-engine'
+import BinanceTradeGuide, { BinanceGuideTeaser } from './BinanceTradeGuide'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import type { Interval } from '../../lib/types'
@@ -145,6 +146,7 @@ export default function AgentDashboard() {
                 <div><dt>Alvo (venda)</dt><dd>{price(row.target)}</dd></div>
                 <div><dt>Risco/retorno</dt><dd>{row.riskReward?.toFixed(1) ?? '—'}×</dd></div>
               </dl>
+              <BinanceGuideTeaser row={row} />
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
@@ -158,6 +160,7 @@ export default function AgentDashboard() {
                   <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
                 </article>
                 <aside className="evidence-panel">
+                  <BinanceTradeGuide row={row} />
                   <h2>Checklist TJR</h2>
                   <section className="bos-guide">
                     <h3>Como ler BOS (Break of Structure)</h3>

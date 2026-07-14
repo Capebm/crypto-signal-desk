@@ -126,6 +126,20 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .exit-plan h3 { margin: 0 0 8px; font-size: .95rem; color: #e8f0ff; }
 .exit-plan p { margin: 0 0 10px; font-size: .85rem; color: #9cb1cd; }
 .exit-steps { margin: 10px 0 0; padding-left: 18px; color: #b7c6d8; font-size: .84rem; line-height: 1.45; }
+.binance-teaser { margin: 12px 0 0; padding: 8px 10px; border-radius: 8px; background: #0f1c2e; color: #9cb1cd; font-size: .78rem; line-height: 1.4; }
+.binance-teaser strong { color: #f5c451; }
+.binance-guide { margin: 0 0 18px; padding: 14px; border: 1px solid #3d5a28; border-radius: 12px; background: linear-gradient(160deg, #142210, #0f1c2e); }
+.binance-guide h3 { margin: 0 0 6px; font-size: 1rem; color: #42d99e; }
+.binance-guide-intro { margin: 0 0 12px; font-size: .85rem; color: #b7c6d8; }
+.binance-copy-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; padding: 10px; border-radius: 8px; background: #0c1626; }
+.binance-copy-values div { display: grid; gap: 2px; }
+.binance-copy-values dt { font-size: .72rem; color: #9cb1cd; }
+.binance-copy-values dd { margin: 0; }
+.binance-copy-values code { font-size: .82rem; color: #f5c451; font-weight: 700; }
+.binance-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.binance-steps li { color: #b7c6d8; font-size: .84rem; line-height: 1.45; }
+.binance-steps li strong { display: block; color: #e8f0ff; margin-bottom: 2px; }
+.binance-steps li p { margin: 0; color: #9cb1cd; }
 
 @media (max-width: 700px) {
   .agent-shell { padding: 32px 16px 48px; }
