@@ -161,6 +161,8 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .binance-group-title.sell { color: #f57b88; }
 .binance-field { display: grid; gap: 3px; padding: 10px 11px; text-align: left; border: 1px solid #263b5a; border-radius: 9px; background: #0c1626; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s; }
 .binance-field:hover { border-color: #76a7ff; }
+.binance-field-copied { border-color: #42d99e !important; }
+.binance-field-copied small { color: #42d99e; }
 .binance-field span { font-size: .68rem; color: #9cb1cd; line-height: 1.2; }
 .binance-field code { font-size: .95rem; font-weight: 700; line-height: 1.2; word-break: break-all; }
 .binance-field small { font-size: .65rem; color: #7a8fa8; }
