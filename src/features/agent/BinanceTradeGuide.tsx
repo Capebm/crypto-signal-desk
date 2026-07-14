@@ -107,6 +107,11 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps
   const orderTotalCopy = row.entry && qty ? (roundForBinance(row.entry * qty)).toFixed(2) : '—'
   const orderTotalDisplay = orderTotalCopy.replace('.', ',')
   const label = tjrActionLabel(row)
+  const stopDistancePct =
+    row.entry && row.stop && row.entry > row.stop
+      ? ((row.entry - row.stop) / row.entry) * 100
+      : undefined
+  const stopTooTight = stopDistancePct !== undefined && stopDistancePct < 3
 
   if (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') {
     return (
@@ -146,6 +151,13 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps
         <div><strong>{pair}</strong> · {label} · {stakeUsdc} {AGENT_QUOTE_ASSET}</div>
         <span>Ecrã: vírgula · Copiar: ponto (Binance)</span>
       </header>
+      {stopTooTight ? (
+        <p className="binance-order-warn">
+          Stop a apenas {stopDistancePct!.toFixed(1).replace('.', ',')}% da entrada — em altcoins isso dispara em minutos. A app agora usa mínimo 3,5%.
+        </p>
+      ) : stopDistancePct !== undefined ? (
+        <p className="binance-order-meta">Risco até stop: ~{stopDistancePct.toFixed(1).replace('.', ',')}%</p>
+      ) : null}
       <div className="binance-order-groups">
         <div className="binance-order-group">
           <p className="binance-group-title buy">1 · Comprar (Spot)</p>

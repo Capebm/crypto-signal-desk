@@ -117,10 +117,12 @@ const buildLevels = (side: TradeSide, entry: number, targetCandles: Candle[], ex
   const rawStop = side === 'long'
     ? (lowPrices.length ? Math.min(...lowPrices) : entry * 0.99) * 0.998
     : (highPrices.length ? Math.max(...highPrices) : entry * 1.01) * 1.002
-  const maxRiskPct = 0.03
+  /** Mínimo 3,5% de distância; máximo 8% de risco — altcoins Spot são ruidosas. */
+  const minStopPct = 0.035
+  const maxStopPct = 0.08
   const stop = side === 'long'
-    ? Math.max(rawStop, entry * (1 - maxRiskPct))
-    : Math.min(rawStop, entry * (1 + maxRiskPct))
+    ? Math.max(entry * (1 - maxStopPct), Math.min(rawStop, entry * (1 - minStopPct)))
+    : Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
   const targets = liquidityTargets(targetCandles, side)
   let target = targets[0] ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
   const risk = Math.abs(entry - stop)

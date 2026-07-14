@@ -171,6 +171,8 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
 .binance-field-neutral code { color: #e8f0ff; }
 .binance-order-foot { margin: 10px 0 0; font-size: .72rem; color: #7a8fa8; line-height: 1.4; }
 .binance-order-wait { margin: 0; font-size: .85rem; color: #9cb1cd; }
+.binance-order-warn { margin: 0 0 10px; padding: 10px 12px; border: 1px solid #8a4a30; border-radius: 8px; background: #2a1a14; color: #f5a623; font-size: .78rem; line-height: 1.4; }
+.binance-order-meta { margin: 0 0 10px; font-size: .74rem; color: #9cb1cd; }
 .binance-guide { margin: 0 0 18px; padding: 14px; border: 1px solid #3d5a28; border-radius: 12px; background: linear-gradient(160deg, #142210, #0f1c2e); }
 .binance-guide h3 { margin: 0 0 6px; font-size: 1rem; color: #42d99e; }
 .binance-guide-intro { margin: 0 0 12px; font-size: .85rem; color: #b7c6d8; }
