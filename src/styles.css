@@ -70,6 +70,17 @@ button:disabled { cursor: wait; opacity: .65; }
 .agent-rules div:nth-child(2) strong, .timing-retrace { color: #76a7ff; }
 .agent-rules div:nth-child(3) strong, .vender .decision-top strong { color: #f57b88; }
 .agent-rules div:nth-child(4) strong, .esperar .decision-top strong { color: #f5c451; }
+.session-window { margin: 0 0 20px; padding: 14px 16px; border: 1px solid #2d4a6e; border-radius: 12px; background: #0d1a2c; }
+.session-window summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; cursor: pointer; list-style: none; }
+.session-window summary::-webkit-details-marker { display: none; }
+.session-summary-title { color: #dce6f5; font-weight: 700; font-size: .92rem; }
+.session-clock { margin-left: auto; color: #8fa5c0; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.session-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: .76rem; font-weight: 800; letter-spacing: .02em; border: 1px solid #3a5275; background: #15263d; color: #9db0c9; }
+.session-badge.ideal, .session-badge.session-ny { border-color: #2d6b52; background: #0f2a22; color: #42d99e; }
+.session-badge.session-london { border-color: #3d5f9a; background: #12233d; color: #76a7ff; }
+.session-badge.session-quiet { border-color: #6b4a2d; background: #2a1f14; color: #f5c451; }
+.session-window-body { margin-top: 12px; display: grid; gap: 8px; }
+.session-window-body p { margin: 0; color: #9cb1cd; font-size: .84rem; line-height: 1.5; }
 .agent-status { color: #aabbd2; margin: 20px 0 12px; }
 .risk-control { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); gap: 10px 24px; align-items: center; margin: 18px 0; padding: 16px; border: 1px solid #344d70; border-radius: 12px; background: #0d1a2c; }
 .risk-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }

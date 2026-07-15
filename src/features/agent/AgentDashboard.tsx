@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
+import { getTradingSessionStatus } from '../../lib/trading-session'
 import { BinanceGuideTeaser, BinanceOrderPanel } from './BinanceTradeGuide'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -30,6 +31,14 @@ export default function AgentDashboard() {
   const [refinedSymbols, setRefinedSymbols] = useState<Set<string>>(() => new Set())
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
+  const [session, setSession] = useState(() => getTradingSessionStatus())
+
+  useEffect(() => {
+    const tick = () => setSession(getTradingSessionStatus())
+    tick()
+    const id = window.setInterval(tick, 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (!selected) return
@@ -123,6 +132,21 @@ export default function AgentDashboard() {
         <div><strong>VENDER / SAIR</strong><span>BOS contrário no 15m/5m, stop atingido ou alvo — o agente deteta automaticamente.</span></div>
         <div><strong>ESPERAR</strong><span>Sem setup completo ou R:R insuficiente.</span></div>
       </section>
+
+      <details className="session-window">
+        <summary>
+          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''}`}>{session.badge}</span>
+          <span className="session-summary-title">Melhores horas para executar</span>
+          <span className="session-clock" title="Hora em Lisboa">{session.nowLisbon} Lisboa</span>
+        </summary>
+        <div className="session-window-body">
+          <p><strong>Janela principal (13:30–17:00):</strong> abertura de Nova Iorque — maior volume e movimentos TJR mais limpos. É a melhor janela para entrar em <strong>COMPRAR JÁ</strong>.</p>
+          <p><strong>Sessão Londres (08:00–12:00):</strong> liquidez intermédia; setups válidos, mas com mais ruído que a janela NY.</p>
+          <p><strong>Evitar (22:00–02:00):</strong> spread mais largo e falsos rompimentos — prefere aguardar ou só usar <strong>AGUARDAR COMPRA</strong>.</p>
+          <p><strong>Regra de ouro:</strong> executa pelo rótulo do cartão (<em>COMPRAR JÁ</em>), não pelo relógio. Se passou mais de 1 hora desde o scan ou o cartão mudou, volta a analisar antes de copiar valores para a Binance.</p>
+        </div>
+      </details>
+
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
         <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))} />
@@ -149,7 +173,19 @@ export default function AgentDashboard() {
           <div className="decision-item" key={row.symbol}>
             <article
               className={`decision-card ${row.positionGuidance === 'SAIR' ? 'vender invalidated' : row.action.toLowerCase()} ${selected?.symbol === row.symbol ? 'selected' : ''}`}
-              onClick={() => setSelected(selected?.symbol === row.symbol ? undefined : row)}
+              onClick={() => {
+                if (selected?.symbol === row.symbol) {
+                  setSelected(undefined)
+                  return
+                }
+                setRefinedSymbols((prev) => {
+                  const next = new Set(prev)
+                  next.delete(row.symbol)
+                  return next
+                })
+                setLoadingFull(row.symbol)
+                setSelected(row)
+              }}
               tabIndex={0}
               title="Clica para abrir ou fechar o gráfico desta moeda."
             >

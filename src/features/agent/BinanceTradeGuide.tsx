@@ -106,7 +106,7 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
       : undefined
   const stopTooTight = stopDistancePct !== undefined && stopDistancePct < 3.2
 
-  if (!analysisReady) {
+  if (!analysisReady || refining) {
     return (
       <section className="binance-order-panel muted refining">
         <header className="binance-order-head">
