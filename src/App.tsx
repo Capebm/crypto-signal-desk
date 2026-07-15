@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import AgentDashboard from './features/agent/AgentDashboard'
 import Garimpo from './features/garimpo/Garimpo'
+import AppFooter from './components/AppFooter'
 
 type ActiveApp = 'garimpo' | 'crypto'
 
@@ -34,6 +35,7 @@ export default function App() {
         </button>
       </nav>
       {app === 'garimpo' ? <Garimpo /> : <AgentDashboard />}
+      <AppFooter />
     </>
   )
 }
