@@ -12,7 +12,7 @@ type Row = TjrDecision & { symbol: string; price: number }
 export const STAKE_OPTIONS = [10, 20, 50, 100] as const
 export const DEFAULT_STAKE = 20
 
-type GuideProps = { row: Row; stakeUsdc?: number; analysisReady?: boolean }
+type GuideProps = { row: Row; stakeUsdc?: number; analysisReady?: boolean; refining?: boolean }
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
@@ -86,7 +86,7 @@ function CopyField({
 }
 
 /** Valores exactos para colar na Binance — layout compacto, sem scroll. */
-export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisReady = true }: GuideProps) {
+export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisReady = true, refining = false }: GuideProps) {
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const qty = suggestedQuantity(row.entry, stakeUsdc)
@@ -108,11 +108,14 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
 
   if (!analysisReady) {
     return (
-      <section className="binance-order-panel muted">
+      <section className="binance-order-panel muted refining">
         <header className="binance-order-head">
           <div><strong>{pair}</strong> · {label}</div>
+          <span className="refine-badge">{refining ? 'A refinar MTF…' : 'MTF pendente'}</span>
         </header>
-        <p className="binance-order-wait">A refinar análise 4h/5m/15m… Aguarda antes de copiar valores para a Binance.</p>
+        <p className="binance-order-wait">
+          A refinar análise 4h/5m/15m… Aguarda antes de copiar valores para a Binance.
+        </p>
       </section>
     )
   }

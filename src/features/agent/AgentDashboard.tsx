@@ -27,6 +27,7 @@ export default function AgentDashboard() {
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('1h')
   const [loadingFull, setLoadingFull] = useState<string>()
+  const [refinedSymbols, setRefinedSymbols] = useState<Set<string>>(() => new Set())
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
 
@@ -34,7 +35,13 @@ export default function AgentDashboard() {
     if (!selected) return
     const symbol = selected.symbol
     setLoadingFull(symbol)
+    setRefinedSymbols((prev) => {
+      const next = new Set(prev)
+      next.delete(symbol)
+      return next
+    })
     void (async () => {
+      const started = Date.now()
       try {
         const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
         const decision = evaluateTjrFull(symbol, data, btc, riskProfile)
@@ -42,9 +49,13 @@ export default function AgentDashboard() {
           row.symbol === symbol ? { ...decision, symbol, price: row.price, change24h: row.change24h } : row
         setRows((prev) => prev.map(patch))
         setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
+        setRefinedSymbols((prev) => new Set(prev).add(symbol))
       } catch {
         /* scan rápido 1h permanece */
       } finally {
+        const minMs = 1000
+        const elapsed = Date.now() - started
+        if (elapsed < minMs) await new Promise((resolve) => setTimeout(resolve, minMs - elapsed))
         setLoadingFull(undefined)
       }
     })()
@@ -54,6 +65,7 @@ export default function AgentDashboard() {
     setRunning(true)
     setRows([])
     setSelected(undefined)
+    setRefinedSymbols(new Set())
     try {
       const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
       const results: AgentRow[] = []
@@ -73,8 +85,7 @@ export default function AgentDashboard() {
       }
       const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
-      setSelected(sorted[0])
-      setStatus(`${results.length} moedas analisadas.`)
+      setStatus(`${results.length} moedas analisadas. Clica num par para refinar MTF e ver valores Binance.`)
     } catch {
       setStatus('Não foi possível obter os dados da Binance. Tenta novamente.')
     } finally {
@@ -161,7 +172,12 @@ export default function AgentDashboard() {
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
-                <BinanceOrderPanel row={row} stakeUsdc={stakeUsdc} analysisReady={loadingFull !== row.symbol} />
+                <BinanceOrderPanel
+                  row={row}
+                  stakeUsdc={stakeUsdc}
+                  analysisReady={refinedSymbols.has(row.symbol)}
+                  refining={loadingFull === row.symbol}
+                />
                 <div className="card-expanded-main">
                   <article className="chart-panel">
                     <header>
