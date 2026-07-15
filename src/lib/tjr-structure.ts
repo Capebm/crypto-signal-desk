@@ -84,6 +84,62 @@ export function recentLiquiditySweep(candles: Candle[], swings: SwingPoint[], lo
   return undefined
 }
 
+/** TJR: sweep só conta se o wick tomar um draw HTF (níveis passados), não um micro-swing. */
+export function recentDrawLiquiditySweep(candles: Candle[], drawLevels: number[], lookback = 24): Direction | undefined {
+  if (!drawLevels.length) return undefined
+  const recent = candles.slice(-lookback)
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    const candle = recent[i]
+    for (const level of drawLevels) {
+      if (candle.high > level && candle.close < level) return 'bearish'
+      if (candle.low < level && candle.close > level) return 'bullish'
+    }
+  }
+  return undefined
+}
+
+/**
+ * TJR step 4: retrace (1m BOS contrário) → BOS 1m na direção.
+ * Devolve o close do candle de entrada (preço a copiar).
+ */
+export function ltfEntryConfirmation(
+  candles1m: Candle[],
+  side: 'long' | 'short',
+  lookback = 45,
+): { ready: boolean; entryPrice?: number } {
+  if (candles1m.length < 12) return { ready: false }
+  const window = candles1m.slice(-lookback)
+  let sawRetrace = false
+  let entryAt: number | undefined
+  for (let end = 6; end <= window.length; end += 1) {
+    const slice = window.slice(0, end)
+    const bos = breakOfStructure(slice, findTjrSwings(slice))
+    if (!bos) continue
+    const aligned = (side === 'long' && bos === 'bullish') || (side === 'short' && bos === 'bearish')
+    const opposite = (side === 'long' && bos === 'bearish') || (side === 'short' && bos === 'bullish')
+    if (opposite) {
+      sawRetrace = true
+      entryAt = undefined
+    }
+    if (aligned && sawRetrace) entryAt = end
+  }
+  const ready = entryAt !== undefined && entryAt >= window.length - 5
+  if (!ready || entryAt === undefined) return { ready: false }
+  return { ready: true, entryPrice: window[entryAt - 1]?.close }
+}
+
+/** Candle de confirmação com corpo ≥ 1.2× média = displacement (mudança de order flow). */
+export function hasDisplacement(candles: Candle[], lookback = 14): boolean {
+  if (candles.length < 3) return false
+  const last = candles.at(-1)!
+  const body = Math.abs(last.close - last.open)
+  const avg = candles
+    .slice(-lookback - 1, -1)
+    .map((c) => Math.abs(c.close - c.open))
+    .reduce((a, b) => a + b, 0) / Math.max(1, Math.min(lookback, candles.length - 1))
+  return body >= avg * 1.2
+}
+
 /** BOS: body close beyond the most recent swing high (bullish) or low (bearish). */
 export function breakOfStructure(candles: Candle[], swings: SwingPoint[]): Direction | undefined {
   const close = candles.at(-1)?.close ?? 0

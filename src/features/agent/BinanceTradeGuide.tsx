@@ -220,21 +220,14 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
   )
 }
 
-export function BinanceGuideTeaser({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps) {
+export function BinanceGuideTeaser({ row }: GuideProps) {
   if (row.action === 'ESPERAR' && row.positionGuidance !== 'SAIR') return null
   const pair = formatTradingPair(row.symbol)
   const label = tjrActionLabel(row)
-  const qty = suggestedQuantity(row.entry, stakeUsdc)
   return (
     <p className="binance-teaser">
       Binance: <strong>{pair}</strong> · {label}
-      {qty !== undefined && row.action === 'COMPRAR' && (
-        <>
-          {' '}
-          · TP {binancePriceDisplay(row.target)} · SL {binancePriceDisplay(row.stop)} · {qty.toLocaleString('pt-PT')}{' '}
-          {baseAsset(row.symbol)}
-        </>
-      )}
+      {row.action === 'COMPRAR' && <> · expande o cartão para valores MTF</>}
     </p>
   )
 }

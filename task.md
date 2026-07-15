@@ -1,7 +1,9 @@
-# Terminal workspace checklist
+# Task: otimizar previsão + sessões
 
-- [x] Add interactive candlestick charts with volume and EMA overlays.
-- [x] Add entry, stop and target chart levels.
-- [x] Add a conservative/equilibrated/aggressive risk slider.
-- [x] Add decision explanations, tooltips and evidence panel.
-- [x] Apply terminal-style layout and verify the production build.
+- [x] Killzone fina (open NY / bloquear fecho)
+- [x] Entry = BOS 1m price
+- [x] Targets inteligentes (min–3R, prefer session/PDH)
+- [x] Stop 2º swing estrutural
+- [x] Bias 4h + displacement 5m
+- [x] Score 4 passos
+- [x] Build

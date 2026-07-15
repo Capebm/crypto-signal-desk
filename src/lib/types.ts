@@ -1,4 +1,4 @@
-export type Interval = '5m' | '15m' | '1h' | '4h' | '1d'
+export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
 export type Candle = {
   openTime: number

@@ -88,13 +88,14 @@ export async function getActiveQuoteSymbols(quote: QuoteAsset = AGENT_QUOTE_ASSE
 /** @deprecated Use getActiveQuoteSymbols */
 export const getActiveUsdtSymbols = () => getActiveQuoteSymbols(AGENT_QUOTE_ASSET)
 
-export async function getPlaybookCandles(symbol: string): Promise<Record<'4h' | '1h' | '15m' | '5m', Candle[]>> {
-  const [fourHour, oneHour, fifteenMinute, fiveMinute] = await Promise.all([
+export async function getPlaybookCandles(symbol: string): Promise<Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>> {
+  const [fourHour, oneHour, fifteenMinute, fiveMinute, oneMinute] = await Promise.all([
     getCandles(symbol, '4h'),
     getCandles(symbol, '1h'),
     getCandles(symbol, '15m'),
     getCandles(symbol, '5m'),
+    getCandles(symbol, '1m', 120),
   ])
 
-  return { '4h': fourHour, '1h': oneHour, '15m': fifteenMinute, '5m': fiveMinute }
+  return { '4h': fourHour, '1h': oneHour, '15m': fifteenMinute, '5m': fiveMinute, '1m': oneMinute }
 }

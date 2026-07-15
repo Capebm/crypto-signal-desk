@@ -21,7 +21,7 @@ export default function AgentDashboard() {
   const [running, setRunning] = useState(false)
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
   const [query, setQuery] = useState('')
-  const [riskIndex, setRiskIndex] = useState(1)
+  const [riskIndex, setRiskIndex] = useState(0)
   const [stakeIndex, setStakeIndex] = useState(1)
   const stakeOptions = [10, 20, 50, 100]
   const stakeUsdc = stakeOptions[stakeIndex]
@@ -127,23 +127,24 @@ export default function AgentDashboard() {
       </header>
 
       <section className="agent-rules">
-        <div><strong>COMPRAR JÁ</strong><span>Preço já está na zona FVG/equilibrium — entrada válida agora.</span></div>
-        <div><strong>AGUARDAR COMPRA</strong><span>Setup confirmado, mas espera retrace à zona antes de entrar.</span></div>
-        <div><strong>VENDER / SAIR</strong><span>BOS contrário no 15m/5m, stop atingido ou alvo — o agente deteta automaticamente.</span></div>
-        <div><strong>ESPERAR</strong><span>Sem setup completo ou R:R insuficiente.</span></div>
+        <div><strong>COMPRAR JÁ</strong><span>4 passos TJR completos: sweep → BOS 5m → zona → BOS 1m de entrada.</span></div>
+        <div><strong>AGUARDAR COMPRA</strong><span>Setup 1–3 ok; à espera do retrace + BOS 1m (não entrar no 5m sozinho).</span></div>
+        <div><strong>VENDER / SAIR</strong><span>BOS contrário, stop ou alvo — deteção automática.</span></div>
+        <div><strong>ESPERAR</strong><span>Modelo incompleto, R:R fraco, BTC desalinhado ou fora da killzone.</span></div>
       </section>
 
       <details className="session-window">
         <summary>
-          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''}`}>{session.badge}</span>
-          <span className="session-summary-title">Melhores horas para executar</span>
-          <span className="session-clock" title="Hora em Lisboa">{session.nowLisbon} Lisboa</span>
+          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>{session.badge}</span>
+          <span className="session-summary-title">Killzone · open / mid / close</span>
+          <span className="session-clock" title="Hora NY / Lisboa">{session.nowNy} ET · {session.nowLisbon} Lisboa</span>
         </summary>
         <div className="session-window-body">
-          <p><strong>Janela principal (13:30–17:00):</strong> abertura de Nova Iorque — maior volume e movimentos TJR mais limpos. É a melhor janela para entrar em <strong>COMPRAR JÁ</strong>.</p>
-          <p><strong>Sessão Londres (08:00–12:00):</strong> liquidez intermédia; setups válidos, mas com mais ruído que a janela NY.</p>
-          <p><strong>Evitar (22:00–02:00):</strong> spread mais largo e falsos rompimentos — prefere aguardar ou só usar <strong>AGUARDAR COMPRA</strong>.</p>
-          <p><strong>Regra de ouro:</strong> executa pelo rótulo do cartão (<em>COMPRAR JÁ</em>), não pelo relógio. Se passou mais de 1 hora desde o scan ou o cartão mudou, volta a analisar antes de copiar valores para a Binance.</p>
+          <p><strong>NY open (09:30–11:00 ET):</strong> única janela em que o agente permite <strong>COMPRAR JÁ</strong> (conservador/equilibrado).</p>
+          <p><strong>NY mid (11:00–15:00 ET):</strong> setups só como <strong>AGUARDAR COMPRA</strong> — volume mais sujo.</p>
+          <p><strong>NY fecho (15:00–16:00 ET) + Ásia/fora:</strong> <strong>sem novas entradas</strong>.</p>
+          <p><strong>Londres:</strong> permitido AGUARDAR; COMPRAR JÁ só no perfil agressivo.</p>
+          <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = draw sessão/PDH-PDL com R:R 1–3×.</p>
         </div>
       </details>
 
@@ -204,7 +205,7 @@ export default function AgentDashboard() {
                 <div><dt>Alvo (venda)</dt><dd>{price(row.target)}</dd></div>
                 <div><dt>Risco/retorno</dt><dd>{row.riskReward?.toFixed(1) ?? '—'}×</dd></div>
               </dl>
-              <BinanceGuideTeaser row={row} stakeUsdc={stakeUsdc} />
+              <BinanceGuideTeaser row={row} />
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">

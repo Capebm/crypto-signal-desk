@@ -5,8 +5,8 @@ import type { Action } from '../../lib/decision-engine'
 import { sessionLinesForChart } from '../../lib/sessions'
 import type { Interval, PriceZone } from '../../lib/types'
 
-const intervals: Interval[] = ['5m', '15m', '1h', '4h', '1d']
-const intervalMs: Record<Interval, number> = { '5m': 5 * 60_000, '15m': 15 * 60_000, '1h': 60 * 60_000, '4h': 4 * 60 * 60_000, '1d': 24 * 60 * 60_000 }
+const intervals: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
+const intervalMs: Record<Interval, number> = { '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '1h': 60 * 60_000, '4h': 4 * 60 * 60_000, '1d': 24 * 60 * 60_000 }
 
 const staleMessage = (interval: Interval, openTime: number) => {
   const ageHours = (Date.now() - openTime) / 3_600_000
@@ -37,7 +37,7 @@ const ema = (values: number[], period: number) => {
 
 const sessionIntervals: Interval[] = ['5m', '15m', '1h']
 
-const candleLimit: Record<Interval, number> = { '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
+const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
 
 export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, zones = [] }: Props) {
   const host = useRef<HTMLDivElement>(null)
