@@ -1,12 +1,10 @@
 import type { Action, Decision } from './decision-engine'
 import { BTC_REFERENCE_SYMBOL } from './binance'
+import { computeLongStop, computeShortStop } from './trade-levels'
 import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   activeFairValueGap,
-  priceInDiscount,
-  priceInPremium,
-  priceTouchesZone,
   smtDivergence,
   structureSnapshot,
   findTjrSwings,
@@ -73,13 +71,10 @@ const bosInvalidationNote = (side: TradeSide, tfLabel: string, _snap: ReturnType
 }
 
 const continuationHit = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) => {
-  if (snap.eq !== undefined) {
-    if (side === 'long' && priceInDiscount(snap.price, snap.eq, 'bullish')) return true
-    if (side === 'short' && priceInPremium(snap.price, snap.eq, 'bearish')) return true
-  }
-  const gap = activeFairValueGap(snap.gaps, side === 'long' ? 'bullish' : 'bearish')
-  if (gap && priceTouchesZone(snap.price, gap)) return true
-  return false
+  const zone = continuationEntryZone(snap, side)
+  if (!zone) return false
+  const pad = snap.price * 0.0004
+  return snap.price >= zone.low - pad && snap.price <= zone.high + pad
 }
 
 const continuationEntryZone = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide): { low: number; high: number } | undefined => {
@@ -118,11 +113,9 @@ const buildLevels = (side: TradeSide, entry: number, targetCandles: Candle[], ex
     ? (lowPrices.length ? Math.min(...lowPrices) : entry * 0.99) * 0.998
     : (highPrices.length ? Math.max(...highPrices) : entry * 1.01) * 1.002
   /** Mínimo 3,5% de distância; máximo 8% de risco — altcoins Spot são ruidosas. */
-  const minStopPct = 0.035
-  const maxStopPct = 0.08
   const stop = side === 'long'
-    ? Math.max(entry * (1 - maxStopPct), Math.min(rawStop, entry * (1 - minStopPct)))
-    : Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
+    ? computeLongStop(entry, rawStop)
+    : computeShortStop(entry, rawStop)
   const targets = liquidityTargets(targetCandles, side)
   let target = targets[0] ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
   const risk = Math.abs(entry - stop)

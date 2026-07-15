@@ -161,7 +161,7 @@ export default function AgentDashboard() {
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
-                <BinanceOrderPanel row={row} stakeUsdc={stakeUsdc} />
+                <BinanceOrderPanel row={row} stakeUsdc={stakeUsdc} analysisReady={loadingFull !== row.symbol} />
                 <div className="card-expanded-main">
                   <article className="chart-panel">
                     <header>

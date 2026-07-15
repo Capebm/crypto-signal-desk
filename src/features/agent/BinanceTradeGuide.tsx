@@ -1,5 +1,10 @@
 import { useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
+import {
+  binancePriceCopy,
+  binancePriceDisplay,
+  binanceStopLimitCopy,
+} from '../../lib/binance-prices'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 
 type Row = TjrDecision & { symbol: string; price: number }
@@ -7,7 +12,7 @@ type Row = TjrDecision & { symbol: string; price: number }
 export const STAKE_OPTIONS = [10, 20, 50, 100] as const
 export const DEFAULT_STAKE = 20
 
-type GuideProps = { row: Row; stakeUsdc?: number }
+type GuideProps = { row: Row; stakeUsdc?: number; analysisReady?: boolean }
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
@@ -18,20 +23,7 @@ function roundForBinance(value: number): number {
   return Math.round(value * 100000) / 100000
 }
 
-/** Valor para colar na Binance (ponto decimal). */
-export const binancePriceCopy = (value?: number) => {
-  if (value === undefined || !Number.isFinite(value)) return '—'
-  const rounded = roundForBinance(value)
-  if (rounded >= 1) return rounded.toFixed(2)
-  if (rounded >= 0.1) return rounded.toFixed(3)
-  if (rounded >= 0.01) return rounded.toFixed(4)
-  return rounded.toFixed(5)
-}
-
-/** Valor para mostrar no ecrã (vírgula decimal, PT). */
-export const binancePriceDisplay = (value?: number) => binancePriceCopy(value).replace('.', ',')
-
-/** @deprecated use binancePriceCopy */
+/** @deprecated use binancePriceCopy from binance-prices */
 export const binancePrice = binancePriceCopy
 
 export const suggestedQuantity = (entry?: number, stake = DEFAULT_STAKE) => {
@@ -94,7 +86,7 @@ function CopyField({
 }
 
 /** Valores exactos para colar na Binance — layout compacto, sem scroll. */
-export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps) {
+export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisReady = true }: GuideProps) {
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const qty = suggestedQuantity(row.entry, stakeUsdc)
@@ -103,7 +95,8 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps
   const entryCopy = binancePriceCopy(row.entry)
   const stopCopy = binancePriceCopy(row.stop)
   const targetCopy = binancePriceCopy(row.target)
-  const stopLimitCopy = row.stop !== undefined ? binancePriceCopy(row.stop * 0.999) : '—'
+  const stopLimitCopy = binanceStopLimitCopy(row.stop)
+  const stopLimitDisplay = stopLimitCopy === '—' ? '—' : stopLimitCopy.replace('.', ',')
   const orderTotalCopy = row.entry && qty ? (roundForBinance(row.entry * qty)).toFixed(2) : '—'
   const orderTotalDisplay = orderTotalCopy.replace('.', ',')
   const label = tjrActionLabel(row)
@@ -111,7 +104,18 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps
     row.entry && row.stop && row.entry > row.stop
       ? ((row.entry - row.stop) / row.entry) * 100
       : undefined
-  const stopTooTight = stopDistancePct !== undefined && stopDistancePct < 3
+  const stopTooTight = stopDistancePct !== undefined && stopDistancePct < 3.2
+
+  if (!analysisReady) {
+    return (
+      <section className="binance-order-panel muted">
+        <header className="binance-order-head">
+          <div><strong>{pair}</strong> · {label}</div>
+        </header>
+        <p className="binance-order-wait">A refinar análise 4h/5m/15m… Aguarda antes de copiar valores para a Binance.</p>
+      </section>
+    )
+  }
 
   if (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') {
     return (
@@ -198,16 +202,16 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps
           <CopyField
             label={`SL Limit (${AGENT_QUOTE_ASSET})`}
             copyValue={stopLimitCopy}
-            displayValue={row.stop !== undefined ? binancePriceDisplay(row.stop * 0.999) : '—'}
+            displayValue={stopLimitDisplay}
             tone="sell"
-            hint="≤ trigger"
+            hint="< trigger (1 tick)"
           />
           <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="sell" hint="100% · Fill Amount" />
         </div>
       </div>
       <p className="binance-order-foot">
         Alternativa sem OCO: Limit @ {binancePriceDisplay(row.target)} + Stop-Limit {binancePriceDisplay(row.stop)}/
-        {row.stop !== undefined ? binancePriceDisplay(row.stop * 0.999) : '—'}. Se uma executar, cancela a outra.
+        {stopLimitDisplay}. Se uma executar, cancela a outra.
       </p>
     </section>
   )
