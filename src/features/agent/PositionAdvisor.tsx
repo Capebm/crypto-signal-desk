@@ -9,6 +9,7 @@ import {
 } from '../../lib/position-advisor'
 import type { RiskProfile } from '../../lib/risk-profile'
 import type { TpMode } from '../../lib/tp-mode'
+import CoinSearchInput from './CoinSearchInput'
 
 const STORAGE_KEY = 'tjr-open-positions'
 
@@ -103,7 +104,7 @@ export default function PositionAdvisor({ riskProfile, tpMode }: Props) {
       >
         <label>
           Moeda
-          <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="PEOPLE ou F" autoCapitalize="characters" />
+          <CoinSearchInput value={base} onChange={setBase} placeholder={`Ex.: BTC/${AGENT_QUOTE_ASSET}`} />
         </label>
         <label>
           Preço entrada (Cost Price)
