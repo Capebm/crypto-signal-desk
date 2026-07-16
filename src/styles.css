@@ -36,6 +36,75 @@ body { margin: 0; min-width: 320px; }
   background: #1c2b42;
 }
 
+.crypto-tabs {
+  display: flex;
+  gap: 6px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 52px 24px 0;
+}
+.crypto-tabs button {
+  border: 1px solid #263b5a;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #9db0c9;
+  background: #101d30;
+  font-size: 0.86rem;
+}
+.crypto-tabs button.active {
+  color: #edf3ff;
+  border-color: #3973dd;
+  background: #1a3a66;
+}
+.crypto-tabs + .agent-shell,
+.crypto-tabs + .journal-shell {
+  padding-top: 20px;
+}
+
+.journal-shell { max-width: 1080px; margin: 0 auto; padding: 52px 24px 64px; }
+.journal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 16px; }
+.journal-header h1 { margin: 6px 0 10px; font-size: clamp(2rem, 5vw, 3.2rem); letter-spacing: -.05em; }
+.journal-header p { max-width: 640px; margin: 0; color: #aabbd2; line-height: 1.5; }
+.journal-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.journal-header-actions .ghost { background: #1c2b42; color: #c6d3e3; }
+.journal-import-help { margin: 0 0 12px; padding: 12px 14px; border: 1px solid #263b5a; border-radius: 10px; background: #0f1a2c; color: #9db0c9; font-size: .86rem; line-height: 1.45; }
+.journal-import-help strong { color: #dbe6f8; }
+.journal-status { margin: 0 0 16px; color: #76a7ff; font-size: .9rem; }
+.journal-empty { padding: 28px; border: 1px dashed #344d70; border-radius: 12px; color: #9db0c9; text-align: center; }
+.journal-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.journal-kpis article { padding: 14px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; display: grid; gap: 4px; }
+.journal-kpis span { color: #9db0c9; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.journal-kpis strong { font-size: 1.2rem; }
+.journal-kpis small { color: #7d93ad; font-size: .72rem; }
+.journal-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; margin-bottom: 14px; }
+.journal-panel { padding: 16px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
+.journal-panel h2 { margin: 0 0 12px; font-size: 1rem; }
+.journal-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.journal-panel-head h2 { margin: 0; }
+.journal-month-nav { display: flex; align-items: center; gap: 8px; }
+.journal-month-nav button { padding: 4px 10px; background: #1c2b42; font-size: 1rem; }
+.journal-month-nav span { color: #c6d3e3; font-size: .88rem; min-width: 120px; text-align: center; text-transform: capitalize; }
+.journal-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.journal-cal-head { color: #7d93ad; font-size: .68rem; text-align: center; font-weight: 700; }
+.journal-cal-day { display: grid; gap: 2px; min-height: 52px; padding: 6px; border: 1px solid #1e3048; border-radius: 8px; background: #0c1626; color: #dbe6f8; font: inherit; cursor: pointer; }
+.journal-cal-day.muted { opacity: .35; cursor: default; }
+.journal-cal-day.up { border-color: #2a5a40; background: #0f1f18; }
+.journal-cal-day.down { border-color: #5a2a34; background: #1f1014; }
+.journal-cal-day.selected { outline: 2px solid #76a7ff; }
+.journal-cal-day small { color: inherit; font-size: .62rem; opacity: .9; }
+.journal-note { display: grid; gap: 6px; color: #9db0c9; font-size: .78rem; font-weight: 600; margin-bottom: 12px; }
+.journal-note textarea { width: 100%; padding: 10px; border: 1px solid #304766; border-radius: 9px; background: #0c1626; color: #edf3ff; font: inherit; resize: vertical; }
+.journal-muted { color: #7d93ad; font-size: .88rem; }
+.journal-day-trades { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.journal-day-trades li { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 10px; border-radius: 8px; background: #0c1626; }
+.journal-day-trades small { grid-column: 1 / -1; color: #7d93ad; font-size: .72rem; }
+.journal-breakdown { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.journal-breakdown li { display: grid; grid-template-columns: 1.2fr .8fr .8fr .6fr; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #0c1626; font-size: .84rem; align-items: center; }
+.journal-trade-table-wrap { overflow: auto; }
+.journal-trade-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.journal-trade-table th, .journal-trade-table td { padding: 8px 10px; border-bottom: 1px solid #1e3048; text-align: left; white-space: nowrap; }
+.journal-trade-table th { color: #9db0c9; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+
 .app-footer {
   display: flex;
   flex-wrap: wrap;
@@ -285,6 +354,14 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .risk-labels { grid-column: 1; }
   .agent-summary label { width: 100%; margin-left: 0; }
   .agent-summary input { width: 100%; }
+  .crypto-tabs { padding: 52px 16px 0; flex-wrap: wrap; }
+  .journal-shell { padding: 20px 16px 48px; }
+  .journal-header { flex-direction: column; }
+  .journal-header-actions { width: 100%; }
+  .journal-header-actions button { flex: 1; }
+  .journal-kpis { grid-template-columns: repeat(2, 1fr); }
+  .journal-grid { grid-template-columns: 1fr; }
+  .journal-breakdown li { grid-template-columns: 1fr 1fr; }
 }
 
 /* Vinted arbitrage desk */

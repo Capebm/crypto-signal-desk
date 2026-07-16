@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import AgentDashboard from './features/agent/AgentDashboard'
+import CryptoApp from './features/CryptoApp'
 import Garimpo from './features/garimpo/Garimpo'
 import AppFooter from './components/AppFooter'
 
@@ -34,7 +34,7 @@ export default function App() {
           Crypto Desk
         </button>
       </nav>
-      {app === 'garimpo' ? <Garimpo /> : <AgentDashboard />}
+      {app === 'garimpo' ? <Garimpo /> : <CryptoApp />}
       <AppFooter />
     </>
   )
