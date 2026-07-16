@@ -6,7 +6,21 @@ import { BinanceGuideTeaser, BinanceOrderPanel } from './BinanceTradeGuide'
 import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
+import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import type { Interval } from '../../lib/types'
+import TpModeModal from './TpModeModal'
+
+const TP_STORAGE_KEY = 'tjr-tp-mode'
+
+const readStoredTpMode = (): TpMode => {
+  try {
+    const raw = localStorage.getItem(TP_STORAGE_KEY)
+    if (raw && (tpModes as string[]).includes(raw)) return raw as TpMode
+  } catch {
+    /* ignore */
+  }
+  return '1_5r'
+}
 
 type AgentRow = TjrDecision & {
   symbol: string
@@ -26,6 +40,9 @@ export default function AgentDashboard() {
   const [stakeIndex, setStakeIndex] = useState(1)
   const stakeOptions = [10, 20, 50, 100]
   const stakeUsdc = stakeOptions[stakeIndex]
+  const [tpIndex, setTpIndex] = useState(() => Math.max(0, tpModes.indexOf(readStoredTpMode())))
+  const [tpHelpOpen, setTpHelpOpen] = useState(false)
+  const tpMode = tpModes[tpIndex]
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('1h')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -33,6 +50,14 @@ export default function AgentDashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const [session, setSession] = useState(() => getTradingSessionStatus())
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TP_STORAGE_KEY, tpMode)
+    } catch {
+      /* ignore */
+    }
+  }, [tpMode])
 
   useEffect(() => {
     const tick = () => setSession(getTradingSessionStatus())
@@ -54,7 +79,7 @@ export default function AgentDashboard() {
       const started = Date.now()
       try {
         const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
-        const decision = evaluateTjrFull(symbol, data, btc, riskProfile)
+        const decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode)
         const patch = (row: AgentRow): AgentRow =>
           row.symbol === symbol ? { ...decision, symbol, price: row.price, change24h: row.change24h } : row
         setRows((prev) => prev.map(patch))
@@ -69,7 +94,7 @@ export default function AgentDashboard() {
         setLoadingFull(undefined)
       }
     })()
-  }, [selected?.symbol, riskProfile])
+  }, [selected?.symbol, riskProfile, tpMode])
 
   const scan = async () => {
     setRunning(true)
@@ -84,7 +109,7 @@ export default function AgentDashboard() {
         const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
           try {
             const candles1h = await getCandles(market.symbol, '1h')
-            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile)
+            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile, tpMode)
             const price = candles1h.at(-1)?.close ?? 0
             return { ...decision, symbol: market.symbol, price, change24h: market.priceChangePercent }
           } catch {
@@ -145,17 +170,40 @@ export default function AgentDashboard() {
           <p><strong>NY mid (11:00–15:00 ET):</strong> setups só como <strong>AGUARDAR COMPRA</strong> — volume mais sujo.</p>
           <p><strong>NY fecho (15:00–16:00 ET) + Ásia/fora:</strong> <strong>sem novas entradas</strong>.</p>
           <p><strong>Londres:</strong> permitido AGUARDAR; COMPRAR JÁ só no perfil agressivo.</p>
-          <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = draw sessão/PDH-PDL com R:R 1–3×.</p>
+          <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = conforme modo TP (1R / 1.5R / liquidez).</p>
         </div>
       </details>
 
-      <PositionAdvisor riskProfile={riskProfile} />
+      <PositionAdvisor riskProfile={riskProfile} tpMode={tpMode} />
 
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
         <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))} />
         <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
       </section>
+      <section className="tp-control">
+        <div>
+          <strong>
+            Take-profit: {tpModeMeta[tpMode].label}{' '}
+            <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button>
+          </strong>
+          <p>{tpModeMeta[tpMode].description}</p>
+        </div>
+        <input
+          aria-label="Modo de take-profit"
+          type="range"
+          min="0"
+          max="2"
+          step="1"
+          value={tpIndex}
+          onChange={(event) => {
+            setTpIndex(Number(event.target.value))
+            if (rows.length > 0) setStatus('Modo TP alterado — analisa de novo ou reabre um par para recalcular o alvo.')
+          }}
+        />
+        <div className="risk-labels"><span>1R</span><span>1.5R</span><span>Liquidez</span></div>
+      </section>
+      <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />
       <section className="stake-control">
         <div><strong>Montante por trade: {stakeUsdc} {AGENT_QUOTE_ASSET}</strong><p>Quantidade sugerida nos guias Binance (10–100 {AGENT_QUOTE_ASSET}). Mínimo da Binance: 1 {AGENT_QUOTE_ASSET} por ordem.</p></div>
         <input aria-label="Montante por trade" type="range" min="0" max="3" step="1" value={stakeIndex} onChange={(event) => setStakeIndex(Number(event.target.value))} />

@@ -1,4 +1,5 @@
 import { evaluateTjrFull, type TjrDecision } from './tjr-engine'
+import type { TpMode } from './tp-mode'
 import type { RiskProfile } from './risk-profile'
 import type { Candle } from './types'
 
@@ -122,9 +123,10 @@ export async function runPositionAdvice(
   profile: RiskProfile,
   fetchPlaybook: (symbol: string) => Promise<Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>>,
   btcSymbol: string,
+  tpMode: TpMode = '1_5r',
 ): Promise<PositionAdviceResult> {
   const [data, btc] = await Promise.all([fetchPlaybook(input.symbol), fetchPlaybook(btcSymbol)])
-  const decision = evaluateTjrFull(input.symbol, data, btc, profile)
+  const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode)
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition(input, currentPrice, decision)
 }

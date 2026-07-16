@@ -117,6 +117,26 @@ button:disabled { cursor: wait; opacity: .65; }
 .stake-control strong { color: #42d99e; }
 .stake-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }
 .stake-control input { accent-color: #42d99e; }
+.tp-control { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); gap: 10px 24px; align-items: center; margin: 0 0 18px; padding: 16px; border: 1px solid #5a4828; border-radius: 12px; background: #1a160f; }
+.tp-control strong { color: #e8c36a; display: inline-flex; align-items: center; gap: 8px; }
+.tp-control p { margin: 4px 0 0; color: #9db0c9; font-size: .86rem; }
+.tp-control input { accent-color: #e8c36a; }
+.tp-help-btn { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #8a7340; background: #2a2214; color: #e8c36a; font-size: .78rem; font-weight: 700; cursor: pointer; line-height: 1; padding: 0; }
+.tp-help-btn:hover { background: #3a2e18; }
+.agent-modal-bg { position: fixed; inset: 0; background: rgba(5, 8, 12, .72); display: grid; place-items: center; z-index: 60; padding: 20px; }
+.agent-modal { background: #0d1520; border: 1px solid #344d70; border-radius: 16px; width: 100%; max-width: 480px; max-height: 86vh; overflow: auto; }
+.agent-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid #243348; position: sticky; top: 0; background: #0d1520; }
+.agent-modal-head h2 { margin: 0; font-size: 1.15rem; }
+.agent-modal-head button { border: none; background: transparent; color: #9db0c9; font-size: 1.5rem; cursor: pointer; line-height: 1; }
+.agent-modal-body { padding: 18px; }
+.agent-modal-body p { margin: 0 0 14px; color: #aabbd2; line-height: 1.55; font-size: .95rem; }
+.tp-mode-explain-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.tp-mode-explain-list li { padding: 12px 14px; border: 1px solid #243348; border-radius: 10px; background: #0a121c; display: grid; gap: 4px; }
+.tp-mode-explain-list li.active { border-color: #e8c36a; background: #1a160f; }
+.tp-mode-explain-list strong { color: #e8eef8; }
+.tp-mode-explain-list span { color: #9db0c9; font-size: .88rem; line-height: 1.45; }
+.tp-mode-tip { font-size: .88rem !important; color: #c9b07a !important; }
+.agent-modal-ok { width: 100%; margin-top: 4px; padding: 12px 16px; border: none; border-radius: 10px; background: #e8c36a; color: #1a1408; font-weight: 700; cursor: pointer; }
 .risk-labels { grid-column: 2; display: flex; justify-content: space-between; color: #9db0c9; font-size: .72rem; }
 .agent-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 16px 0; padding: 12px; border: 1px solid #263b5a; border-radius: 12px; background: #101d30; }
 .agent-summary button { padding: 8px 10px; color: #c6d3e3; background: #1c2b42; font-size: .84rem; }
@@ -253,6 +273,7 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .agent-rules, .decision-grid, .decision-list, .card-expanded-main { grid-template-columns: 1fr; }
   .binance-order-groups { grid-template-columns: 1fr; }
   .risk-control { grid-template-columns: 1fr; }
+  .tp-control { grid-template-columns: 1fr; }
   .stake-control { grid-template-columns: 1fr; }
   .position-form { grid-template-columns: 1fr 1fr; }
   .position-form button { grid-column: 1 / -1; width: 100%; }

@@ -15,6 +15,7 @@ import {
   findTjrSwings,
 } from './tjr-structure'
 import { getTradingSessionStatus } from './trading-session'
+import { tpModeMeta, type TpMode } from './tp-mode'
 import type { Candle, Direction, PriceZone } from './types'
 
 export type EntryTiming = 'AGORA' | 'RETRACE' | 'NENHUM'
@@ -113,13 +114,14 @@ const liquidityTargets = (candles: Candle[], side: TradeSide): { price: number; 
   return filtered.sort((a, b) => (side === 'long' ? a.price - b.price : b.price - a.price))
 }
 
-/** Stop no 2º swing (TJR); alvo = melhor draw com R:R ∈ [minRr, 3R]. */
+/** Stop no 2º swing; alvo conforme modo TP (1R / 1.5R / liquidez). */
 const buildLevels = (
   side: TradeSide,
   entry: number,
   targetCandles: Candle[],
   exec: ReturnType<typeof structureSnapshot>,
   minRr: number,
+  tpMode: TpMode,
 ) => {
   const lows = exec.swings.filter((s) => s.type === 'low').map((s) => s.price)
   const highs = exec.swings.filter((s) => s.type === 'high').map((s) => s.price)
@@ -128,6 +130,13 @@ const buildLevels = (
     : (highs.at(-2) ?? highs.at(-1) ?? entry * 1.01) * 1.002
   const stop = side === 'long' ? computeLongStop(entry, rawStop) : computeShortStop(entry, rawStop)
   const risk = Math.abs(entry - stop)
+
+  const fixedMultiple = tpModeMeta[tpMode].multiple
+  if (fixedMultiple !== undefined) {
+    const target = side === 'long' ? entry + risk * fixedMultiple : entry - risk * fixedMultiple
+    return { entry, stop, target, riskReward: fixedMultiple }
+  }
+
   const candidates = liquidityTargets(targetCandles, side)
   const maxRr = 3
   let best: { price: number; rr: number; priority: number } | undefined
@@ -196,6 +205,7 @@ function evaluate(
   candles1m?: Candle[],
   execCandles?: Candle[],
   quickScan = false,
+  tpMode: TpMode = '1_5r',
 ): TjrDecision {
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
@@ -287,8 +297,8 @@ function evaluate(
       ? zoneMid(entryZone)
       : exec.price
 
-  const { entry: levelsEntry, stop, target, riskReward } = buildLevels(side, entryRef, primary1h, exec, minRr)
-  const rrOk = riskReward >= minRr && riskReward <= 3.05
+  const { entry: levelsEntry, stop, target, riskReward } = buildLevels(side, entryRef, primary1h, exec, minRr, tpMode)
+  const rrOk = tpMode === 'liquidez' ? riskReward >= minRr && riskReward <= 3.05 : riskReward >= (tpModeMeta[tpMode].multiple ?? minRr) * 0.99
   const setupReadyWithRr = setupReady && rrOk && entryTiming !== 'NENHUM'
 
   let sessionBlocked = false
@@ -349,7 +359,7 @@ function evaluate(
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? 'Sem EQ — agressivo ok.' : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
     { label: 'Alinhamento vs BTC', complete: indexAligned, note: symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
-    { label: `R:R ${minRr}–3×`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× até draw prioritário.` : `R:R ${riskReward.toFixed(2)}× fora da faixa.` },
+    { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
     { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : ''}.` },
   ]
 
@@ -455,11 +465,17 @@ export function tjrSortRank(decision: TjrDecision): number {
   return 6
 }
 
-export function evaluateTjrQuick(symbol: string, candles1h: Candle[], btc1h: Candle[], profile: RiskProfile): TjrDecision {
+export function evaluateTjrQuick(
+  symbol: string,
+  candles1h: Candle[],
+  btc1h: Candle[],
+  profile: RiskProfile,
+  tpMode: TpMode = '1_5r',
+): TjrDecision {
   const h1 = structureSnapshot(candles1h)
   const h4proxy = structureSnapshot(candles1h.slice(-80))
   const side = inferSide(h4proxy.trend, h1.trend, h1.sweep ?? h4proxy.sweep)
-  return evaluate(symbol, side, h4proxy, h1, h1, '15m', candles1h, btc1h, profile, undefined, candles1h, true)
+  return evaluate(symbol, side, h4proxy, h1, h1, '15m', candles1h, btc1h, profile, undefined, candles1h, true, tpMode)
 }
 
 export function evaluateTjrFull(
@@ -467,6 +483,7 @@ export function evaluateTjrFull(
   data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
   btc: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
   profile: RiskProfile,
+  tpMode: TpMode = '1_5r',
 ): TjrDecision {
   const h4 = structureSnapshot(data['4h'])
   const h1 = structureSnapshot(data['1h'])
@@ -474,5 +491,5 @@ export function evaluateTjrFull(
   const execLabel = aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
   const side = inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
-  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false)
+  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode)
 }

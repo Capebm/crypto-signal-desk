@@ -8,6 +8,7 @@ import {
   type PositionAdviceResult,
 } from '../../lib/position-advisor'
 import type { RiskProfile } from '../../lib/risk-profile'
+import type { TpMode } from '../../lib/tp-mode'
 
 const STORAGE_KEY = 'tjr-open-positions'
 
@@ -25,9 +26,9 @@ const adviceClass = (advice: PositionAdvice) => {
   return 'pos-manter'
 }
 
-type Props = { riskProfile: RiskProfile }
+type Props = { riskProfile: RiskProfile; tpMode: TpMode }
 
-export default function PositionAdvisor({ riskProfile }: Props) {
+export default function PositionAdvisor({ riskProfile, tpMode }: Props) {
   const [base, setBase] = useState('PEOPLE')
   const [entryPrice, setEntryPrice] = useState('')
   const [quantity, setQuantity] = useState('')
@@ -73,6 +74,7 @@ export default function PositionAdvisor({ riskProfile }: Props) {
         riskProfile,
         getPlaybookCandles,
         BTC_REFERENCE_SYMBOL,
+        tpMode,
       )
       setResult(advice)
     } catch {
