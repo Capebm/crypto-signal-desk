@@ -484,12 +484,13 @@ export function evaluateTjrFull(
   btc: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
   profile: RiskProfile,
   tpMode: TpMode = '1_5r',
+  forcedSide?: TradeSide,
 ): TjrDecision {
   const h4 = structureSnapshot(data['4h'])
   const h1 = structureSnapshot(data['1h'])
   const aligned = h4.trend === h1.trend && h4.trend !== 'neutral'
   const execLabel = aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
-  const side = inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
+  const side = forcedSide ?? inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
   return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode)
 }

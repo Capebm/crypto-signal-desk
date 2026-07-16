@@ -116,7 +116,7 @@ export default function PositionAdvisor({ riskProfile, tpMode }: Props) {
         </label>
         <label>
           O teu stop <span className="optional">(opc.)</span>
-          <input value={userStop} onChange={(e) => setUserStop(e.target.value)} placeholder="0.00530" inputMode="decimal" />
+          <input value={userStop} onChange={(e) => setUserStop(e.target.value)} placeholder="abaixo da entrada" inputMode="decimal" />
         </label>
         <button type="submit" disabled={loading}>{loading ? 'A analisar…' : 'Analisar posição'}</button>
       </form>

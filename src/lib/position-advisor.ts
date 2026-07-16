@@ -38,8 +38,10 @@ export function adviseOpenPosition(
   decision: TjrDecision,
 ): PositionAdviceResult {
   const { entryPrice, quantity, userStop } = input
-  const stop = userStop ?? decision.stop
-  const target = decision.target
+  const invalidUserStop = userStop !== undefined && userStop >= entryPrice
+  const structuralStop = decision.stop !== undefined && decision.stop < entryPrice ? decision.stop : undefined
+  const stop = !invalidUserStop && userStop !== undefined ? userStop : structuralStop
+  const target = decision.target !== undefined && decision.target > entryPrice ? decision.target : undefined
   const riskPerUnit = stop !== undefined ? Math.abs(entryPrice - stop) : entryPrice * 0.035
   const pnlPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0
   const pnlUsdc = quantity !== undefined ? (currentPrice - entryPrice) * quantity : undefined
@@ -60,6 +62,10 @@ export function adviseOpenPosition(
 
   let advice: PositionAdvice
   const reasons: string[] = []
+
+  if (invalidUserStop) {
+    reasons.push('Stop acima da entrada ignorado — em Spot long o stop fica abaixo do Cost Price.')
+  }
 
   if (stopHit) {
     advice = 'SAIR'
@@ -126,7 +132,7 @@ export async function runPositionAdvice(
   tpMode: TpMode = '1_5r',
 ): Promise<PositionAdviceResult> {
   const [data, btc] = await Promise.all([fetchPlaybook(input.symbol), fetchPlaybook(btcSymbol)])
-  const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode)
+  const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode, 'long')
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition(input, currentPrice, decision)
 }
