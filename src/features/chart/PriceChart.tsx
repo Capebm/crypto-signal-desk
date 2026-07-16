@@ -24,6 +24,9 @@ type Props = {
   entry?: number
   stop?: number
   target?: number
+  targetSecondary?: number
+  targetLabel?: string
+  targetSecondaryLabel?: string
   zones?: PriceZone[]
 }
 
@@ -39,7 +42,7 @@ const sessionIntervals: Interval[] = ['5m', '15m', '1h']
 
 const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
 
-export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, zones = [] }: Props) {
+export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, zones = [] }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [message, setMessage] = useState('A carregar gráfico…')
   const [showSessions, setShowSessions] = useState(true)
@@ -70,7 +73,8 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       ema50.setData(ema(closes, 50).map((value, index) => ({ time: time(rows[index].openTime), value })))
       if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#42d99e' : action === 'VENDER' ? '#f57b88' : '#f5c451', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
       if (stop) candles.createPriceLine({ price: stop, color: '#f57b88', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
-      if (target) candles.createPriceLine({ price: target, color: '#42d99e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Alvo' })
+      if (target) candles.createPriceLine({ price: target, color: '#42d99e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
+      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#76a7ff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
       for (const zone of zones) {
         if (zone.kind === 'fair-value-gap') {
           candles.createPriceLine({ price: zone.low, color: '#76a7ff99', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
@@ -101,7 +105,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     const resize = new ResizeObserver(() => chart.applyOptions({ width: host.current?.clientWidth ?? 0 }))
     resize.observe(host.current)
     return () => { active = false; resize.disconnect(); chart.remove() }
-  }, [symbol, action, interval, entry, stop, target, showSessions, zones])
+  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, showSessions, zones])
 
   return (
     <div className="chart-host">

@@ -41,6 +41,11 @@ export type TjrDecision = Decision & {
   executionInterval?: '5m' | '15m'
   zones: PriceZone[]
   exitPlan?: ExitPlan
+  /** Nível HTF do alvo principal (modo liquidez). */
+  targetLabel?: string
+  /** 2.º alvo de baixa resistência — realização parcial estilo TJR. */
+  targetSecondary?: number
+  targetSecondaryLabel?: string
 }
 
 type TradeSide = 'long' | 'short'
@@ -96,22 +101,40 @@ const zoneMid = (zone: { low: number; high: number }) => (zone.low + zone.high) 
 const priceZoneLabel = (zone: { low: number; high: number }) =>
   `${zone.low.toPrecision(4)}–${zone.high.toPrecision(4)}`
 
-const liquidityTargets = (candles: Candle[], side: TradeSide): { price: number; priority: number }[] => {
+type LiquidityLevel = { price: number; priority: number; label: string }
+
+const liquidityTargets = (candles: Candle[], side: TradeSide): LiquidityLevel[] => {
   const session = latestSessionLevels(candles)
   const prevDay = previousDayLevels(candles)
   const swings = findTjrSwings(candles)
   const swingHigh = swings.filter((s) => s.type === 'high').at(-1)?.price
   const swingLow = swings.filter((s) => s.type === 'low').at(-1)?.price
-  const scored: { price: number; priority: number }[] = []
-  for (const line of session) scored.push({ price: line.price, priority: line.session === 'newyork' ? 3 : line.session === 'london' ? 2 : 1 })
-  for (const line of prevDay) scored.push({ price: line.price, priority: 4 })
-  if (swingHigh !== undefined) scored.push({ price: swingHigh, priority: 0 })
-  if (swingLow !== undefined) scored.push({ price: swingLow, priority: 0 })
+  const scored: LiquidityLevel[] = []
+  for (const line of session) {
+    scored.push({
+      price: line.price,
+      priority: line.session === 'newyork' ? 3 : line.session === 'london' ? 2 : 1,
+      label: line.title,
+    })
+  }
+  for (const line of prevDay) scored.push({ price: line.price, priority: 4, label: line.title })
+  if (swingHigh !== undefined) scored.push({ price: swingHigh, priority: 0, label: 'Swing H' })
+  if (swingLow !== undefined) scored.push({ price: swingLow, priority: 0, label: 'Swing L' })
   const price = candles.at(-1)?.close ?? 0
   const filtered = side === 'long'
     ? scored.filter((l) => l.price > price)
     : scored.filter((l) => l.price < price)
   return filtered.sort((a, b) => (side === 'long' ? a.price - b.price : b.price - a.price))
+}
+
+type LevelPlan = {
+  entry: number
+  stop: number
+  target: number
+  riskReward: number
+  targetLabel?: string
+  targetSecondary?: number
+  targetSecondaryLabel?: string
 }
 
 /** Stop no 2º swing; alvo conforme modo TP (1R / 1.5R / liquidez). */
@@ -122,7 +145,7 @@ const buildLevels = (
   exec: ReturnType<typeof structureSnapshot>,
   minRr: number,
   tpMode: TpMode,
-) => {
+): LevelPlan => {
   const lows = exec.swings.filter((s) => s.type === 'low').map((s) => s.price)
   const highs = exec.swings.filter((s) => s.type === 'high').map((s) => s.price)
   const rawStop = side === 'long'
@@ -139,35 +162,70 @@ const buildLevels = (
 
   const candidates = liquidityTargets(targetCandles, side)
   const maxRr = 3
-  let best: { price: number; rr: number; priority: number } | undefined
+  let best: { price: number; rr: number; priority: number; label: string } | undefined
   for (const level of candidates) {
     const reward = Math.abs(level.price - entry)
     const rr = risk > 0 ? reward / risk : 0
     if (rr < minRr || rr > maxRr) continue
     if (!best || level.priority > best.priority || (level.priority === best.priority && Math.abs(rr - 1.5) < Math.abs(best.rr - 1.5))) {
-      best = { price: level.price, rr, priority: level.priority }
+      best = { price: level.price, rr, priority: level.priority, label: level.label }
     }
   }
-  const fallback = candidates[0]?.price ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
-  const target = best?.price ?? fallback
+  const fallbackLevel = candidates[0]
+  const target = best?.price ?? fallbackLevel?.price ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
+  const targetLabel = best?.label ?? fallbackLevel?.label
   const reward = Math.abs(target - entry)
   const riskReward = risk > 0 ? reward / risk : 0
-  return { entry, stop, target, riskReward }
+
+  const minGap = entry * 0.003
+  const secondary = candidates.find((level) => {
+    if (Math.abs(level.price - target) < minGap) return false
+    const rr2 = risk > 0 ? Math.abs(level.price - entry) / risk : 0
+    return side === 'long' ? level.price > target && rr2 <= maxRr + 0.5 : level.price < target && rr2 <= maxRr + 0.5
+  })
+
+  return {
+    entry,
+    stop,
+    target,
+    riskReward,
+    targetLabel,
+    targetSecondary: secondary?.price,
+    targetSecondaryLabel: secondary?.label,
+  }
 }
 
-const buildExitPlan = (side: TradeSide, stop: number, target: number, entryTiming: EntryTiming): ExitPlan | undefined => {
+const buildExitPlan = (
+  side: TradeSide,
+  stop: number,
+  target: number,
+  entryTiming: EntryTiming,
+  targetSecondary?: number,
+  targetLabel?: string,
+  targetSecondaryLabel?: string,
+): ExitPlan | undefined => {
   if (entryTiming === 'NENHUM') return undefined
   if (side === 'long') {
+    const partial = targetSecondary !== undefined
     return {
       stopLoss: stop,
       takeProfit: target,
-      note: 'Spot long: protege com stop e realiza no alvo de liquidez.',
-      steps: [
-        'Ao entrar: stop-loss em stop (ordem stop-limit ou OCO).',
-        'Take-profit limit em target — liquidez oposta (sessão/swing).',
-        'Re-analisa periodicamente: se o agente mostrar SAIR — INVALIDADO, vende.',
-        'Após +1R de lucro, podes subir o stop para abaixo do último swing low.',
-      ],
+      note: partial
+        ? `Spot long TJR: realiza 50% em ${targetLabel ?? 'TP1'} e resto em ${targetSecondaryLabel ?? 'TP2'}.`
+        : 'Spot long: protege com stop e realiza no alvo de liquidez.',
+      steps: partial
+        ? [
+            'OCO com 50%: TP limit no 1.º draw HTF (baixa resistência) + stop abaixo do swing.',
+            `Limit sell 50% restante em ${targetSecondaryLabel ?? '2.º alvo'} — só coloca após fill da compra.`,
+            'Re-analisa: cartão SAIR = vende o resto a mercado.',
+            'Após +1R, podes subir stop para abaixo do último swing low.',
+          ]
+        : [
+            'Ao entrar: stop-loss em stop (ordem stop-limit ou OCO).',
+            `Take-profit limit em target${targetLabel ? ` (${targetLabel})` : ''} — liquidez oposta.`,
+            'Re-analisa periodicamente: se o agente mostrar SAIR — INVALIDADO, vende.',
+            'Após +1R de lucro, podes subir o stop para abaixo do último swing low.',
+          ],
     }
   }
   return {
@@ -297,7 +355,15 @@ function evaluate(
       ? zoneMid(entryZone)
       : exec.price
 
-  const { entry: levelsEntry, stop, target, riskReward } = buildLevels(side, entryRef, primary1h, exec, minRr, tpMode)
+  const {
+    entry: levelsEntry,
+    stop,
+    target,
+    riskReward,
+    targetLabel,
+    targetSecondary,
+    targetSecondaryLabel,
+  } = buildLevels(side, entryRef, primary1h, exec, minRr, tpMode)
   const rrOk = tpMode === 'liquidez' ? riskReward >= minRr && riskReward <= 3.05 : riskReward >= (tpModeMeta[tpMode].multiple ?? minRr) * 0.99
   const setupReadyWithRr = setupReady && rrOk && entryTiming !== 'NENHUM'
 
@@ -406,7 +472,18 @@ function evaluate(
     checklist,
     executionInterval: execLabel,
     zones: collectZones(h4, h1, exec),
-    exitPlan: buildExitPlan(side, stop, target, resolvedTiming === 'NENHUM' ? 'RETRACE' : resolvedTiming),
+    targetLabel,
+    targetSecondary,
+    targetSecondaryLabel,
+    exitPlan: buildExitPlan(
+      side,
+      stop,
+      target,
+      resolvedTiming === 'NENHUM' ? 'RETRACE' : resolvedTiming,
+      targetSecondary,
+      targetLabel,
+      targetSecondaryLabel,
+    ),
   }, minRr)
 }
 

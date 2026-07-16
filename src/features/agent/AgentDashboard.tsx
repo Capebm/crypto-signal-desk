@@ -50,6 +50,7 @@ export default function AgentDashboard() {
   const [chartInterval, setChartInterval] = useState<Interval>('1h')
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedSymbols, setRefinedSymbols] = useState<Set<string>>(() => new Set())
+  const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode }>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const [session, setSession] = useState(() => getTradingSessionStatus())
@@ -149,6 +150,7 @@ export default function AgentDashboard() {
       } else {
         setStatus(`${results.length} moedas analisadas. Nenhum candidato COMPRAR no scan 1h.`)
       }
+      setScanMeta({ at: new Date(), profile: riskProfile, tpMode })
     } catch {
       setStatus('Não foi possível obter os dados da Binance. Tenta novamente.')
     } finally {
@@ -172,6 +174,11 @@ export default function AgentDashboard() {
     if (filter === 'VENDER') return row.action === 'VENDER'
     return row.action === 'ESPERAR'
   })
+
+  const scanStale = Boolean(scanMeta && (scanMeta.profile !== riskProfile || scanMeta.tpMode !== tpMode))
+  const scanTimeLabel = scanMeta
+    ? new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(scanMeta.at)
+    : undefined
 
   return (
     <main className="agent-shell">
@@ -206,7 +213,10 @@ export default function AgentDashboard() {
 
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
-        <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))} />
+        <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => {
+          setRiskIndex(Number(event.target.value))
+          if (rows.length > 0) setStatus('Perfil alterado — analisa de novo ou reabre um par para recalcular.')
+        }} />
         <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
       </section>
       <section className="tp-control">
@@ -239,6 +249,15 @@ export default function AgentDashboard() {
       </section>
 
       <p className="agent-status">{status}</p>
+      {rows.length > 0 && scanTimeLabel && (
+        <p className={`scan-meta${scanStale ? ' stale' : ''}`}>
+          Scan: {scanTimeLabel} · {riskProfiles[scanMeta!.profile].label} · TP {tpModeMeta[scanMeta!.tpMode].short}
+          {scanStale && <> · <strong>Perfil ou TP mudou — analisa de novo para recalcular.</strong></>}
+          {counts.COMPRAR_JA === 0 && riskProfile === 'conservador' && !session.inIdealWindow && (
+            <> · Conservador: COMPRAR JÁ só na NY open (09:30–11:00 ET).</>
+          )}
+        </p>
+      )}
       {rows.length > 0 && <>
         <section className="agent-summary">
           <button className={filter === 'TODAS' ? 'active' : ''} onClick={() => setFilter('TODAS')}>Todas <span>{rows.length}</span></button>
@@ -284,10 +303,13 @@ export default function AgentDashboard() {
               <dl>
                 <div><dt>{row.entryTiming === 'RETRACE' ? 'Zona entrada' : 'Entrada'}</dt><dd>{price(row.entry)}</dd></div>
                 <div><dt>Stop</dt><dd>{price(row.stop)}</dd></div>
-                <div><dt>Alvo (venda)</dt><dd>{price(row.target)}</dd></div>
+                <div><dt>Alvo (venda)</dt><dd>{price(row.target)}{row.targetLabel ? ` · ${row.targetLabel}` : ''}</dd></div>
+                {row.targetSecondary !== undefined && (
+                  <div><dt>Alvo 2</dt><dd>{price(row.targetSecondary)}{row.targetSecondaryLabel ? ` · ${row.targetSecondaryLabel}` : ''}</dd></div>
+                )}
                 <div><dt>Risco/retorno</dt><dd>{row.riskReward?.toFixed(1) ?? '—'}×</dd></div>
               </dl>
-              <BinanceGuideTeaser row={row} />
+              <BinanceGuideTeaser row={row} tpMode={tpMode} />
             </article>
             {selected?.symbol === row.symbol && (
               <section className="card-expanded">
@@ -296,6 +318,7 @@ export default function AgentDashboard() {
                   stakeUsdc={stakeUsdc}
                   analysisReady={refinedSymbols.has(row.symbol)}
                   refining={loadingFull === row.symbol}
+                  tpMode={tpMode}
                 />
                 <div className="card-expanded-main">
                   <article className="chart-panel">
@@ -305,7 +328,7 @@ export default function AgentDashboard() {
                         {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
                       </span>
                     </header>
-                    <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} zones={row.zones} />
+                    <PriceChart symbol={row.symbol} action={row.action} interval={chartInterval} onIntervalChange={setChartInterval} entry={row.entry} stop={row.stop} target={row.target} targetSecondary={row.targetSecondary} targetLabel={row.targetLabel} targetSecondaryLabel={row.targetSecondaryLabel} zones={row.zones} />
                   </article>
                   <aside className="evidence-panel compact">
                     {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
@@ -329,6 +352,12 @@ export default function AgentDashboard() {
                         <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
                       )}
                       {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
+                      {row.exitPlan && row.action === 'COMPRAR' && (
+                        <div className="exit-plan">
+                          <p><strong>Plano de saída:</strong> {row.exitPlan.note}</p>
+                          <ol>{row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+                        </div>
+                      )}
                       <section className="bos-guide compact">
                         <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
                       </section>

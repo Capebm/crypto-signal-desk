@@ -18,6 +18,6 @@ export const tpModeMeta: Record<TpMode, { label: string; short: string; multiple
   liquidez: {
     label: 'TP liquidez (TJR)',
     short: 'Liquidez',
-    description: 'Alvo no próximo draw HTF (PDH/PDL, sessão NY/Londres) com R:R entre o mínimo do perfil e 3×. Pode ficar mais longe — melhor R:R, mas mais stops em alts ruidosas.',
+    description: 'Saída na baixa resistência: 1.º alvo no draw HTF mais próximo (NY H/L, dia ant., swing). Se existir 2.º nível, o painel Binance sugere 50% + 50%. Entrada continua a ser sweep + discount — estilo TJR.',
   },
 }
