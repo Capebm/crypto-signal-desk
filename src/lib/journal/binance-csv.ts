@@ -2,15 +2,29 @@ import type { BinanceFill } from './types'
 
 const normalizeHeader = (value: string) => value.toLowerCase().replace(/^\ufeff/, '').replace(/[^a-z0-9]/g, '')
 
+const buildHeaders = (rawHeaders: string[]) => {
+  const counts: Record<string, number> = {}
+  return rawHeaders.map((raw) => {
+    const base = normalizeHeader(raw)
+    const seen = counts[base] ?? 0
+    counts[base] = seen + 1
+    return seen === 0 ? base : `${base}${seen + 1}`
+  })
+}
+
 const detectDelimiter = (line: string) => {
   const commas = (line.match(/,/g) ?? []).length
   const semis = (line.match(/;/g) ?? []).length
   return semis > commas ? ';' : ','
 }
 
+/** Binance appends asset tickers: 17.9XRP, 19.95671USDC, 6024F */
 const parseNumber = (raw: string) => {
   let cleaned = raw.replace(/"/g, '').trim()
   if (!cleaned) return NaN
+  const numeric = cleaned.match(/^[\d.,]+/)
+  if (!numeric) return NaN
+  cleaned = numeric[0]
   if (/^\d{1,3}(\.\d{3})+,\d+$/.test(cleaned)) {
     cleaned = cleaned.replace(/\./g, '').replace(',', '.')
   } else {
@@ -50,6 +64,7 @@ const pick = (row: Record<string, string>, keys: string[]) => {
 
 const isBlockedStatus = (status: string) => {
   const normalized = status.toLowerCase().replace(/\s/g, '')
+  if (normalized === 'filled') return false
   return ['canceled', 'cancelled', 'expired', 'rejected', 'failed', 'new', 'pending', 'open'].some(
     (blocked) => normalized.includes(blocked),
   )
@@ -63,7 +78,7 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
   if (lines.length < 2) return []
 
   const delimiter = detectDelimiter(lines[0])
-  const headers = splitCsvLine(lines[0], delimiter).map(normalizeHeader)
+  const headers = buildHeaders(splitCsvLine(lines[0], delimiter))
   const fills: BinanceFill[] = []
 
   for (let index = 1; index < lines.length; index += 1) {
@@ -75,13 +90,14 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
       row[header] = cells[cellIndex] ?? ''
     })
 
-    const status = pick(row, ['status', 'state', 'orderstatus'])?.replace(/"/g, '') ?? ''
+    const status = pick(row, ['status', 'state', 'orderstatus'])?.replace(/"/g, '').trim() ?? ''
+    if (status && isBlockedStatus(status)) continue
 
     const side = parseSide(pick(row, ['side', 'operation']) ?? '')
     if (!side) continue
 
     const time = parseTime(
-      pick(row, ['dateutc', 'utctime', 'utc_time', 'time', 'date', 'timestamp', 'datetime']) ?? '',
+      pick(row, ['time2', 'dateutc', 'utctime', 'utc_time', 'time', 'date', 'timestamp', 'datetime']) ?? '',
     )
     if (time === undefined) continue
 
@@ -95,9 +111,9 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
 
     const price = parseNumber(
       pick(row, [
+        'averageprice',
         'price',
         'avgtradingprice',
-        'averageprice',
         'avgprice',
         'orderprice',
         'tradeprice',
@@ -106,8 +122,9 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
     )
     const quantity = parseNumber(
       pick(row, [
-        'amount',
         'executed',
+        'executed2',
+        'amount',
         'filled',
         'executedqty',
         'executedamount',
@@ -117,15 +134,17 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
       ]) ?? '',
     )
     if (!Number.isFinite(price) || !Number.isFinite(quantity) || price <= 0 || quantity <= 0) continue
-    if (status && isBlockedStatus(status)) continue
 
-    let quoteAmount = parseNumber(pick(row, ['total', 'quoteqty', 'executedquote', 'executedtotal']) ?? '')
+    let quoteAmount = parseNumber(
+      pick(row, ['tradingtotal', 'total', 'quoteqty', 'executedquote', 'executedtotal']) ?? '',
+    )
     if (!Number.isFinite(quoteAmount) || quoteAmount <= 0) quoteAmount = price * quantity
 
     const fee = parseNumber(pick(row, ['fee', 'commission']) ?? '')
     const feeAsset = pick(row, ['feecoin', 'commissionasset', 'feeasset', 'feecurrency'])?.replace(/"/g, '').toUpperCase()
+    const orderNo = pick(row, ['orderno', 'ordernumber', 'orderid']) ?? String(index)
 
-    const id = `${time}-${pair}-${side}-${price}-${quantity}-${index}`
+    const id = `${orderNo}-${pair}-${side}-${time}`
     fills.push({
       id,
       time,

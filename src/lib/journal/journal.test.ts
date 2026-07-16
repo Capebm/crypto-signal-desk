@@ -19,6 +19,12 @@ const dataDownloadCsv = `"Date(UTC)","Order No.","Pair","Type","Side","Average P
 "2026-07-14 13:51:30","123","TOWNS/USDC","MARKET","BUY","0.00203","9852","19.99956","FILLED"
 `
 
+const binanceAppCsv = `Time,OrderNo,Pair,Type¹,Side,Order Price,Order Amount,Time,Executed²,Average Price,Trading total³,Status
+2026-07-15 18:37:22,3503782180,XRPUSDC,MARKET,BUY,0,17.9XRP,2026-07-15 18:37:22,17.9XRP,1.1149,19.95671USDC,Filled,
+2026-07-14 13:51:30,43987008,TOWNSUSDC,MARKET,BUY,0,9852TOWNS,2026-07-14 13:51:30,9852TOWNS,0.00203,19.99956USDC,Filled,
+2026-07-14 13:18:34,43982363,TOWNSUSDC,STOP_LOSS_LIMIT,SELL,0.00208,9478TOWNS,2026-07-14 13:22:10,9478TOWNS,0.00208,19.71424USDC,Filled,
+`
+
 describe('parseBinanceCsv', () => {
   it('parses standard Binance spot trade export', () => {
     const fills = parseBinanceCsv(sampleCsv)
@@ -39,6 +45,17 @@ describe('parseBinanceCsv', () => {
     expect(fills).toHaveLength(1)
     expect(fills[0].symbol).toBe('TOWNSUSDC')
     expect(fills[0].quantity).toBe(9852)
+  })
+
+  it('parses Binance mobile/app order history export with asset suffixes', () => {
+    const fills = parseBinanceCsv(binanceAppCsv)
+    expect(fills).toHaveLength(3)
+    const xrp = fills.find((fill) => fill.symbol === 'XRPUSDC')
+    expect(xrp?.quantity).toBe(17.9)
+    const townsBuy = fills.find((fill) => fill.symbol === 'TOWNSUSDC' && fill.side === 'BUY')
+    expect(townsBuy?.price).toBe(0.00203)
+    const townsSell = fills.find((fill) => fill.symbol === 'TOWNSUSDC' && fill.side === 'SELL')
+    expect(townsSell?.side).toBe('SELL')
   })
 })
 
