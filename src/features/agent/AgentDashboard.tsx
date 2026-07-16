@@ -400,7 +400,7 @@ export default function AgentDashboard() {
         </section>
 
         <div className={`setup-preset-bar${scanStale ? ' stale' : ''}`}>
-          <span className="setup-preset-label">Setup activo</span>
+          <span className="setup-preset-label">Setup</span>
           <span>{riskProfiles[riskProfile].label}</span>
           <span>·</span>
           <span>TP {tpModeMeta[tpMode].short}</span>
@@ -417,8 +417,84 @@ export default function AgentDashboard() {
               <span className="setup-preset-scan">Scan {scanTimeLabel}</span>
             </>
           )}
-          {scanStale && <strong className="setup-preset-warn"> · config mudou — re-analisa</strong>}
+          {scanStale && <strong className="setup-preset-warn"> · re-analisa</strong>}
         </div>
+
+        <section className="setup-sliders" aria-label="Sliders de setup e montante">
+          <div className="setup-slider risk">
+            <header>
+              <strong>Risco</strong>
+              <span>{riskProfiles[riskProfile].label}</span>
+            </header>
+            <input
+              aria-label="Perfil de risco"
+              type="range"
+              min="0"
+              max="2"
+              step="1"
+              value={riskIndex}
+              onChange={(event) => {
+                setRiskIndex(Number(event.target.value))
+                if (rows.length > 0) setStatus('Perfil alterado — aplica e re-analisa para recalcular.')
+              }}
+            />
+            <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
+          </div>
+          <div className="setup-slider tp">
+            <header>
+              <strong>
+                Take-profit
+                <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button>
+              </strong>
+              <span>{tpModeMeta[tpMode].short}</span>
+            </header>
+            <input
+              aria-label="Modo de take-profit"
+              type="range"
+              min="0"
+              max="2"
+              step="1"
+              value={tpIndex}
+              onChange={(event) => {
+                setTpIndex(Number(event.target.value))
+                if (rows.length > 0) setStatus('Modo TP alterado — aplica e re-analisa para recalcular o alvo.')
+              }}
+            />
+            <div className="risk-labels"><span>1R</span><span>1.5R</span><span>Liquidez</span></div>
+          </div>
+          <div className="setup-slider stake">
+            <header>
+              <strong>Montante</strong>
+              <span>{stakeUsdc} {AGENT_QUOTE_ASSET} · {stakePct.toFixed(0)}%</span>
+            </header>
+            <input
+              aria-label="Montante por trade"
+              type="range"
+              min="0"
+              max={STAKE_OPTIONS.length - 1}
+              step="1"
+              value={stakeIndex}
+              onChange={(event) => setStakeIndex(Number(event.target.value))}
+            />
+            <div className="risk-labels stake-labels">{STAKE_OPTIONS.map((value) => <span key={value}>{value}</span>)}</div>
+            <label className="account-size-field inline">
+              Conta
+              <input
+                type="number"
+                min={50}
+                step={10}
+                value={accountUsdc}
+                onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
+              />
+            </label>
+          </div>
+          {rows.length > 0 && (
+            <button type="button" className="setup-reapply" onClick={() => void scan()} disabled={running}>
+              {running ? 'A analisar…' : 'Aplicar + scan'}
+            </button>
+          )}
+        </section>
+
         <ActivePositionPin
           riskProfile={riskProfile}
           tpMode={tpMode}
@@ -441,7 +517,7 @@ export default function AgentDashboard() {
       {rows.length === 0 && !running && (
         <section className="scan-empty scan-welcome">
           <h2>Mesa de trading Spot TJR</h2>
-          <p>Ajusta o setup abaixo e carrega <strong>Analisar mercado</strong> na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
+          <p>Ajusta os <strong>sliders de setup</strong> (risco · TP · montante) acima e carrega <strong>Analisar mercado</strong> na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
           {nyClock && !session.inIdealWindow && (
             <p className="scan-empty-hint">Agora: <strong>{nyClock.status}</strong> · {session.badge}</p>
           )}
@@ -479,47 +555,11 @@ export default function AgentDashboard() {
       )}
 
       <details className="agent-panel">
-        <summary>Configuração · risco · TP · montante</summary>
-        <div className="agent-panel-body">
-          <section className="risk-control">
-            <div><strong>Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
-            <input aria-label="Perfil de risco" type="range" min="0" max="2" step="1" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))} />
-            <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
-          </section>
-          <section className="tp-control">
-            <div>
-              <strong>
-                Take-profit: {tpModeMeta[tpMode].label}{' '}
-                <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button>
-              </strong>
-              <p>{tpModeMeta[tpMode].description}</p>
-            </div>
-            <input aria-label="Modo de take-profit" type="range" min="0" max="2" step="1" value={tpIndex} onChange={(event) => setTpIndex(Number(event.target.value))} />
-            <div className="risk-labels"><span>1R</span><span>1.5R</span><span>Liquidez</span></div>
-          </section>
-          <section className="stake-control">
-            <div>
-              <strong>Montante por trade: {stakeUsdc} {AGENT_QUOTE_ASSET}</strong>
-              <p>~{stakePct.toFixed(1)}% da conta ({accountUsdc} {AGENT_QUOTE_ASSET}). Mínimo Binance: 1 {AGENT_QUOTE_ASSET}.</p>
-            </div>
-            <input aria-label="Montante por trade" type="range" min="0" max={STAKE_OPTIONS.length - 1} step="1" value={stakeIndex} onChange={(event) => setStakeIndex(Number(event.target.value))} />
-            <div className="risk-labels">{STAKE_OPTIONS.map((value) => <span key={value}>{value}</span>)}</div>
-            <label className="account-size-field">
-              Conta total ({AGENT_QUOTE_ASSET})
-              <input
-                type="number"
-                min={50}
-                step={10}
-                value={accountUsdc}
-                onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
-              />
-            </label>
-          </section>
-          {rows.length > 0 && (
-            <button type="button" className="agent-reapply-btn" onClick={() => void scan()} disabled={running}>
-              Aplicar setup e re-analisar
-            </button>
-          )}
+        <summary>Ajuda setup · o que muda cada slider</summary>
+        <div className="agent-panel-body setup-help">
+          <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description}</p>
+          <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
+          <p><strong>Montante:</strong> {stakeUsdc} {AGENT_QUOTE_ASSET} ≈ {stakePct.toFixed(1)}% da conta ({accountUsdc} {AGENT_QUOTE_ASSET}). Usado no painel Binance e no preview de lucro nos cartões.</p>
         </div>
       </details>
       <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />

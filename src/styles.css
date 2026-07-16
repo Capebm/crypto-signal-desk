@@ -169,6 +169,92 @@ button:disabled { cursor: wait; opacity: .65; }
 .setup-preset-label { color: var(--tv-text-muted); font-weight: 700; text-transform: uppercase; font-size: .66rem; letter-spacing: .06em; }
 .setup-preset-warn { color: var(--tv-orange); font-weight: 600; }
 .setup-preset-scan { color: var(--tv-text-secondary); }
+.setup-sliders {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  margin-top: 8px;
+  align-items: end;
+}
+.setup-slider {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--tv-border);
+  border-radius: 4px;
+  background: var(--tv-panel);
+}
+.setup-slider header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.setup-slider header strong { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--tv-text); font-weight: 700; }
+.setup-slider header span { font-size: .72rem; color: var(--tv-text-muted); font-variant-numeric: tabular-nums; }
+.setup-slider.risk header strong { color: var(--tv-blue); }
+.setup-slider.tp header strong { color: var(--tv-orange); }
+.setup-slider.stake header strong { color: var(--tv-green); }
+.setup-slider .risk-labels { grid-column: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: .62rem; color: var(--tv-text-muted); justify-content: initial; }
+.setup-slider .risk-labels.stake-labels { grid-template-columns: repeat(6, 1fr); }
+.setup-slider input[type="range"] {
+  width: 100%;
+  height: 4px;
+  margin: 4px 0;
+  appearance: none;
+  background: var(--tv-toolbar);
+  border-radius: 2px;
+  outline: none;
+}
+.setup-slider.risk input[type="range"] { accent-color: var(--tv-blue); }
+.setup-slider.tp input[type="range"] { accent-color: var(--tv-orange); }
+.setup-slider.stake input[type="range"] { accent-color: var(--tv-green); }
+.setup-slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--tv-text);
+  border: 2px solid var(--tv-blue);
+  cursor: pointer;
+}
+.setup-slider.tp input[type="range"]::-webkit-slider-thumb { border-color: var(--tv-orange); }
+.setup-slider.stake input[type="range"]::-webkit-slider-thumb { border-color: var(--tv-green); }
+.setup-slider input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--tv-text);
+  border: 2px solid var(--tv-blue);
+  cursor: pointer;
+}
+.account-size-field.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: .68rem;
+  color: var(--tv-text-muted);
+  font-weight: 600;
+}
+.account-size-field.inline input {
+  width: 72px;
+  max-width: none;
+  padding: 4px 6px;
+  border: 1px solid var(--tv-border);
+  border-radius: 3px;
+  background: var(--tv-bg);
+  color: var(--tv-text);
+  font: inherit;
+  font-size: .72rem;
+}
+.setup-reapply {
+  align-self: stretch;
+  min-width: 110px;
+  padding: 10px 12px;
+  font-size: .78rem;
+  background: var(--tv-toolbar);
+  border: 1px solid var(--tv-border);
+  color: var(--tv-text);
+}
+.setup-reapply:hover:not(:disabled) { border-color: var(--tv-blue); color: #fff; background: var(--tv-blue); filter: none; }
+.setup-help p { margin: 0 0 8px; color: var(--tv-text-secondary); font-size: .84rem; line-height: 1.45; }
+.setup-help p:last-child { margin-bottom: 0; }
 .scan-progress { position: relative; height: 28px; margin: 0 0 12px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); overflow: hidden; }
 .scan-progress-fill { height: 100%; background: var(--tv-panel); transition: width .25s ease; }
 .scan-progress span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: .72rem; font-weight: 600; color: var(--tv-text); }
@@ -484,6 +570,9 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
   .agent-rules, .decision-grid, .decision-list, .card-expanded-main { grid-template-columns: 1fr; }
   .market-clocks { grid-template-columns: 1fr 1fr; }
   .market-clocks-local { grid-column: 1 / -1; }
+  .setup-sliders { grid-template-columns: 1fr; }
+  .setup-reapply { width: 100%; }
+  .setup-slider .risk-labels.stake-labels { grid-template-columns: repeat(3, 1fr); }
   .binance-order-groups, .binance-order-groups.partial-tp { grid-template-columns: 1fr; }
   .risk-control { grid-template-columns: 1fr; }
   .tp-control { grid-template-columns: 1fr; }
