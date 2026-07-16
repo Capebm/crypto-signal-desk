@@ -517,8 +517,7 @@ function finalize(decision: Omit<TjrDecision, 'score'>, minRr: number): TjrDecis
 
 export function tjrScoreColor(score: number): string {
   if (score >= 75) return '#26a69a'
-  if (score >= 50) return '#2962ff'
-  if (score >= 30) return '#ff9800'
+  if (score >= 50) return '#d1d4dc'
   return '#787b86'
 }
 
