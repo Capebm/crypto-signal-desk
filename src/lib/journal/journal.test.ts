@@ -9,6 +9,16 @@ const sampleCsv = `Date(UTC),Market,Type,Side,Price,Amount,Total,Fee,Fee Coin
 2026-07-14 13:51:30,TOWNSUSDC,MARKET,BUY,0.00203,9852,19.99956,0.00002,BNB
 `
 
+const orderHistoryCsv = `Date(UTC),Order No.,Pair,Type,Side,Order Price,Order Amount,AvgTrading Price,Filled,Total,Status
+2026-07-14 13:16:02,1,TOWNSUSDC,MARKET,BUY,0,9478,0.00211,9478,19.99858,FILLED
+2026-07-14 13:22:10,2,TOWNSUSDC,MARKET,SELL,0,9478,0.00208,9478,19.71424,FILLED
+2026-07-14 13:51:30,3,TOWNSUSDC,MARKET,BUY,0,9852,0.00203,9852,19.99956,FILLED
+`
+
+const dataDownloadCsv = `"Date(UTC)","Order No.","Pair","Type","Side","Average Price","Executed Quantity","Total","Status"
+"2026-07-14 13:51:30","123","TOWNS/USDC","MARKET","BUY","0.00203","9852","19.99956","FILLED"
+`
+
 describe('parseBinanceCsv', () => {
   it('parses standard Binance spot trade export', () => {
     const fills = parseBinanceCsv(sampleCsv)
@@ -16,6 +26,19 @@ describe('parseBinanceCsv', () => {
     expect(fills[0].side).toBe('BUY')
     expect(fills[0].symbol).toBe('TOWNSUSDC')
     expect(fills[0].quantity).toBe(9478)
+  })
+
+  it('parses Spot Order History export from Data Download Center', () => {
+    const fills = parseBinanceCsv(orderHistoryCsv)
+    expect(fills).toHaveLength(3)
+    expect(fills[2].price).toBe(0.00203)
+  })
+
+  it('parses Average Price / Executed Quantity column names', () => {
+    const fills = parseBinanceCsv(dataDownloadCsv)
+    expect(fills).toHaveLength(1)
+    expect(fills[0].symbol).toBe('TOWNSUSDC')
+    expect(fills[0].quantity).toBe(9852)
   })
 })
 

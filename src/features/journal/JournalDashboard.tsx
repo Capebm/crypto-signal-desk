@@ -40,7 +40,7 @@ export default function JournalDashboard() {
     const text = await file.text()
     const fills = parseBinanceCsv(text)
     if (fills.length === 0) {
-      setImportMsg('Nenhum trade reconhecido. Exporta Spot Order History ou Trade History da Binance (CSV).')
+      setImportMsg('Nenhum trade reconhecido. Descompacta o ZIP da Binance, abre o CSV dentro, e importa esse ficheiro (.csv).')
       return
     }
     const result = importFills(fills)
@@ -93,8 +93,7 @@ export default function JournalDashboard() {
       </header>
 
       <section className="journal-import-help">
-        <strong>Como exportar:</strong> Binance Web → <em>Orders</em> → <em>Spot Order</em> → <em>Export</em>.
-        Ou histórico de trades Spot. Dados ficam só neste browser.
+        <strong>Como exportar:</strong> Binance → <em>Orders</em> → <em>Data Download Center</em> → Spot Order History → Download → <strong>descompacta o ZIP</strong> → importa o <strong>.csv</strong> aqui.
         {store.lastImportAt && (
           <span> · Último import: {new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(store.lastImportAt))}</span>
         )}
