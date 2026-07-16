@@ -66,3 +66,51 @@ export function setDayNote(dayKey: string, note: string) {
 export function getClosedTrades(): ClosedTrade[] {
   return buildClosedTrades(loadJournalStore().fills)
 }
+
+export type ManualClosedTradeInput = {
+  symbol: string
+  entryPrice: number
+  exitPrice: number
+  quantity: number
+  entryTime: number
+  exitTime: number
+  feesUsdc?: number
+}
+
+/** Regista um round-trip Spot long (BUY + SELL) sem CSV — não altera o motor TJR. */
+export function addManualClosedTrade(input: ManualClosedTradeInput): { store: JournalStore; trades: ClosedTrade[]; trade?: ClosedTrade } {
+  const symbol = input.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (!symbol || input.quantity <= 0 || input.entryPrice <= 0 || input.exitPrice <= 0) {
+    const store = loadJournalStore()
+    return { store, trades: buildClosedTrades(store.fills) }
+  }
+  const entryTime = Math.min(input.entryTime, input.exitTime)
+  const exitTime = Math.max(input.entryTime, input.exitTime)
+  const fee = input.feesUsdc && input.feesUsdc > 0 ? input.feesUsdc / 2 : undefined
+  const stamp = Date.now()
+  const buy: BinanceFill = {
+    id: `manual-buy-${symbol}-${entryTime}-${stamp}`,
+    time: entryTime,
+    symbol,
+    side: 'BUY',
+    price: input.entryPrice,
+    quantity: input.quantity,
+    quoteAmount: input.entryPrice * input.quantity,
+    fee,
+    feeAsset: fee !== undefined ? 'USDC' : undefined,
+  }
+  const sell: BinanceFill = {
+    id: `manual-sell-${symbol}-${exitTime}-${stamp}`,
+    time: exitTime,
+    symbol,
+    side: 'SELL',
+    price: input.exitPrice,
+    quantity: input.quantity,
+    quoteAmount: input.exitPrice * input.quantity,
+    fee,
+    feeAsset: fee !== undefined ? 'USDC' : undefined,
+  }
+  const result = importFills([buy, sell])
+  const trade = result.trades.find((t) => t.symbol === symbol && t.entryTime === entryTime && t.exitTime === exitTime)
+  return { ...result, trade }
+}

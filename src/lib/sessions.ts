@@ -19,9 +19,9 @@ export type PreviousDayLine = {
 }
 
 const sessionColors: Record<SessionName, string> = {
-  asia: '#f5c451',
-  london: '#76a7ff',
-  newyork: '#f57b88',
+  asia: '#ff9800',
+  london: '#2962ff',
+  newyork: '#ef5350',
 }
 
 const sessionLabels: Record<SessionName, string> = {
@@ -128,7 +128,7 @@ export function previousDayLevels(candles: Candle[]): PreviousDayLine[] {
 
   const high = Math.max(...dayCandles.map((c) => c.high))
   const low = Math.min(...dayCandles.map((c) => c.low))
-  const color = '#9cb1cd'
+  const color = '#787b86'
   return [
     { kind: 'high', price: high, title: 'Dia ant. H', color },
     { kind: 'low', price: low, title: 'Dia ant. L', color },

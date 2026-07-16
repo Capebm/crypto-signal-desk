@@ -5,15 +5,26 @@ import {
   binancePriceDisplay,
   binanceStopLimitCopy,
 } from '../../lib/binance-prices'
+import { saveOpenPosition } from '../../lib/open-position-store'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import { tpModeMeta, type TpMode } from '../../lib/tp-mode'
 
 type Row = TjrDecision & { symbol: string; price: number }
 
-export const STAKE_OPTIONS = [10, 20, 50, 100] as const
+export const STAKE_OPTIONS = [10, 20, 50, 100, 200, 250] as const
 export const DEFAULT_STAKE = 20
 
-type GuideProps = { row: Row; stakeUsdc?: number; analysisReady?: boolean; refining?: boolean; tpMode?: TpMode }
+type WizardStep = 'buy' | 'oco' | 'done'
+
+type GuideProps = {
+  row: Row
+  stakeUsdc?: number
+  analysisReady?: boolean
+  refining?: boolean
+  tpMode?: TpMode
+  onPositionSaved?: () => void
+  onGoJournal?: () => void
+}
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
@@ -87,7 +98,16 @@ function CopyField({
 }
 
 /** Valores exactos para colar na Binance — layout compacto, sem scroll. */
-export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisReady = true, refining = false, tpMode = '1_5r' }: GuideProps) {
+export function BinanceOrderPanel({
+  row,
+  stakeUsdc = DEFAULT_STAKE,
+  analysisReady = true,
+  refining = false,
+  tpMode = '1_5r',
+  onPositionSaved,
+  onGoJournal,
+}: GuideProps) {
+  const [wizard, setWizard] = useState<WizardStep>('buy')
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const qty = suggestedQuantity(row.entry, stakeUsdc)
@@ -124,6 +144,9 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
           <div><strong>{pair}</strong> · {label}</div>
           <span className="refine-badge">{refining ? 'A refinar MTF…' : 'MTF pendente'}</span>
         </header>
+        <div className="binance-skeleton" aria-hidden>
+          <div className="binance-skeleton-bar" /><div className="binance-skeleton-bar short" /><div className="binance-skeleton-bar" />
+        </div>
         <p className="binance-order-wait">
           A refinar análise 4h/5m/15m… Aguarda antes de copiar valores para a Binance.
         </p>
@@ -167,12 +190,30 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
       ? `Limite na zona FVG/EQ (${binancePriceDisplay(row.entryZone.low)}–${binancePriceDisplay(row.entryZone.high)})`
       : `Comprar → Limite @ ${binancePriceDisplay(row.entry)}`
 
+  const savePosition = () => {
+    saveOpenPosition({
+      base,
+      entryPrice: entryCopy === '—' ? String(row.entry ?? '') : entryCopy,
+      quantity: qtyCopy === '—' ? '' : qtyCopy,
+      userStop: stopCopy === '—' ? '' : stopCopy,
+      userTarget: targetCopy === '—' ? '' : targetCopy,
+      lockOco: true,
+    })
+    onPositionSaved?.()
+    setWizard('done')
+  }
+
   return (
     <section className="binance-order-panel">
       <header className="binance-order-head">
         <div><strong>{pair}</strong> · {label} · {stakeUsdc} {AGENT_QUOTE_ASSET}</div>
         <span>Ecrã: vírgula · Copiar: ponto (Binance)</span>
       </header>
+      <nav className="binance-wizard-tabs" aria-label="Passos Binance">
+        <button type="button" className={wizard === 'buy' ? 'active' : ''} onClick={() => setWizard('buy')}>1 · Comprar</button>
+        <button type="button" className={wizard === 'oco' ? 'active' : ''} onClick={() => setWizard('oco')}>2 · OCO</button>
+        <button type="button" className={wizard === 'done' ? 'active' : ''} onClick={() => setWizard('done')}>3 · Feito</button>
+      </nav>
       <p className="binance-tjr-plan">
         <strong>Plano TJR:</strong>{' '}
         {row.entryTiming === 'AGORA'
@@ -188,125 +229,78 @@ export function BinanceOrderPanel({ row, stakeUsdc = DEFAULT_STAKE, analysisRead
       ) : stopDistancePct !== undefined ? (
         <p className="binance-order-meta">Risco até stop: ~{stopDistancePct.toFixed(1).replace('.', ',')}%</p>
       ) : null}
-      <div className={`binance-order-groups${hasPartialTp ? ' partial-tp' : ''}`}>
-        <div className="binance-order-group">
-          <p className="binance-group-title buy">1 · Comprar (Spot)</p>
-          <CopyField label="Tipo" copyValue={buyType} tone="buy" hint={buyPriceHint} />
-          {row.entryTiming === 'RETRACE' && row.entryZone && zoneLowCopy && zoneHighCopy && (
+
+      {wizard === 'buy' && (
+        <div className="binance-order-groups single">
+          <div className="binance-order-group">
+            <p className="binance-group-title buy">1 · Comprar (Spot)</p>
+            <CopyField label="Tipo" copyValue={buyType} tone="buy" hint={buyPriceHint} />
+            {row.entryTiming === 'RETRACE' && row.entryZone && zoneLowCopy && zoneHighCopy && (
+              <>
+                <CopyField label={`Limite baixo (${AGENT_QUOTE_ASSET})`} copyValue={zoneLowCopy} displayValue={binancePriceDisplay(row.entryZone.low)} tone="buy" hint="Conservador — fundo da zona" />
+                <CopyField label={`Limite médio (${AGENT_QUOTE_ASSET})`} copyValue={entryCopy} displayValue={binancePriceDisplay(row.entry)} tone="buy" hint="Equilibrado — meio da zona" />
+                <CopyField label={`Limite alto (${AGENT_QUOTE_ASSET})`} copyValue={zoneHighCopy} displayValue={binancePriceDisplay(row.entryZone.high)} tone="buy" hint="Agressivo — topo da zona" />
+              </>
+            )}
+            {row.entryTiming === 'RETRACE' && !row.entryZone && (
+              <CopyField label={`Preço limite (${AGENT_QUOTE_ASSET})`} copyValue={entryCopy} displayValue={binancePriceDisplay(row.entry)} tone="buy" />
+            )}
+            <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="buy" />
+            <CopyField label={`Total (${AGENT_QUOTE_ASSET})`} copyValue={orderTotalCopy} displayValue={orderTotalDisplay} tone="buy" hint={Number(orderTotalCopy) < 1 ? 'Mínimo 1 USDC' : undefined} />
+          </div>
+          <button type="button" className="binance-wizard-next" onClick={() => setWizard('oco')}>Comprei → passo 2 · OCO</button>
+        </div>
+      )}
+
+      {wizard === 'oco' && (
+        <div className={`binance-order-groups${hasPartialTp ? ' partial-tp' : ''}`}>
+          {hasPartialTp ? (
             <>
-              <CopyField
-                label={`Limite baixo (${AGENT_QUOTE_ASSET})`}
-                copyValue={zoneLowCopy}
-                displayValue={binancePriceDisplay(row.entryZone.low)}
-                tone="buy"
-                hint="Conservador — fundo da zona"
-              />
-              <CopyField
-                label={`Limite médio (${AGENT_QUOTE_ASSET})`}
-                copyValue={entryCopy}
-                displayValue={binancePriceDisplay(row.entry)}
-                tone="buy"
-                hint="Equilibrado — meio da zona"
-              />
-              <CopyField
-                label={`Limite alto (${AGENT_QUOTE_ASSET})`}
-                copyValue={zoneHighCopy}
-                displayValue={binancePriceDisplay(row.entryZone.high)}
-                tone="buy"
-                hint="Agressivo — topo da zona"
-              />
+              <div className="binance-order-group">
+                <p className="binance-group-title sell">2 · OCO 50% ({tp1Label})</p>
+                <CopyField label={`TP Limit (${AGENT_QUOTE_ASSET})`} copyValue={targetCopy} displayValue={binancePriceDisplay(row.target)} tone="sell" hint="1.º draw HTF" />
+                <CopyField label={`SL Trigger (${AGENT_QUOTE_ASSET})`} copyValue={stopCopy} displayValue={binancePriceDisplay(row.stop)} tone="sell" hint="Stop Loss trigger" />
+                <CopyField label={`SL Limit (${AGENT_QUOTE_ASSET})`} copyValue={stopLimitCopy} displayValue={stopLimitDisplay} tone="sell" hint="< trigger (1 tick)" />
+                <CopyField label={`Amount (${base})`} copyValue={partialQtyCopy} displayValue={partialQtyCopy} tone="sell" hint="~50% da posição" />
+              </div>
+              <div className="binance-order-group">
+                <p className="binance-group-title sell">Limit 50% ({tp2Label})</p>
+                <CopyField label={`TP Limit (${AGENT_QUOTE_ASSET})`} copyValue={target2Copy} displayValue={binancePriceDisplay(row.targetSecondary)} tone="sell" hint="2.º draw HTF" />
+                <CopyField label={`Amount (${base})`} copyValue={restQtyCopy} displayValue={restQtyCopy} tone="sell" hint="Resto" />
+              </div>
             </>
-          )}
-          {row.entryTiming === 'RETRACE' && !row.entryZone && (
-            <CopyField
-              label={`Preço limite (${AGENT_QUOTE_ASSET})`}
-              copyValue={entryCopy}
-              displayValue={binancePriceDisplay(row.entry)}
-              tone="buy"
-            />
-          )}
-          <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="buy" />
-          <CopyField
-            label={`Total (${AGENT_QUOTE_ASSET})`}
-            copyValue={orderTotalCopy}
-            displayValue={orderTotalDisplay}
-            tone="buy"
-            hint={Number(orderTotalCopy) < 1 ? 'Mínimo 1 USDC' : undefined}
-          />
-        </div>
-        {hasPartialTp ? (
-          <>
+          ) : (
             <div className="binance-order-group">
-              <p className="binance-group-title sell">2 · OCO 50% ({tp1Label})</p>
-              <CopyField
-                label={`TP Limit (${AGENT_QUOTE_ASSET})`}
-                copyValue={targetCopy}
-                displayValue={binancePriceDisplay(row.target)}
-                tone="sell"
-                hint="1.º draw HTF"
-              />
-              <CopyField
-                label={`SL Trigger (${AGENT_QUOTE_ASSET})`}
-                copyValue={stopCopy}
-                displayValue={binancePriceDisplay(row.stop)}
-                tone="sell"
-                hint="Stop Loss trigger"
-              />
-              <CopyField
-                label={`SL Limit (${AGENT_QUOTE_ASSET})`}
-                copyValue={stopLimitCopy}
-                displayValue={stopLimitDisplay}
-                tone="sell"
-                hint="< trigger (1 tick)"
-              />
-              <CopyField label={`Amount (${base})`} copyValue={partialQtyCopy} displayValue={partialQtyCopy} tone="sell" hint="~50% da posição" />
+              <p className="binance-group-title sell">2 · Proteger — OCO (Vender)</p>
+              <CopyField label={`TP Limit (${AGENT_QUOTE_ASSET})`} copyValue={targetCopy} displayValue={binancePriceDisplay(row.target)} tone="sell" hint={row.targetLabel ? row.targetLabel : 'Take Profit'} />
+              <CopyField label={`SL Trigger (${AGENT_QUOTE_ASSET})`} copyValue={stopCopy} displayValue={binancePriceDisplay(row.stop)} tone="sell" hint="Stop Loss trigger" />
+              <CopyField label={`SL Limit (${AGENT_QUOTE_ASSET})`} copyValue={stopLimitCopy} displayValue={stopLimitDisplay} tone="sell" hint="< trigger (1 tick)" />
+              <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="sell" hint="100% · Fill Amount" />
             </div>
-            <div className="binance-order-group binance-order-group-wide">
-              <p className="binance-group-title sell">3 · Limit 50% ({tp2Label})</p>
-              <CopyField
-                label={`TP Limit (${AGENT_QUOTE_ASSET})`}
-                copyValue={target2Copy}
-                displayValue={binancePriceDisplay(row.targetSecondary)}
-                tone="sell"
-                hint="2.º draw HTF — coloca após fill"
-              />
-              <CopyField label={`Amount (${base})`} copyValue={restQtyCopy} displayValue={restQtyCopy} tone="sell" hint="Resto da posição" />
-              <CopyField label="Tipo" copyValue="Limite" tone="sell" hint="Vender → Limite (sem OCO)" />
-            </div>
-          </>
-        ) : (
-        <div className="binance-order-group">
-          <p className="binance-group-title sell">2 · Proteger — OCO (Vender)</p>
-          <CopyField
-            label={`TP Limit (${AGENT_QUOTE_ASSET})`}
-            copyValue={targetCopy}
-            displayValue={binancePriceDisplay(row.target)}
-            tone="sell"
-            hint={row.targetLabel ? row.targetLabel : 'Take Profit'}
-          />
-          <CopyField
-            label={`SL Trigger (${AGENT_QUOTE_ASSET})`}
-            copyValue={stopCopy}
-            displayValue={binancePriceDisplay(row.stop)}
-            tone="sell"
-            hint="Stop Loss trigger"
-          />
-          <CopyField
-            label={`SL Limit (${AGENT_QUOTE_ASSET})`}
-            copyValue={stopLimitCopy}
-            displayValue={stopLimitDisplay}
-            tone="sell"
-            hint="< trigger (1 tick)"
-          />
-          <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="sell" hint="100% · Fill Amount" />
+          )}
+          <div className="binance-wizard-footer">
+            <button type="button" className="ghost" onClick={() => setWizard('buy')}>← Compra</button>
+            <button type="button" className="binance-wizard-next" onClick={savePosition}>OCO activo → passo 3</button>
+          </div>
+          <p className="binance-order-foot">
+            {hasPartialTp
+              ? 'TJR: 50% no 1.º draw HTF (OCO) + 50% no 2.º. Se TP1 executar, sobe stop no resto.'
+              : `Sem OCO: Limit @ ${binancePriceDisplay(row.target)} + Stop-Limit ${binancePriceDisplay(row.stop)}/${stopLimitDisplay}.`}
+          </p>
         </div>
-        )}
-      </div>
-      <p className="binance-order-foot">
-        {hasPartialTp
-          ? 'TJR: realiza metade no 1.º draw HTF (OCO) e metade no 2.º. Se TP1 executar, mantém stop no resto ou sobe para breakeven.'
-          : `Alternativa sem OCO: Limit @ ${binancePriceDisplay(row.target)} + Stop-Limit ${binancePriceDisplay(row.stop)}/${stopLimitDisplay}. Se uma executar, cancela a outra.`}
-      </p>
+      )}
+
+      {wizard === 'done' && (
+        <div className="binance-wizard-done">
+          <p><strong>Posição guardada</strong> — pin no topo actualiza PnL. OCO a trabalhar; não canceles o stop.</p>
+          <div className="binance-wizard-footer">
+            <button type="button" className="ghost" onClick={() => setWizard('oco')}>← OCO</button>
+            {onGoJournal && (
+              <button type="button" onClick={onGoJournal}>Registar no Diário (após fechar)</button>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }

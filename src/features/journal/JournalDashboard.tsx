@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from 'react'
-import { formatTradingPair } from '../../lib/binance'
+import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import { parseBinanceCsv } from '../../lib/journal/binance-csv'
-import { computeJournalStats, dayId, formatDayLabel, formatDuration } from '../../lib/journal/journal-stats'
+import { computeJournalStats, dayId, formatDayLabel, formatDuration, pnlForDay } from '../../lib/journal/journal-stats'
 import {
+  addManualClosedTrade,
   clearJournal,
   getClosedTrades,
   importFills,
   loadJournalStore,
   setDayNote,
 } from '../../lib/journal/trade-store'
+import { resolvePositionSymbol } from '../../lib/position-advisor'
 import type { ClosedTrade } from '../../lib/journal/types'
 
 const money = (value: number) =>
@@ -32,9 +34,16 @@ export default function JournalDashboard() {
   const [selectedDay, setSelectedDay] = useState<string>()
   const [importMsg, setImportMsg] = useState('')
   const [monthOffset, setMonthOffset] = useState(0)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualBase, setManualBase] = useState('RE')
+  const [manualEntry, setManualEntry] = useState('')
+  const [manualExit, setManualExit] = useState('')
+  const [manualQty, setManualQty] = useState('')
+  const [manualFees, setManualFees] = useState('')
 
   const trades = useMemo(() => getClosedTrades(), [store])
   const stats = useMemo(() => computeJournalStats(trades), [trades])
+  const today = useMemo(() => pnlForDay(trades, dayId(Date.now())), [trades])
 
   const onImport = async (file: File) => {
     const text = await file.text()
@@ -74,6 +83,9 @@ export default function JournalDashboard() {
             }}
           />
           <button type="button" onClick={() => fileRef.current?.click()}>Importar CSV</button>
+          <button type="button" className="ghost" onClick={() => setManualOpen((v) => !v)}>
+            {manualOpen ? 'Fechar manual' : 'Trade manual'}
+          </button>
           {store.fills.length > 0 && (
             <button
               type="button"
@@ -100,13 +112,65 @@ export default function JournalDashboard() {
       </section>
       {importMsg && <p className="journal-status">{importMsg}</p>}
 
+      {manualOpen && (
+        <form
+          className="journal-manual-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const entry = Number(manualEntry.replace(',', '.'))
+            const exit = Number(manualExit.replace(',', '.'))
+            const qty = Number(manualQty.replace(',', '.'))
+            const fees = manualFees ? Number(manualFees.replace(',', '.')) : undefined
+            if (!Number.isFinite(entry) || !Number.isFinite(exit) || !Number.isFinite(qty) || qty <= 0) {
+              setImportMsg('Preenche entrada, saída e quantidade válidas.')
+              return
+            }
+            const symbol = resolvePositionSymbol(manualBase, AGENT_QUOTE_ASSET)
+            const now = Date.now()
+            const result = addManualClosedTrade({
+              symbol,
+              entryPrice: entry,
+              exitPrice: exit,
+              quantity: qty,
+              entryTime: now - 60_000,
+              exitTime: now,
+              feesUsdc: Number.isFinite(fees) ? fees : undefined,
+            })
+            setStore(result.store)
+            const pnl = result.trade?.pnlUsdc
+            setImportMsg(
+              result.trade
+                ? `Trade manual ${formatTradingPair(symbol)} registado · PnL ${pnl !== undefined && pnl >= 0 ? '+' : ''}${pnl?.toFixed(2) ?? '—'} USDC.`
+                : 'Trade manual adicionado.',
+            )
+            setManualOpen(false)
+            setManualEntry('')
+            setManualExit('')
+            setManualQty('')
+            setManualFees('')
+          }}
+        >
+          <h3>Registar trade Spot (sem CSV)</h3>
+          <p>Ideal para o RE de hoje: entrada + saída + qty. O motor TJR não é alterado — só o diário.</p>
+          <div className="journal-manual-grid">
+            <label>Moeda<input value={manualBase} onChange={(e) => setManualBase(e.target.value)} placeholder="RE" /></label>
+            <label>Entrada<input value={manualEntry} onChange={(e) => setManualEntry(e.target.value)} placeholder="0.5145" inputMode="decimal" /></label>
+            <label>Saída<input value={manualExit} onChange={(e) => setManualExit(e.target.value)} placeholder="0.5320" inputMode="decimal" /></label>
+            <label>Quantidade<input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="38.8" inputMode="decimal" /></label>
+            <label>Fees USDC <span className="optional">(opc.)</span><input value={manualFees} onChange={(e) => setManualFees(e.target.value)} placeholder="0.02" inputMode="decimal" /></label>
+            <button type="submit">Guardar no diário</button>
+          </div>
+        </form>
+      )}
+
       {trades.length === 0 ? (
         <section className="journal-empty">
-          <p>Ainda sem trades. Importa o CSV da Binance para ver calendário, estatísticas e diário.</p>
+          <p>Ainda sem trades. Importa o CSV da Binance ou usa <strong>Trade manual</strong> (ex. RE +0,68 USDC).</p>
         </section>
       ) : (
         <>
           <section className="journal-kpis">
+            <article><span>PnL hoje</span><strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl)}</strong><small>{today.trades} trades</small></article>
             <article><span>PnL total</span><strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc)}</strong></article>
             <article><span>Win rate</span><strong>{stats.winRate.toFixed(0)}%</strong><small>{stats.wins}W / {stats.losses}L</small></article>
             <article><span>Trades fechados</span><strong>{stats.totalTrades}</strong></article>

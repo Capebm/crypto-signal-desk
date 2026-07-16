@@ -516,10 +516,10 @@ function finalize(decision: Omit<TjrDecision, 'score'>, minRr: number): TjrDecis
 }
 
 export function tjrScoreColor(score: number): string {
-  if (score >= 75) return '#42d99e'
-  if (score >= 50) return '#76a7ff'
-  if (score >= 30) return '#f5c451'
-  return '#9db0c9'
+  if (score >= 75) return '#26a69a'
+  if (score >= 50) return '#2962ff'
+  if (score >= 30) return '#ff9800'
+  return '#787b86'
 }
 
 export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): string {

@@ -101,6 +101,15 @@ export function formatDuration(ms: number): string {
   return `${(ms / 86_400_000).toFixed(1)}d`
 }
 
+/** PnL do dia civil (UTC date key via dayId) — soma exits nesse dia. */
+export function pnlForDay(trades: ClosedTrade[], dayKey: string): { pnl: number; trades: number } {
+  const day = trades.filter((trade) => dayId(trade.exitTime) === dayKey)
+  return {
+    pnl: day.reduce((sum, trade) => sum + trade.pnlUsdc, 0),
+    trades: day.length,
+  }
+}
+
 export function formatDayLabel(dayKey: string): string {
   const [y, m, d] = dayKey.split('-').map(Number)
   return new Intl.DateTimeFormat('pt-PT', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(

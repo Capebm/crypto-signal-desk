@@ -27,6 +27,9 @@ type Props = {
   targetSecondary?: number
   targetLabel?: string
   targetSecondaryLabel?: string
+  /** Fill real da Binance (Cost Price) — separado da entrada TJR. */
+  fillPrice?: number
+  fillLabel?: string
   zones?: PriceZone[]
 }
 
@@ -42,7 +45,7 @@ const sessionIntervals: Interval[] = ['5m', '15m', '1h']
 
 const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
 
-export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, zones = [] }: Props) {
+export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [] }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [message, setMessage] = useState('A carregar gráfico…')
   const [showSessions, setShowSessions] = useState(true)
@@ -51,15 +54,25 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     if (!host.current) return
     const chart = createChart(host.current, {
       height: 420,
-      layout: { background: { type: ColorType.Solid, color: '#091321' }, textColor: '#9cb1cd' },
-      grid: { vertLines: { color: '#15243a' }, horzLines: { color: '#15243a' } },
-      rightPriceScale: { borderColor: '#29415f' },
-      timeScale: { borderColor: '#29415f', timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#787b86' },
+      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+      rightPriceScale: { borderColor: '#2a2e39' },
+      timeScale: { borderColor: '#2a2e39', timeVisible: true },
+      crosshair: {
+        vertLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
+        horzLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
+      },
     })
-    const candles = chart.addSeries(CandlestickSeries, { upColor: '#42d99e', downColor: '#f57b88', borderVisible: false, wickUpColor: '#42d99e', wickDownColor: '#f57b88' })
+    const candles = chart.addSeries(CandlestickSeries, {
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    })
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
-    const ema20 = chart.addSeries(LineSeries, { color: '#76a7ff', lineWidth: 1 })
-    const ema50 = chart.addSeries(LineSeries, { color: '#f5c451', lineWidth: 1 })
+    const ema20 = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1 })
+    const ema50 = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1 })
     let active = true
     setMessage('A carregar gráfico…')
 
@@ -67,22 +80,25 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       if (!active) return
       const time = (value: number) => Math.floor(value / 1000) as UTCTimestamp
       candles.setData(rows.map((row) => ({ time: time(row.openTime), open: row.open, high: row.high, low: row.low, close: row.close })))
-      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? '#42d99e66' : '#f57b8866' })))
+      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)' })))
       const closes = rows.map((row) => row.close)
       ema20.setData(ema(closes, 20).map((value, index) => ({ time: time(rows[index].openTime), value })))
       ema50.setData(ema(closes, 50).map((value, index) => ({ time: time(rows[index].openTime), value })))
-      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#42d99e' : action === 'VENDER' ? '#f57b88' : '#f5c451', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
-      if (stop) candles.createPriceLine({ price: stop, color: '#f57b88', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
-      if (target) candles.createPriceLine({ price: target, color: '#42d99e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
-      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#76a7ff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
+      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#26a69a' : action === 'VENDER' ? '#ef5350' : '#ff9800', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
+      if (fillPrice !== undefined && (entry === undefined || Math.abs(fillPrice - entry) > entry * 0.0005)) {
+        candles.createPriceLine({ price: fillPrice, color: '#ff9800', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: fillLabel })
+      }
+      if (stop) candles.createPriceLine({ price: stop, color: '#ef5350', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
+      if (target) candles.createPriceLine({ price: target, color: '#26a69a', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
+      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#2962ff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
       for (const zone of zones) {
         if (zone.kind === 'fair-value-gap') {
-          candles.createPriceLine({ price: zone.low, color: '#76a7ff99', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
-          candles.createPriceLine({ price: zone.high, color: '#76a7ff99', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↑' })
+          candles.createPriceLine({ price: zone.low, color: 'rgba(41,98,255,0.55)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
+          candles.createPriceLine({ price: zone.high, color: 'rgba(41,98,255,0.55)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↑' })
         }
         if (zone.kind === 'equilibrium') {
           const mid = (zone.low + zone.high) / 2
-          candles.createPriceLine({ price: mid, color: '#c084fc', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'Equilibrium' })
+          candles.createPriceLine({ price: mid, color: '#787b86', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'EQ' })
         }
       }
       if (showSessions && sessionIntervals.includes(interval)) {
@@ -105,7 +121,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     const resize = new ResizeObserver(() => chart.applyOptions({ width: host.current?.clientWidth ?? 0 }))
     resize.observe(host.current)
     return () => { active = false; resize.disconnect(); chart.remove() }
-  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, showSessions, zones])
+  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones])
 
   return (
     <div className="chart-host">

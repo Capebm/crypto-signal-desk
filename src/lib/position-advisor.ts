@@ -10,6 +10,7 @@ export type OpenPositionInput = {
   entryPrice: number
   quantity?: number
   userStop?: number
+  userTarget?: number
 }
 
 export type PositionAdviceResult = {
@@ -23,6 +24,8 @@ export type PositionAdviceResult = {
   riskR: number
   decision: TjrDecision
   levels: { stop?: number; target?: number; entry?: number }
+  /** Stop/alvo do OCO do utilizador (não recalculados pelo motor). */
+  usingEntryOco: boolean
 }
 
 const adviceLabel: Record<PositionAdvice, string> = {
@@ -37,11 +40,18 @@ export function adviseOpenPosition(
   currentPrice: number,
   decision: TjrDecision,
 ): PositionAdviceResult {
-  const { entryPrice, quantity, userStop } = input
+  const { entryPrice, quantity, userStop, userTarget } = input
   const invalidUserStop = userStop !== undefined && userStop >= entryPrice
+  const invalidUserTarget = userTarget !== undefined && userTarget <= entryPrice
   const structuralStop = decision.stop !== undefined && decision.stop < entryPrice ? decision.stop : undefined
+  const structuralTarget = decision.target !== undefined && decision.target > entryPrice ? decision.target : undefined
+  const usingEntryOco = Boolean(
+    !invalidUserStop && userStop !== undefined && !invalidUserTarget && userTarget !== undefined,
+  )
   const stop = !invalidUserStop && userStop !== undefined ? userStop : structuralStop
-  const target = decision.target !== undefined && decision.target > entryPrice ? decision.target : undefined
+  const target = !invalidUserTarget && userTarget !== undefined
+    ? userTarget
+    : structuralTarget
   const riskPerUnit = stop !== undefined ? Math.abs(entryPrice - stop) : entryPrice * 0.035
   const pnlPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0
   const pnlUsdc = quantity !== undefined ? (currentPrice - entryPrice) * quantity : undefined
@@ -106,6 +116,7 @@ export function adviseOpenPosition(
     riskR,
     decision,
     levels: { stop, target, entry: decision.entry },
+    usingEntryOco,
   }
 }
 

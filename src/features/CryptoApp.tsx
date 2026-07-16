@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
+import { CRYPTO_TAB_EVENT, type CryptoTab } from '../lib/crypto-tabs'
 import AgentDashboard from './agent/AgentDashboard'
 import JournalDashboard from './journal/JournalDashboard'
-
-type CryptoTab = 'agent' | 'journal'
 
 const TAB_KEY = 'crypto-desk-tab'
 
@@ -15,6 +14,15 @@ export default function CryptoApp() {
   useEffect(() => {
     localStorage.setItem(TAB_KEY, tab)
   }, [tab])
+
+  useEffect(() => {
+    const onTab = (event: Event) => {
+      const detail = (event as CustomEvent<CryptoTab>).detail
+      if (detail === 'agent' || detail === 'journal') setTab(detail)
+    }
+    window.addEventListener(CRYPTO_TAB_EVENT, onTab)
+    return () => window.removeEventListener(CRYPTO_TAB_EVENT, onTab)
+  }, [])
 
   return (
     <>
