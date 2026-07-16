@@ -1,5 +1,33 @@
 export type SessionWindow = 'ny_open' | 'ny' | 'ny_close' | 'london' | 'quiet' | 'off'
 
+export type MarketId = 'asia' | 'london' | 'newyork'
+
+export type MarketClock = {
+  id: MarketId
+  label: string
+  city: string
+  time: string
+  tzShort: string
+  active: boolean
+  ideal: boolean
+  status: string
+  windowEt: string
+  windowLisbon: string
+}
+
+export type MarketClocksSnapshot = {
+  clocks: MarketClock[]
+  local: { label: string; time: string }
+  /** Janelas killzone em ET e Lisboa (horário local do utilizador). */
+  windows: {
+    nyOpen: { et: string; lisbon: string }
+    nyMid: { et: string; lisbon: string }
+    nyClose: { et: string; lisbon: string }
+    london: { et: string; lisbon: string }
+    asia: { et: string; lisbon: string }
+  }
+}
+
 export type TradingSessionStatus = {
   window: SessionWindow
   inIdealWindow: boolean
@@ -104,5 +132,91 @@ export function getTradingSessionStatus(date = new Date()): TradingSessionStatus
     allowEnterNow: false,
     blockEntries: true,
     badge: 'Fora da killzone',
+  }
+}
+
+const formatLisbonFromNyMins = (nyMins: number, date = new Date()) => {
+  const ny = zoneParts('America/New_York', date)
+  const diff = nyMins - ny.mins
+  const target = new Date(date.getTime() + diff * 60_000)
+  return zoneParts('Europe/Lisbon', target).label
+}
+
+
+/** Relógios dos 3 mercados TJR (Ásia / Londres / NY) + hora local Lisboa. */
+export function getMarketClocks(date = new Date()): MarketClocksSnapshot {
+  const session = getTradingSessionStatus(date)
+  const ny = zoneParts('America/New_York', date)
+  const tokyo = zoneParts('Asia/Tokyo', date)
+  const london = zoneParts('Europe/London', date)
+  const lisbon = zoneParts('Europe/Lisbon', date)
+
+  const asiaActive = ny.mins >= 18 * 60 || ny.mins < 2 * 60
+  const londonActive = ny.mins >= 3 * 60 && ny.mins < 8 * 60 + 30
+  const nyActive = ny.mins >= 9 * 60 + 30 && ny.mins < 16 * 60
+
+  let nyStatus = 'Fora da sessão'
+  if (session.window === 'ny_open') nyStatus = 'OPEN · COMPRAR JÁ'
+  else if (session.window === 'ny') nyStatus = 'NY mid — AGUARDAR'
+  else if (session.window === 'ny_close') nyStatus = 'Fecho — sem entradas'
+  else if (ny.mins >= 8 * 60 + 30 && ny.mins < 9 * 60 + 30) {
+    nyStatus = `Abre em ${9 * 60 + 30 - ny.mins} min`
+  }
+
+  const asiaStatus = session.window === 'quiet' && asiaActive
+    ? 'Baixa liquidez'
+    : asiaActive
+      ? 'Sessão activa'
+      : 'Inactiva'
+
+  const londonStatus = londonActive ? 'Killzone activa' : 'Inactiva'
+
+  return {
+    local: { label: 'Lisboa', time: lisbon.label },
+    windows: {
+      nyOpen: { et: '09:30–11:00', lisbon: `${formatLisbonFromNyMins(9 * 60 + 30, date)}–${formatLisbonFromNyMins(11 * 60, date)}` },
+      nyMid: { et: '11:00–15:00', lisbon: `${formatLisbonFromNyMins(11 * 60, date)}–${formatLisbonFromNyMins(15 * 60, date)}` },
+      nyClose: { et: '15:00–16:00', lisbon: `${formatLisbonFromNyMins(15 * 60, date)}–${formatLisbonFromNyMins(16 * 60, date)}` },
+      london: { et: '03:00–08:30', lisbon: `${formatLisbonFromNyMins(3 * 60, date)}–${formatLisbonFromNyMins(8 * 60 + 30, date)}` },
+      asia: { et: '18:00–02:00', lisbon: `${formatLisbonFromNyMins(18 * 60, date)}–${formatLisbonFromNyMins(2 * 60, date)}` },
+    },
+    clocks: [
+      {
+        id: 'asia',
+        label: 'Ásia',
+        city: 'Tóquio',
+        time: tokyo.label,
+        tzShort: 'JST',
+        active: asiaActive,
+        ideal: false,
+        status: asiaStatus,
+        windowEt: '18:00–02:00 ET',
+        windowLisbon: `${formatLisbonFromNyMins(18 * 60, date)}–${formatLisbonFromNyMins(2 * 60, date)} PT`,
+      },
+      {
+        id: 'london',
+        label: 'Londres',
+        city: 'Londres',
+        time: london.label,
+        tzShort: 'GMT/BST',
+        active: londonActive,
+        ideal: false,
+        status: londonStatus,
+        windowEt: '03:00–08:30 ET',
+        windowLisbon: `${formatLisbonFromNyMins(3 * 60, date)}–${formatLisbonFromNyMins(8 * 60 + 30, date)} PT`,
+      },
+      {
+        id: 'newyork',
+        label: 'Nova Iorque',
+        city: 'NY',
+        time: ny.label,
+        tzShort: 'ET',
+        active: nyActive,
+        ideal: session.window === 'ny_open',
+        status: nyStatus,
+        windowEt: '09:30–16:00 ET',
+        windowLisbon: `${formatLisbonFromNyMins(9 * 60 + 30, date)}–${formatLisbonFromNyMins(16 * 60, date)} PT`,
+      },
+    ],
   }
 }

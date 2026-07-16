@@ -139,7 +139,30 @@ button:disabled { cursor: wait; opacity: .65; }
 .agent-rules div:nth-child(2) strong, .timing-retrace { color: #76a7ff; }
 .agent-rules div:nth-child(3) strong, .vender .decision-top strong { color: #f57b88; }
 .agent-rules div:nth-child(4) strong, .esperar .decision-top strong { color: #f5c451; }
-.session-window { margin: 0 0 20px; padding: 14px 16px; border: 1px solid #2d4a6e; border-radius: 12px; background: #0d1a2c; }
+.session-window { margin: 0; padding: 14px 16px; border: 1px solid #2d4a6e; border-radius: 12px; background: #0d1a2c; }
+.session-shell { margin: 0 0 20px; display: grid; gap: 10px; }
+.market-clocks { display: grid; grid-template-columns: minmax(88px, 0.7fr) repeat(3, minmax(0, 1fr)); gap: 10px; }
+.market-clocks-local { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid #304766; border-radius: 12px; background: #0a1524; align-content: center; text-align: center; }
+.market-clocks-local span { color: #7a8fa8; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.market-clocks-local strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: #edf3ff; line-height: 1.1; }
+.market-clocks-local small { color: #9cb1cd; font-size: .72rem; }
+.market-clock { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid #304766; border-radius: 12px; background: #0a1524; min-height: 100%; }
+.market-clock header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+.market-clock-label { font-weight: 800; font-size: .82rem; color: #dce6f5; }
+.market-clock header small { color: #7a8fa8; font-size: .68rem; }
+.market-clock-time { font-size: 1.35rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.market-clock-status { margin: 0; font-size: .72rem; font-weight: 700; color: #8fa5c0; }
+.market-clock footer { margin: 0; font-size: .66rem; color: #6f839c; font-variant-numeric: tabular-nums; }
+.market-asia .market-clock-time { color: #f5c451; }
+.market-london .market-clock-time { color: #76a7ff; }
+.market-newyork .market-clock-time { color: #f57b88; }
+.market-clock.active { border-color: #3d5f9a; background: #101f34; }
+.market-clock.active.market-asia { border-color: #6b5528; background: #1a160e; }
+.market-clock.active.market-london { border-color: #3d5f9a; background: #101f34; }
+.market-clock.active.market-newyork { border-color: #6b3d48; background: #1a1014; }
+.market-clock.ideal { border-color: #2d6b52; background: #0f2a22; box-shadow: 0 0 0 1px #42d99e44; }
+.market-clock.ideal .market-clock-status { color: #42d99e; }
+.market-clock.active .market-clock-status { color: #c5d8ef; }
 .session-window summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; cursor: pointer; list-style: none; }
 .session-window summary::-webkit-details-marker { display: none; }
 .session-summary-title { color: #dce6f5; font-weight: 700; font-size: .92rem; }
@@ -352,6 +375,8 @@ dt { color: #9aaec7; } dd { margin: 0; font-weight: 700; }
   .agent-header { flex-direction: column; }
   .agent-header button { width: 100%; }
   .agent-rules, .decision-grid, .decision-list, .card-expanded-main { grid-template-columns: 1fr; }
+  .market-clocks { grid-template-columns: 1fr 1fr; }
+  .market-clocks-local { grid-column: 1 / -1; }
   .binance-order-groups, .binance-order-groups.partial-tp { grid-template-columns: 1fr; }
   .risk-control { grid-template-columns: 1fr; }
   .tp-control { grid-template-columns: 1fr; }

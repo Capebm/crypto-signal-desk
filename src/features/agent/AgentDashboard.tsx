@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
-import { getTradingSessionStatus } from '../../lib/trading-session'
+import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
+import MarketClocks from './MarketClocks'
 import { BinanceGuideTeaser, BinanceOrderPanel } from './BinanceTradeGuide'
 import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
@@ -54,6 +55,7 @@ export default function AgentDashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const [session, setSession] = useState(() => getTradingSessionStatus())
+  const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
 
   useEffect(() => {
     try {
@@ -64,9 +66,12 @@ export default function AgentDashboard() {
   }, [tpMode])
 
   useEffect(() => {
-    const tick = () => setSession(getTradingSessionStatus())
+    const tick = () => {
+      setSession(getTradingSessionStatus())
+      setMarketClocks(getMarketClocks())
+    }
     tick()
-    const id = window.setInterval(tick, 60_000)
+    const id = window.setInterval(tick, 30_000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -194,20 +199,22 @@ export default function AgentDashboard() {
         <div><strong>ESPERAR</strong><span>Modelo incompleto, R:R fraco, BTC desalinhado ou fora da killzone.</span></div>
       </section>
 
-      <details className="session-window">
-        <summary>
-          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>{session.badge}</span>
-          <span className="session-summary-title">Killzone · open / mid / close</span>
-          <span className="session-clock" title="Hora NY / Lisboa">{session.nowNy} ET · {session.nowLisbon} Lisboa</span>
-        </summary>
-        <div className="session-window-body">
-          <p><strong>NY open (09:30–11:00 ET):</strong> única janela em que o agente permite <strong>COMPRAR JÁ</strong> (conservador/equilibrado).</p>
-          <p><strong>NY mid (11:00–15:00 ET):</strong> setups só como <strong>AGUARDAR COMPRA</strong> — volume mais sujo.</p>
-          <p><strong>NY fecho (15:00–16:00 ET) + Ásia/fora:</strong> <strong>sem novas entradas</strong>.</p>
-          <p><strong>Londres:</strong> permitido AGUARDAR; COMPRAR JÁ só no perfil agressivo.</p>
-          <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = conforme modo TP (1R / 1.5R / liquidez).</p>
-        </div>
-      </details>
+      <section className="session-shell">
+        <MarketClocks snapshot={marketClocks} />
+        <details className="session-window">
+          <summary>
+            <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>{session.badge}</span>
+            <span className="session-summary-title">Killzone · open / mid / close</span>
+          </summary>
+          <div className="session-window-body">
+            <p><strong>NY open ({marketClocks.windows.nyOpen.et} ET · {marketClocks.windows.nyOpen.lisbon} PT):</strong> única janela em que o agente permite <strong>COMPRAR JÁ</strong> (conservador/equilibrado).</p>
+            <p><strong>NY mid ({marketClocks.windows.nyMid.et} ET · {marketClocks.windows.nyMid.lisbon} PT):</strong> setups só como <strong>AGUARDAR COMPRA</strong> — volume mais sujo.</p>
+            <p><strong>NY fecho ({marketClocks.windows.nyClose.et} ET · {marketClocks.windows.nyClose.lisbon} PT) + Ásia/fora:</strong> <strong>sem novas entradas</strong>.</p>
+            <p><strong>Londres ({marketClocks.windows.london.et} ET · {marketClocks.windows.london.lisbon} PT):</strong> permitido AGUARDAR; COMPRAR JÁ só no perfil agressivo.</p>
+            <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = conforme modo TP (1R / 1.5R / liquidez).</p>
+          </div>
+        </details>
+      </section>
 
       <PositionAdvisor riskProfile={riskProfile} tpMode={tpMode} />
 
