@@ -30,6 +30,9 @@ type AgentRow = TjrDecision & {
 
 const price = (value?: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: value && value < 1 ? 5 : 2 }).format(value ?? 0)
 
+/** Top candidatos COMPRAR refinados automaticamente após scan (precisa 1m para COMPRAR JÁ). */
+const AUTO_REFINE_TOP = 15
+
 export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
   const [status, setStatus] = useState('Pronto para analisar o mercado.')
@@ -66,6 +69,17 @@ export default function AgentDashboard() {
     return () => window.clearInterval(id)
   }, [])
 
+  const refineRow = async (symbol: string, fallback: Pick<AgentRow, 'price' | 'change24h'>) => {
+    const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
+    const decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode)
+    const patch = (row: AgentRow): AgentRow =>
+      row.symbol === symbol ? { ...decision, symbol, price: fallback.price, change24h: fallback.change24h } : row
+    setRows((prev) => prev.map(patch))
+    setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
+    setRefinedSymbols((prev) => new Set(prev).add(symbol))
+    return patch({ ...decision, symbol, price: fallback.price, change24h: fallback.change24h })
+  }
+
   useEffect(() => {
     if (!selected) return
     const symbol = selected.symbol
@@ -78,13 +92,7 @@ export default function AgentDashboard() {
     void (async () => {
       const started = Date.now()
       try {
-        const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
-        const decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode)
-        const patch = (row: AgentRow): AgentRow =>
-          row.symbol === symbol ? { ...decision, symbol, price: row.price, change24h: row.change24h } : row
-        setRows((prev) => prev.map(patch))
-        setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
-        setRefinedSymbols((prev) => new Set(prev).add(symbol))
+        await refineRow(symbol, { price: selected.price, change24h: selected.change24h })
       } catch {
         /* scan rápido 1h permanece */
       } finally {
@@ -120,7 +128,27 @@ export default function AgentDashboard() {
       }
       const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
-      setStatus(`${results.length} moedas analisadas. Clica num par para refinar MTF e ver valores Binance.`)
+
+      const buyCandidates = sorted.filter((row) => row.action === 'COMPRAR').slice(0, AUTO_REFINE_TOP)
+      if (buyCandidates.length > 0) {
+        setStatus(`Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`)
+        let buyNow = 0
+        for (let index = 0; index < buyCandidates.length; index += 1) {
+          const row = buyCandidates[index]
+          setStatus(`MTF · ${index + 1}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}…`)
+          try {
+            const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
+            if (refined.action === 'COMPRAR' && refined.entryTiming === 'AGORA') buyNow += 1
+          } catch {
+            /* mantém scan 1h deste par */
+          }
+        }
+        setStatus(
+          `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ confirmado(s). Clica num par para gráfico e valores Binance.`,
+        )
+      } else {
+        setStatus(`${results.length} moedas analisadas. Nenhum candidato COMPRAR no scan 1h.`)
+      }
     } catch {
       setStatus('Não foi possível obter os dados da Binance. Tenta novamente.')
     } finally {
@@ -247,7 +275,10 @@ export default function AgentDashboard() {
                   <strong>{row.score}</strong><small>/100</small>
                 </span>
               </div>
-              <p className="decision-meta">{row.setupStatus} · {row.confidence} confiança · R:R {row.riskReward?.toFixed(1) ?? '—'}×</p>
+              <p className="decision-meta">
+                {row.setupStatus} · {row.confidence} confiança · R:R {row.riskReward?.toFixed(1) ?? '—'}×
+                {refinedSymbols.has(row.symbol) ? ' · MTF ✓' : row.action === 'COMPRAR' ? ' · scan 1h' : ''}
+              </p>
               <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
               <p>{row.reasons[0]}</p>
               <dl>
