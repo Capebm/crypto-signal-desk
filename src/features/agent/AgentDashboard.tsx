@@ -3,6 +3,7 @@ import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles,
 import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
 import { getTradingSessionStatus } from '../../lib/trading-session'
 import { BinanceGuideTeaser, BinanceOrderPanel } from './BinanceTradeGuide'
+import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import type { Interval } from '../../lib/types'
@@ -147,6 +148,8 @@ export default function AgentDashboard() {
           <p><strong>Preços:</strong> entrada = close do BOS 1m; stop = 2º swing; alvo = draw sessão/PDH-PDL com R:R 1–3×.</p>
         </div>
       </details>
+
+      <PositionAdvisor riskProfile={riskProfile} />
 
       <section className="risk-control">
         <div><strong title="Define quão exigente é o agente antes de emitir COMPRAR.">Risco: {riskProfiles[riskProfile].label}</strong><p>{riskProfiles[riskProfile].description}</p></div>
