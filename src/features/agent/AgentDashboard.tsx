@@ -386,7 +386,10 @@ export default function AgentDashboard() {
     <main className="agent-shell">
       <header className="agent-header agent-header-compact">
         <div>
-          <p className="eyebrow">AGENTE TJR · SPOT {AGENT_QUOTE_ASSET}</p>
+          <p className="eyebrow">
+            <span className="eyebrow-tag">Spot TJR</span>
+            <span className="eyebrow-rest">{AGENT_QUOTE_ASSET} · Binance</span>
+          </p>
           <h1>O que fazer agora?</h1>
         </div>
         <button type="button" className="agent-scan-btn" onClick={() => void scan()} disabled={running}>
