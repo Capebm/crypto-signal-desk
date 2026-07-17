@@ -21,13 +21,25 @@ describe('reactive draw liquidity sweep', () => {
       c({ open: 9.4, high: 9.9, low: 9.3, close: 9.8 }),
     ]
     const draws: DrawLevel[] = [
-      { price: 9.3, source: 'london', label: 'Londres L' },
-      { price: 12, source: 'asia', label: 'Ásia H' },
+      { price: 9.3, source: 'london', label: 'Londres L', kind: 'low' },
+      { price: 12, source: 'asia', label: 'Ásia H', kind: 'high' },
     ]
     const hit = recentDrawLiquiditySweepDetailed(candles, draws, 10)
     expect(hit?.direction).toBe('bullish')
     expect(hit?.source).toBe('london')
     expect(hit?.label).toBe('Londres L')
+    expect(hit?.kind).toBe('low')
+  })
+
+  it('does not treat high-raid as bullish long sweep', () => {
+    const candles: Candle[] = [
+      c({ open: 10, high: 11, low: 9.8, close: 10.5 }),
+      c({ open: 10.5, high: 12.2, low: 10.4, close: 10.6 }), // sweeps Asia H 12 then closes back
+    ]
+    const highs: DrawLevel[] = [{ price: 12, source: 'asia', label: 'Ásia H', kind: 'high' }]
+    const lows: DrawLevel[] = [{ price: 9, source: 'london', label: 'Londres L', kind: 'low' }]
+    expect(recentDrawLiquiditySweepDetailed(candles, highs, 10)?.direction).toBe('bearish')
+    expect(recentDrawLiquiditySweepDetailed(candles, lows, 10)).toBeUndefined()
   })
 
   it('marks asia/london/prev_day as reactive for longs', () => {

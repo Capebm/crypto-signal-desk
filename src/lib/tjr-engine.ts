@@ -54,6 +54,8 @@ export type TjrDecision = Decision & {
   sweepLabel?: string
   /** Sweep pré-NY → reagir no open sem esperar outro raid. */
   reactive?: boolean
+  /** Sweep de high (setup de short) — Spot não compra. */
+  opposedSweep?: boolean
   /** Swings 4h/1h para markup no gráfico. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
 }
@@ -305,44 +307,62 @@ function evaluate(
   const sessionLines = latestSessionLevels(primary1h)
   const prevDay = previousDayLevels(primary1h)
   const swings1h = findTjrSwings(primary1h)
-  const drawMeta: DrawLevel[] = [
+  const allDraws: DrawLevel[] = [
     ...sessionLines.map((line) => ({
       price: line.price,
       source: line.session as SweepSource,
       label: line.title,
+      kind: line.kind,
     })),
     ...prevDay.map((line) => ({
       price: line.price,
       source: 'prev_day' as const,
       label: line.title,
+      kind: line.kind,
     })),
     ...swings1h.slice(-6).map((s) => ({
       price: s.price,
       source: 'swing_1h' as const,
       label: s.type === 'high' ? '1h H' : '1h L',
+      kind: s.type,
     })),
     ...h4.swings.slice(-4).map((s) => ({
       price: s.price,
       source: 'swing_4h' as const,
       label: s.type === 'high' ? '4h H' : '4h L',
+      kind: s.type,
     })),
   ]
-  const drawHit = recentDrawLiquiditySweepDetailed(primary1h, drawMeta)
+  // Long Spot: só sweeps de LOWS contam a favor; highs são aviso (não short aqui).
+  const alignedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'low' : d.kind === 'high'))
+  const opposedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'high' : d.kind === 'low'))
+  const drawHit = recentDrawLiquiditySweepDetailed(primary1h, alignedDraws)
+  const opposedHit = recentDrawLiquiditySweepDetailed(primary1h, opposedDraws)
   const microSweep = h1.sweep ?? h4.sweep
-  const sweep = drawHit?.direction ?? (profile === 'agressivo' ? microSweep : undefined)
+  const sweep = drawHit?.direction ?? (profile === 'agressivo' && isAligned(microSweep, side) ? microSweep : undefined)
   const sweepOk = isAligned(sweep, side)
+  const opposedSweep = Boolean(
+    opposedHit
+    && ((side === 'long' && opposedHit.direction === 'bearish') || (side === 'short' && opposedHit.direction === 'bullish')),
+  )
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
-  const sweepLabel = sweepOk && drawHit ? drawHit.label : sweepOk ? 'Micro swing' : undefined
+  const sweepLabel = sweepOk && drawHit
+    ? drawHit.label
+    : opposedSweep && opposedHit
+      ? `${opposedHit.label} · não comprar`
+      : sweepOk
+        ? 'Micro L'
+        : undefined
   const reactive = isReactiveSweep(sweepSource, side, sweep)
 
   const h4Opposed = (side === 'long' && h4.trend === 'bearish') || (side === 'short' && h4.trend === 'bullish')
   const biasOk = !h4Opposed && (
     (side === 'long' && (h4.trend === 'bullish' || (h1.trend === 'bullish' && sweepOk)))
     || (side === 'short' && (h4.trend === 'bearish' || (h1.trend === 'bearish' && sweepOk)))
-    || (profile === 'agressivo' && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
+    || (profile === 'agressivo' && !opposedSweep && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
   )
 
-  const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || biasOk
+  const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !opposedSweep)
   const confirmExec = confirmationHit(exec, side)
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
@@ -371,7 +391,7 @@ function evaluate(
   const indexAligned = symbol === BTC_REFERENCE_SYMBOL || smt === undefined || isAligned(smt, side)
 
   const sweepGate = !gates.requireSweep || sweepOk
-  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk
+  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !opposedSweep
 
   const entryTiming: EntryTiming = !setupReady
     ? 'NENHUM'
@@ -450,14 +470,16 @@ function evaluate(
     positionGuidance = finalTiming === 'AGORA' ? 'ENTRAR_AGORA' : 'AGUARDAR_ENTRADA'
   }
 
-  const sweepNote = !sweepOk
-    ? (gates.requireSweep ? 'Obrigatório: wick além de session/1h/4h high-low.' : 'Opcional neste perfil.')
-    : reactive
-      ? `Reactivo · ${sweepLabel} — sweep pré-NY; não esperes outro raid no open.`
-      : `Sweep em ${sweepLabel ?? 'draw HTF'} (${sweep}).`
+  const sweepNote = opposedSweep && opposedHit
+    ? `Sweep de HIGH (${opposedHit.label}) — Spot só long; não COMPRAR (seria setup de short).`
+    : !sweepOk
+      ? (gates.requireSweep ? 'Obrigatório: wick além de um LOW HTF (Ásia L / Londres L / 1h L…).' : 'Sem sweep de low — opcional neste perfil, desde que sem sweep de high.')
+      : reactive
+        ? `Reactivo · ${sweepLabel} (low) — sweep pré-NY; não esperes outro raid.`
+        : `Sweep de LOW · ${sweepLabel} (${sweep}).`
 
   const checklist = [
-    { label: '1. Sweep (draw HTF)', complete: sweepOk, note: sweepNote },
+    { label: '1. Sweep (draw HTF)', complete: sweepOk && !opposedSweep, note: sweepNote },
     { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk ? `BOS/IFVG no ${execLabel}+1h com displacement.` : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.` },
     { label: '3. Continuação (FVG / EQ)', complete: continuationOk && Boolean(entryZone), note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.' },
     { label: '4. Entrada 1m (retrace→BOS)', complete: ltfReady, note: quickScan ? 'Scan rápido — expande para 1m.' : ltfReady ? `Preço BOS 1m: ${ltf.entryPrice?.toPrecision(5) ?? '—'}.` : 'À espera do BOS 1m de entrada.' },
@@ -480,7 +502,8 @@ function evaluate(
   const reasons: string[] = []
   if (positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO') reasons.push(invalidationReason!)
   else {
-    if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo (${sweepLabel}).` : '1· Sweep HTF.')
+    if (opposedSweep && opposedHit) reasons.push(`Sweep de high (${opposedHit.label}): Spot não short — ESPERAR / não comprar.`)
+    if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo de low (${sweepLabel}).` : '1· Sweep de low HTF.')
     if (confirmOk) reasons.push('2· Confirmação + displacement.')
     if (resolvedTiming === 'AGORA') reasons.push(`4· Entrada 1m @ ${entry.toPrecision(5)}.`)
     else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS 1m.')
@@ -490,7 +513,7 @@ function evaluate(
     if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
     else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
-    if (!tradeReady && !sessionBlocked) {
+    if (!tradeReady && !sessionBlocked && !opposedSweep) {
       reasons.push(setupReady && !rrOk ? 'R:R fora de 1–3×.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto.')
     }
   }
@@ -523,6 +546,7 @@ function evaluate(
     sweepSource,
     sweepLabel,
     reactive,
+    opposedSweep,
     htfLevels,
     exitPlan: buildExitPlan(
       side,

@@ -296,16 +296,20 @@ export default function AgentDashboard() {
                     <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
                   </td>
                   <td>
-                    {row.reactive ? (
+                    {row.opposedSweep ? (
+                      <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                        {row.sweepLabel ?? 'H · não comprar'}
+                      </span>
+                    ) : row.reactive ? (
                       <span className="sweep-tag reactive" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                        Reactivo · {row.sweepLabel ?? 'pré'}
+                        Reactivo · {row.sweepLabel ?? 'low'}
                       </span>
                     ) : row.sweepLabel ? (
                       <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
                         {row.sweepLabel}
                       </span>
                     ) : (
-                      <span className="sweep-tag muted">À espera</span>
+                      <span className="sweep-tag muted">Sem low</span>
                     )}
                   </td>
                   <td>
@@ -417,12 +421,14 @@ export default function AgentDashboard() {
           <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
             {session.badge}
           </span>
-          {selected?.reactive ? (
+          {selected?.opposedSweep ? (
+            <span className="sweep-badge warn">Sweep H · não comprar</span>
+          ) : selected?.reactive ? (
             <span className="sweep-badge reactive">Reactivo · {selected.sweepLabel}</span>
           ) : selected?.sweepLabel ? (
-            <span className="sweep-badge">Sweep · {selected.sweepLabel}</span>
+            <span className="sweep-badge">Sweep L · {selected.sweepLabel}</span>
           ) : (
-            <span className="sweep-badge muted">À espera de sweep HTF</span>
+            <span className="sweep-badge muted">À espera de sweep de LOW</span>
           )}
           <span className="tv-clock" title="Lisboa">{session.nowLisbon} PT</span>
           <span className="tv-clock muted" title="New York">{session.nowNy} ET</span>

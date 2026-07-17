@@ -88,20 +88,21 @@ export function recentLiquiditySweep(candles: Candle[], swings: SwingPoint[], lo
 export function recentDrawLiquiditySweep(candles: Candle[], drawLevels: number[], lookback = 24): Direction | undefined {
   return recentDrawLiquiditySweepDetailed(
     candles,
-    drawLevels.map((price) => ({ price, source: 'swing_1h' as const, label: 'Draw' })),
+    drawLevels.map((price) => ({ price, source: 'swing_1h' as const, label: 'Draw', kind: 'low' as const })),
     lookback,
   )?.direction
 }
 
 export type SweepSource = 'asia' | 'london' | 'newyork' | 'prev_day' | 'swing_1h' | 'swing_4h' | 'none'
 
-export type DrawLevel = { price: number; source: SweepSource; label: string }
+export type DrawLevel = { price: number; source: SweepSource; label: string; kind: 'high' | 'low' }
 
 export type DrawSweepHit = {
   direction: Direction
   source: SweepSource
   label: string
   price: number
+  kind: 'high' | 'low'
 }
 
 /** Prioridade: sessões (Ásia→Londres→NY) e dia ant. antes de swings. */
@@ -127,11 +128,13 @@ export function recentDrawLiquiditySweepDetailed(
   for (let i = recent.length - 1; i >= 0; i -= 1) {
     const candle = recent[i]
     for (const level of ranked) {
-      if (candle.high > level.price && candle.close < level.price) {
-        return { direction: 'bearish', source: level.source, label: level.label, price: level.price }
+      // High levels: only count as high-raid (bearish opportunity)
+      if (level.kind === 'high' && candle.high > level.price && candle.close < level.price) {
+        return { direction: 'bearish', source: level.source, label: level.label, price: level.price, kind: 'high' }
       }
-      if (candle.low < level.price && candle.close > level.price) {
-        return { direction: 'bullish', source: level.source, label: level.label, price: level.price }
+      // Low levels: only count as low-raid (bullish opportunity)
+      if (level.kind === 'low' && candle.low < level.price && candle.close > level.price) {
+        return { direction: 'bullish', source: level.source, label: level.label, price: level.price, kind: 'low' }
       }
     }
   }

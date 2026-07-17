@@ -170,10 +170,15 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-green);
   background: rgba(38, 166, 154, 0.12);
 }
+.sweep-badge.warn {
+  border-color: var(--tv-red);
+  color: var(--tv-red);
+  background: rgba(239, 83, 80, 0.12);
+}
 .sweep-badge.muted { color: var(--tv-text-muted); font-weight: 600; }
 .sweep-tag {
   display: inline-block;
-  max-width: 140px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: .72rem;
@@ -181,6 +186,7 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-text-secondary);
 }
 .sweep-tag.reactive { color: var(--tv-green); }
+.sweep-tag.warn { color: var(--tv-red); }
 .sweep-tag.muted { color: var(--tv-text-muted); font-weight: 500; }
 .tv-toolbar .agent-scan-btn { padding: 8px 14px; font-size: .84rem; }
 
