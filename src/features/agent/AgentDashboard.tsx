@@ -4,7 +4,15 @@ import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { dayId, pnlForDay } from '../../lib/journal/journal-stats'
 import { getClosedTrades } from '../../lib/journal/trade-store'
 import { loadOpenPosition, parseOpenNumber } from '../../lib/open-position-store'
-import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type TjrDecision } from '../../lib/tjr-engine'
+import {
+  evaluateTjrFull,
+  evaluateTjrQuick,
+  formatSetupHitLabel,
+  listBuyNowSetups,
+  tjrActionLabel,
+  tjrScoreColor,
+  type TjrDecision,
+} from '../../lib/tjr-engine'
 import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
 import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
@@ -21,6 +29,19 @@ const TP_STORAGE_KEY = 'tjr-tp-mode'
 const ACCOUNT_KEY = 'tjr-account-usdc'
 const RISK_KEY = 'tjr-risk-index'
 const STAKE_KEY = 'tjr-stake-index'
+const HIGH_SWEEP_KEY = 'tjr-allow-high-sweep-long'
+const ALL_SETUPS_KEY = 'tjr-scan-all-setups'
+
+const readBool = (key: string, fallback = false) => {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === '1' || raw === 'true') return true
+    if (raw === '0' || raw === 'false') return false
+  } catch {
+    /* ignore */
+  }
+  return fallback
+}
 
 const readStoredTpMode = (): TpMode => {
   try {
@@ -88,6 +109,8 @@ export default function AgentDashboard() {
   const [tpIndex, setTpIndex] = useState(() => Math.max(0, tpModes.indexOf(readStoredTpMode())))
   const [tpHelpOpen, setTpHelpOpen] = useState(false)
   const tpMode = tpModes[tpIndex]
+  const [allowHighSweepLong, setAllowHighSweepLong] = useState(() => readBool(HIGH_SWEEP_KEY, false))
+  const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -95,6 +118,7 @@ export default function AgentDashboard() {
   const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode; stakeUsdc: number }>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
+  const evalOptions = useMemo(() => ({ allowHighSweepLong }), [allowHighSweepLong])
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [pinKey, setPinKey] = useState(0)
@@ -110,10 +134,12 @@ export default function AgentDashboard() {
       localStorage.setItem(RISK_KEY, String(riskIndex))
       localStorage.setItem(STAKE_KEY, String(stakeIndex))
       localStorage.setItem(ACCOUNT_KEY, String(accountUsdc))
+      localStorage.setItem(HIGH_SWEEP_KEY, allowHighSweepLong ? '1' : '0')
+      localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
     } catch {
       /* ignore */
     }
-  }, [tpMode, riskIndex, stakeIndex, accountUsdc])
+  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups])
 
   useEffect(() => {
     const tick = () => {
@@ -128,7 +154,35 @@ export default function AgentDashboard() {
 
   const refineRow = async (symbol: string, fallback: Pick<AgentRow, 'price' | 'change24h'>) => {
     const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
-    const decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode)
+    let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, undefined, evalOptions)
+    const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, evalOptions) : undefined
+    if (scanAllSetups && matchingSetups && matchingSetups.length > 0) {
+      const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
+      if (userHit) {
+        decision = {
+          ...decision,
+          matchingSetups,
+          tradeSetup: userHit,
+        }
+      } else {
+        const best = matchingSetups[0]
+        decision = {
+          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, undefined, evalOptions),
+          matchingSetups,
+          tradeSetup: best,
+        }
+      }
+    } else if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
+      decision = {
+        ...decision,
+        tradeSetup: {
+          profile: riskProfile,
+          tpMode,
+          label: formatSetupHitLabel(riskProfile, tpMode),
+          score: decision.score,
+        },
+      }
+    }
     const patch = (row: AgentRow): AgentRow =>
       row.symbol === symbol ? { ...decision, symbol, price: fallback.price, change24h: fallback.change24h } : row
     setRows((prev) => prev.map(patch))
@@ -159,7 +213,7 @@ export default function AgentDashboard() {
         setLoadingFull(undefined)
       }
     })()
-  }, [selected?.symbol, riskProfile, tpMode])
+  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups])
 
   const scan = async () => {
     setRunning(true)
@@ -170,6 +224,8 @@ export default function AgentDashboard() {
     try {
       const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
       const results: AgentRow[] = []
+      const quickProfile: RiskProfile = scanAllSetups ? 'agressivo' : riskProfile
+      const quickTp: TpMode = scanAllSetups ? '1r' : tpMode
       for (let index = 0; index < markets.length; index += 5) {
         const done = Math.min(index + 5, markets.length)
         setScanProgress({ pct: Math.round((done / markets.length) * 70), label: `Scan 1h · ${done}/${markets.length}` })
@@ -177,7 +233,7 @@ export default function AgentDashboard() {
         const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
           try {
             const candles1h = await getCandles(market.symbol, '1h')
-            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile, tpMode)
+            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, quickProfile, quickTp, evalOptions)
             const rowPrice = candles1h.at(-1)?.close ?? 0
             return { ...decision, symbol: market.symbol, price: rowPrice, change24h: market.priceChangePercent }
           } catch {
@@ -189,9 +245,15 @@ export default function AgentDashboard() {
       const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
 
-      const buyCandidates = sorted.filter((row) => row.action === 'COMPRAR').slice(0, AUTO_REFINE_TOP)
+      const buyCandidates = scanAllSetups
+        ? sorted.slice(0, AUTO_REFINE_TOP)
+        : sorted.filter((row) => row.action === 'COMPRAR').slice(0, AUTO_REFINE_TOP)
       if (buyCandidates.length > 0) {
-        setStatus(`Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`)
+        setStatus(
+          scanAllSetups
+            ? `Scan 1h ok · a testar 9 setups no top ${buyCandidates.length}…`
+            : `Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`,
+        )
         let buyNow = 0
         for (let index = 0; index < buyCandidates.length; index += 1) {
           const row = buyCandidates[index]
@@ -294,9 +356,33 @@ export default function AgentDashboard() {
                   <td>
                     <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
                     <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
+                    {row.matchingSetups && row.matchingSetups.length > 0 && (
+                      <div className="setup-hit-row" title="Setups que deram COMPRAR JÁ">
+                        {row.matchingSetups.map((hit) => {
+                          const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
+                          return (
+                            <span
+                              key={`${hit.profile}-${hit.tpMode}`}
+                              className={`setup-hit${isTrade ? ' current' : ''}`}
+                            >
+                              {hit.label}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {!row.matchingSetups && row.tradeSetup && row.action === 'COMPRAR' && row.entryTiming === 'AGORA' && (
+                      <div className="setup-hit-row">
+                        <span className="setup-hit current">{row.tradeSetup.label}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
-                    {row.opposedSweep ? (
+                    {row.riskyHighLong ? (
+                      <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                        {row.sweepLabel ?? 'H · arriscado'}
+                      </span>
+                    ) : row.opposedSweep ? (
                       <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
                         {row.sweepLabel ?? 'H · não comprar'}
                       </span>
@@ -381,6 +467,18 @@ export default function AgentDashboard() {
                   {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
                   {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
                 </p>
+                {row.matchingSetups && row.matchingSetups.length > 0 && (
+                  <p className="setup-hit-panel">
+                    <strong>Setups COMPRAR JÁ:</strong>{' '}
+                    {row.matchingSetups.map((hit) => hit.label).join(' · ')}
+                    {row.tradeSetup && (
+                      <> · <strong>níveis:</strong> {row.tradeSetup.label}</>
+                    )}
+                  </p>
+                )}
+                {!row.matchingSetups && row.tradeSetup && (
+                  <p className="setup-hit-panel"><strong>Setup:</strong> {row.tradeSetup.label}</p>
+                )}
                 <ul className="tjr-checklist inline">
                   {row.checklist.map((item) => (
                     <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
@@ -421,7 +519,9 @@ export default function AgentDashboard() {
           <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
             {session.badge}
           </span>
-          {selected?.opposedSweep ? (
+          {selected?.riskyHighLong ? (
+            <span className="sweep-badge warn">Sweep H · long arriscado</span>
+          ) : selected?.opposedSweep ? (
             <span className="sweep-badge warn">Sweep H · não comprar</span>
           ) : selected?.reactive ? (
             <span className="sweep-badge reactive">Reactivo · {selected.sweepLabel}</span>
@@ -527,6 +627,28 @@ export default function AgentDashboard() {
             value={accountUsdc}
             onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
           />
+        </label>
+        <label className="tv-setup-toggle" title="Permite COMPRAR após sweep de HIGH (não é setup TJR clássico de long)">
+          <input
+            type="checkbox"
+            checked={allowHighSweepLong}
+            onChange={(event) => {
+              setAllowHighSweepLong(event.target.checked)
+              if (rows.length > 0) setStatus('Toggle H-sweep — re-analisa para aplicar.')
+            }}
+          />
+          <span>Long após H</span>
+        </label>
+        <label className="tv-setup-toggle" title="No refine MTF testa as 9 combinações risco×TP e mostra no cartão quais deram COMPRAR JÁ">
+          <input
+            type="checkbox"
+            checked={scanAllSetups}
+            onChange={(event) => {
+              setScanAllSetups(event.target.checked)
+              if (rows.length > 0) setStatus('Todos os setups — re-analisa para aplicar.')
+            }}
+          />
+          <span>Todos setups</span>
         </label>
         {rows.length > 0 && (
           <button type="button" className="setup-reapply" onClick={() => void scan()} disabled={running}>

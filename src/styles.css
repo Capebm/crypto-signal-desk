@@ -267,6 +267,52 @@ body.desk-mode { overflow: hidden; }
   height: 18px;
   font-size: .68rem;
 }
+.tv-setup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+  padding: 0 4px;
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--tv-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.tv-setup-toggle input {
+  accent-color: var(--tv-green);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+.setup-hit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 4px;
+  max-width: 220px;
+}
+.setup-hit {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+  background: var(--tv-toolbar);
+  color: var(--tv-text-muted);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.setup-hit.current {
+  border-color: var(--tv-green);
+  color: var(--tv-green);
+}
+.setup-hit-panel {
+  margin: 0 0 8px;
+  font-size: .78rem;
+  color: var(--tv-text-secondary);
+}
 
 .market-clocks.compact {
   grid-template-columns: minmax(70px, 0.55fr) repeat(3, minmax(0, 1fr));

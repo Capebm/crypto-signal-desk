@@ -18,7 +18,7 @@ import {
   type SweepSource,
 } from './tjr-structure'
 import { getTradingSessionStatus } from './trading-session'
-import { tpModeMeta, type TpMode } from './tp-mode'
+import { tpModeMeta, tpModes, type TpMode } from './tp-mode'
 import type { Candle, Direction, PriceZone } from './types'
 
 export type EntryTiming = 'AGORA' | 'RETRACE' | 'NENHUM'
@@ -54,10 +54,28 @@ export type TjrDecision = Decision & {
   sweepLabel?: string
   /** Sweep pré-NY → reagir no open sem esperar outro raid. */
   reactive?: boolean
-  /** Sweep de high (setup de short) — Spot não compra. */
+  /** Sweep de high (setup de short) — Spot não compra (salvo allowHighSweepLong). */
   opposedSweep?: boolean
+  /** Long permitido apesar de sweep de high (arriscado). */
+  riskyHighLong?: boolean
+  /** Combinações risco×TP que também dão COMPRAR JÁ. */
+  matchingSetups?: SetupHit[]
+  /** Setup cujos níveis (entry/stop/TP) estão no cartão. */
+  tradeSetup?: SetupHit
   /** Swings 4h/1h para markup no gráfico. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
+}
+
+export type SetupHit = {
+  profile: RiskProfile
+  tpMode: TpMode
+  label: string
+  score: number
+}
+
+export type EvaluateOptions = {
+  /** Spot: permite COMPRAR mesmo com sweep de high (default false). */
+  allowHighSweepLong?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -276,7 +294,9 @@ function evaluate(
   execCandles?: Candle[],
   quickScan = false,
   tpMode: TpMode = '1_5r',
+  options: EvaluateOptions = {},
 ): TjrDecision {
+  const allowHighSweepLong = Boolean(options.allowHighSweepLong)
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
 
@@ -345,11 +365,13 @@ function evaluate(
     opposedHit
     && ((side === 'long' && opposedHit.direction === 'bearish') || (side === 'short' && opposedHit.direction === 'bullish')),
   )
+  const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
+  const blockOpposed = opposedSweep && !riskyHighLong
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
   const sweepLabel = sweepOk && drawHit
     ? drawHit.label
     : opposedSweep && opposedHit
-      ? `${opposedHit.label} · não comprar`
+      ? (riskyHighLong ? `${opposedHit.label} · H arriscado` : `${opposedHit.label} · não comprar`)
       : sweepOk
         ? 'Micro L'
         : undefined
@@ -359,10 +381,10 @@ function evaluate(
   const biasOk = !h4Opposed && (
     (side === 'long' && (h4.trend === 'bullish' || (h1.trend === 'bullish' && sweepOk)))
     || (side === 'short' && (h4.trend === 'bearish' || (h1.trend === 'bearish' && sweepOk)))
-    || (profile === 'agressivo' && !opposedSweep && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
+    || (profile === 'agressivo' && !blockOpposed && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
   )
 
-  const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !opposedSweep)
+  const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !blockOpposed)
   const confirmExec = confirmationHit(exec, side)
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
@@ -391,7 +413,7 @@ function evaluate(
   const indexAligned = symbol === BTC_REFERENCE_SYMBOL || smt === undefined || isAligned(smt, side)
 
   const sweepGate = !gates.requireSweep || sweepOk
-  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !opposedSweep
+  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !blockOpposed
 
   const entryTiming: EntryTiming = !setupReady
     ? 'NENHUM'
@@ -471,7 +493,9 @@ function evaluate(
   }
 
   const sweepNote = opposedSweep && opposedHit
-    ? `Sweep de HIGH (${opposedHit.label}) — Spot só long; não COMPRAR (seria setup de short).`
+    ? (riskyHighLong
+      ? `Sweep de HIGH (${opposedHit.label}) — long ARRISCADO (toggle activo). Continuação possível; não é setup TJR clássico.`
+      : `Sweep de HIGH (${opposedHit.label}) — Spot só long; não COMPRAR (seria setup de short).`)
     : !sweepOk
       ? (gates.requireSweep ? 'Obrigatório: wick além de um LOW HTF (Ásia L / Londres L / 1h L…).' : 'Sem sweep de low — opcional neste perfil, desde que sem sweep de high.')
       : reactive
@@ -479,7 +503,7 @@ function evaluate(
         : `Sweep de LOW · ${sweepLabel} (${sweep}).`
 
   const checklist = [
-    { label: '1. Sweep (draw HTF)', complete: sweepOk && !opposedSweep, note: sweepNote },
+    { label: '1. Sweep (draw HTF)', complete: (sweepOk && !blockOpposed) || riskyHighLong, note: sweepNote },
     { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk ? `BOS/IFVG no ${execLabel}+1h com displacement.` : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.` },
     { label: '3. Continuação (FVG / EQ)', complete: continuationOk && Boolean(entryZone), note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.' },
     { label: '4. Entrada 1m (retrace→BOS)', complete: ltfReady, note: quickScan ? 'Scan rápido — expande para 1m.' : ltfReady ? `Preço BOS 1m: ${ltf.entryPrice?.toPrecision(5) ?? '—'}.` : 'À espera do BOS 1m de entrada.' },
@@ -502,7 +526,8 @@ function evaluate(
   const reasons: string[] = []
   if (positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO') reasons.push(invalidationReason!)
   else {
-    if (opposedSweep && opposedHit) reasons.push(`Sweep de high (${opposedHit.label}): Spot não short — ESPERAR / não comprar.`)
+    if (opposedSweep && opposedHit && !riskyHighLong) reasons.push(`Sweep de high (${opposedHit.label}): Spot não short — ESPERAR / não comprar.`)
+    if (riskyHighLong && opposedHit) reasons.push(`Long arriscado após sweep de high (${opposedHit.label}).`)
     if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo de low (${sweepLabel}).` : '1· Sweep de low HTF.')
     if (confirmOk) reasons.push('2· Confirmação + displacement.')
     if (resolvedTiming === 'AGORA') reasons.push(`4· Entrada 1m @ ${entry.toPrecision(5)}.`)
@@ -513,7 +538,7 @@ function evaluate(
     if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
     else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
-    if (!tradeReady && !sessionBlocked && !opposedSweep) {
+    if (!tradeReady && !sessionBlocked && !blockOpposed) {
       reasons.push(setupReady && !rrOk ? 'R:R fora de 1–3×.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto.')
     }
   }
@@ -547,6 +572,7 @@ function evaluate(
     sweepLabel,
     reactive,
     opposedSweep,
+    riskyHighLong,
     htfLevels,
     exitPlan: buildExitPlan(
       side,
@@ -620,11 +646,12 @@ export function evaluateTjrQuick(
   btc1h: Candle[],
   profile: RiskProfile,
   tpMode: TpMode = '1_5r',
+  options: EvaluateOptions = {},
 ): TjrDecision {
   const h1 = structureSnapshot(candles1h)
   const h4proxy = structureSnapshot(candles1h.slice(-80))
   const side = inferSide(h4proxy.trend, h1.trend, h1.sweep ?? h4proxy.sweep)
-  return evaluate(symbol, side, h4proxy, h1, h1, '15m', candles1h, btc1h, profile, undefined, candles1h, true, tpMode)
+  return evaluate(symbol, side, h4proxy, h1, h1, '15m', candles1h, btc1h, profile, undefined, candles1h, true, tpMode, options)
 }
 
 export function evaluateTjrFull(
@@ -634,6 +661,7 @@ export function evaluateTjrFull(
   profile: RiskProfile,
   tpMode: TpMode = '1_5r',
   forcedSide?: TradeSide,
+  options: EvaluateOptions = {},
 ): TjrDecision {
   const h4 = structureSnapshot(data['4h'])
   const h1 = structureSnapshot(data['1h'])
@@ -641,5 +669,30 @@ export function evaluateTjrFull(
   const execLabel = aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
   const side = forcedSide ?? inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
-  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode)
+  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode, options)
+}
+
+const setupLabel = (profile: RiskProfile, tpMode: TpMode) =>
+  `${riskProfiles[profile].label} · ${tpModeMeta[tpMode].short}`
+
+export { setupLabel as formatSetupHitLabel }
+
+/** Testa risco × TP e devolve os que dão COMPRAR JÁ (mesmo candle pack). */
+export function listBuyNowSetups(
+  symbol: string,
+  data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
+  btc: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
+  options: EvaluateOptions = {},
+): SetupHit[] {
+  const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
+  const hits: SetupHit[] = []
+  for (const profile of profiles) {
+    for (const mode of tpModes) {
+      const decision = evaluateTjrFull(symbol, data, btc, profile, mode, undefined, options)
+      if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
+        hits.push({ profile, tpMode: mode, label: setupLabel(profile, mode), score: decision.score })
+      }
+    }
+  }
+  return hits.sort((a, b) => b.score - a.score)
 }
