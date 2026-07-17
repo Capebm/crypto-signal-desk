@@ -104,6 +104,32 @@ export function garimpoApiPlugin(): Plugin {
           return
         }
 
+        if (url.pathname === '/api/yahoo-candles' && req.method === 'GET') {
+          const symbol = url.searchParams.get('symbol')?.trim()
+          const interval = url.searchParams.get('interval')?.trim() ?? '15m'
+          const range = url.searchParams.get('range')?.trim() ?? '60d'
+          if (!symbol) {
+            sendJson(res, 400, { error: 'symbol inválido' })
+            return
+          }
+          try {
+            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`
+            const response = await fetch(yahooUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; CSD-Desk/1.0)',
+                Accept: 'application/json',
+              },
+            })
+            const text = await response.text()
+            res.statusCode = response.ok ? 200 : 502
+            res.setHeader('Content-Type', 'application/json')
+            res.end(text)
+          } catch (error) {
+            sendJson(res, 500, { error: error instanceof Error ? error.message : 'Yahoo fetch failed' })
+          }
+          return
+        }
+
         next()
       })
     },

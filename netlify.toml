@@ -21,6 +21,11 @@
   to = "/.netlify/functions/hunt-opportunities"
   status = 200
 
+[[redirects]]
+  from = "/api/yahoo-candles"
+  to = "/.netlify/functions/yahoo-candles"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

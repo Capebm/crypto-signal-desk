@@ -2,16 +2,20 @@ import { useEffect, useState } from 'react'
 import { CRYPTO_TAB_EVENT, type CryptoTab } from '../lib/crypto-tabs'
 import AgentDashboard from './agent/AgentDashboard'
 import JournalDashboard from './journal/JournalDashboard'
+import T212Dashboard from './t212/T212Dashboard'
 
 const TAB_KEY = 'crypto-desk-tab'
 
 type Props = { onSwitchApp?: (app: 'garimpo' | 'crypto') => void }
 
+const readTab = (): CryptoTab => {
+  const saved = localStorage.getItem(TAB_KEY)
+  if (saved === 'journal' || saved === 't212' || saved === 'agent') return saved
+  return 'agent'
+}
+
 export default function CryptoApp({ onSwitchApp }: Props) {
-  const [tab, setTab] = useState<CryptoTab>(() => {
-    const saved = localStorage.getItem(TAB_KEY)
-    return saved === 'journal' ? 'journal' : 'agent'
-  })
+  const [tab, setTab] = useState<CryptoTab>(readTab)
 
   useEffect(() => {
     localStorage.setItem(TAB_KEY, tab)
@@ -20,7 +24,7 @@ export default function CryptoApp({ onSwitchApp }: Props) {
   useEffect(() => {
     const onTab = (event: Event) => {
       const detail = (event as CustomEvent<CryptoTab>).detail
-      if (detail === 'agent' || detail === 'journal') setTab(detail)
+      if (detail === 'agent' || detail === 'journal' || detail === 't212') setTab(detail)
     }
     window.addEventListener(CRYPTO_TAB_EVENT, onTab)
     return () => window.removeEventListener(CRYPTO_TAB_EVENT, onTab)
@@ -38,10 +42,19 @@ export default function CryptoApp({ onSwitchApp }: Props) {
             type="button"
             className={tab === 'agent' ? 'active' : ''}
             onClick={() => setTab('agent')}
-            title="Agente TJR"
+            title="Agente TJR Spot"
           >
             <span className="desk-rail-icon" aria-hidden>◈</span>
             <span>Agente</span>
+          </button>
+          <button
+            type="button"
+            className={tab === 't212' ? 'active' : ''}
+            onClick={() => setTab('t212')}
+            title="Trading 212 CFD"
+          >
+            <span className="desk-rail-icon" aria-hidden>◇</span>
+            <span>T212</span>
           </button>
           <button
             type="button"
@@ -62,7 +75,7 @@ export default function CryptoApp({ onSwitchApp }: Props) {
         )}
       </aside>
       <div className="desk-main">
-        {tab === 'agent' ? <AgentDashboard /> : <JournalDashboard />}
+        {tab === 'agent' ? <AgentDashboard /> : tab === 't212' ? <T212Dashboard /> : <JournalDashboard />}
       </div>
     </div>
   )

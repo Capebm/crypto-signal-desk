@@ -314,6 +314,48 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-text-secondary);
 }
 
+.t212-disclaimer {
+  margin: 0 0 12px;
+  font-size: .78rem;
+  color: var(--tv-text-muted);
+  line-height: 1.4;
+}
+.t212-guide-plan {
+  margin: 0 0 12px;
+  font-size: .84rem;
+  color: var(--tv-text-secondary);
+  line-height: 1.45;
+}
+.t212-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.t212-levels div {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+  background: var(--tv-toolbar);
+}
+.t212-levels span {
+  font-size: .66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--tv-text-muted);
+}
+.t212-levels strong { font-size: .92rem; }
+.t212-steps {
+  margin: 0 0 12px;
+  padding-left: 1.2rem;
+  color: var(--tv-text-secondary);
+  font-size: .84rem;
+  line-height: 1.5;
+}
+.t212-steps li { margin-bottom: 6px; }
+
 .market-clocks.compact {
   grid-template-columns: minmax(70px, 0.55fr) repeat(3, minmax(0, 1fr));
   gap: 6px;

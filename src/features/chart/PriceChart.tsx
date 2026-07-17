@@ -3,18 +3,10 @@ import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries,
 import { getCandles } from '../../lib/binance'
 import type { Action } from '../../lib/decision-engine'
 import { sessionLinesForChart } from '../../lib/sessions'
-import type { Interval, PriceZone } from '../../lib/types'
+import type { Candle, Interval, PriceZone } from '../../lib/types'
 
 const intervals: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
 const intervalMs: Record<Interval, number> = { '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '1h': 60 * 60_000, '4h': 4 * 60 * 60_000, '1d': 24 * 60 * 60_000 }
-
-const staleMessage = (interval: Interval, openTime: number) => {
-  const ageHours = (Date.now() - openTime) / 3_600_000
-  const staleAfterHours = intervalMs[interval] / 3_600_000 * 3
-  if (ageHours <= staleAfterHours) return ''
-  const date = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(openTime)
-  return `Dados da Binance só até ${date}. Este par pode estar suspenso ou sem negociação recente.`
-}
 
 type Props = {
   symbol: string
@@ -33,6 +25,9 @@ type Props = {
   zones?: PriceZone[]
   /** Swings 4h/1h para markup HTF. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
+  /** Override do fetch (ex. Yahoo para T212). Default: Binance. */
+  loadCandles?: (symbol: string, interval: Interval, limit?: number) => Promise<Candle[]>
+  staleHint?: string
 }
 
 const ema = (values: number[], period: number) => {
@@ -47,10 +42,11 @@ const sessionIntervals: Interval[] = ['5m', '15m', '1h']
 
 const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
 
-export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [], htfLevels = [] }: Props) {
+export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [], htfLevels = [], loadCandles, staleHint = 'Dados da Binance' }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [message, setMessage] = useState('A carregar gráfico…')
   const [showSessions, setShowSessions] = useState(true)
+  const fetchCandles = loadCandles ?? getCandles
 
   useEffect(() => {
     if (!host.current) return
@@ -78,7 +74,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     let active = true
     setMessage('A carregar gráfico…')
 
-    void getCandles(symbol, interval, candleLimit[interval]).then((rows) => {
+    void fetchCandles(symbol, interval, candleLimit[interval]).then((rows) => {
       if (!active) return
       const time = (value: number) => Math.floor(value / 1000) as UTCTimestamp
       candles.setData(rows.map((row) => ({ time: time(row.openTime), open: row.open, high: row.high, low: row.low, close: row.close })))
@@ -127,13 +123,19 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       }
       chart.timeScale().fitContent()
       const last = rows.at(-1)
-      setMessage(last ? staleMessage(interval, last.openTime) : '')
+      const ageHours = last ? (Date.now() - last.openTime) / 3_600_000 : 0
+      const staleAfterHours = intervalMs[interval] / 3_600_000 * 3
+      setMessage(
+        last && ageHours > staleAfterHours
+          ? `${staleHint} só até ${new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(last.openTime)}.`
+          : '',
+      )
     }).catch(() => setMessage('Não foi possível carregar o gráfico.'))
 
     const resize = new ResizeObserver(() => chart.applyOptions({ width: host.current?.clientWidth ?? 0 }))
     resize.observe(host.current)
     return () => { active = false; resize.disconnect(); chart.remove() }
-  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones, htfLevels])
+  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones, htfLevels, fetchCandles, staleHint])
 
   return (
     <div className="chart-host">
