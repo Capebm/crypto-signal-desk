@@ -31,6 +31,8 @@ type Props = {
   fillPrice?: number
   fillLabel?: string
   zones?: PriceZone[]
+  /** Swings 4h/1h para markup HTF. */
+  htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
 }
 
 const ema = (values: number[], period: number) => {
@@ -45,7 +47,7 @@ const sessionIntervals: Interval[] = ['5m', '15m', '1h']
 
 const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
 
-export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [] }: Props) {
+export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [], htfLevels = [] }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [message, setMessage] = useState('A carregar gráfico…')
   const [showSessions, setShowSessions] = useState(true)
@@ -113,6 +115,16 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
           })
         }
       }
+      for (const level of htfLevels.slice(-8)) {
+        candles.createPriceLine({
+          price: level.price,
+          color: level.kind === 'high' ? '#b2b5be' : '#787b86',
+          lineWidth: 1,
+          lineStyle: 3,
+          axisLabelVisible: true,
+          title: level.title,
+        })
+      }
       chart.timeScale().fitContent()
       const last = rows.at(-1)
       setMessage(last ? staleMessage(interval, last.openTime) : '')
@@ -121,7 +133,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     const resize = new ResizeObserver(() => chart.applyOptions({ width: host.current?.clientWidth ?? 0 }))
     resize.observe(host.current)
     return () => { active = false; resize.disconnect(); chart.remove() }
-  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones])
+  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones, htfLevels])
 
   return (
     <div className="chart-host">
@@ -136,6 +148,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
               <span className="legend-prev">Dia ant.</span>
             </>
           )}
+          {htfLevels.length > 0 && <span className="legend-prev">4h/1h H·L</span>}
         </div>
         <div className="chart-toolbar-actions">
           {sessionIntervals.includes(interval) && (

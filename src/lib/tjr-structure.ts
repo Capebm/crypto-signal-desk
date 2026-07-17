@@ -86,16 +86,65 @@ export function recentLiquiditySweep(candles: Candle[], swings: SwingPoint[], lo
 
 /** TJR: sweep só conta se o wick tomar um draw HTF (níveis passados), não um micro-swing. */
 export function recentDrawLiquiditySweep(candles: Candle[], drawLevels: number[], lookback = 24): Direction | undefined {
-  if (!drawLevels.length) return undefined
+  return recentDrawLiquiditySweepDetailed(
+    candles,
+    drawLevels.map((price) => ({ price, source: 'swing_1h' as const, label: 'Draw' })),
+    lookback,
+  )?.direction
+}
+
+export type SweepSource = 'asia' | 'london' | 'newyork' | 'prev_day' | 'swing_1h' | 'swing_4h' | 'none'
+
+export type DrawLevel = { price: number; source: SweepSource; label: string }
+
+export type DrawSweepHit = {
+  direction: Direction
+  source: SweepSource
+  label: string
+  price: number
+}
+
+/** Prioridade: sessões (Ásia→Londres→NY) e dia ant. antes de swings. */
+const sourceRank = (source: SweepSource) => {
+  if (source === 'asia') return 0
+  if (source === 'london') return 1
+  if (source === 'prev_day') return 2
+  if (source === 'newyork') return 3
+  if (source === 'swing_4h') return 4
+  if (source === 'swing_1h') return 5
+  return 9
+}
+
+/** Wick toma nível + close de volta; devolve o draw HTF atingido (para label reactivo). */
+export function recentDrawLiquiditySweepDetailed(
+  candles: Candle[],
+  draws: DrawLevel[],
+  lookback = 36,
+): DrawSweepHit | undefined {
+  if (!draws.length) return undefined
+  const ranked = [...draws].sort((a, b) => sourceRank(a.source) - sourceRank(b.source) || a.price - b.price)
   const recent = candles.slice(-lookback)
   for (let i = recent.length - 1; i >= 0; i -= 1) {
     const candle = recent[i]
-    for (const level of drawLevels) {
-      if (candle.high > level && candle.close < level) return 'bearish'
-      if (candle.low < level && candle.close > level) return 'bullish'
+    for (const level of ranked) {
+      if (candle.high > level.price && candle.close < level.price) {
+        return { direction: 'bearish', source: level.source, label: level.label, price: level.price }
+      }
+      if (candle.low < level.price && candle.close > level.price) {
+        return { direction: 'bullish', source: level.source, label: level.label, price: level.price }
+      }
     }
   }
   return undefined
+}
+
+/** Sweep pré-NY (Ásia / Londres / dia ant.) → trade reactivo no open, sem esperar novo raid. */
+export function isReactiveSweep(source: SweepSource | undefined, side: 'long' | 'short', direction?: Direction): boolean {
+  if (!source || source === 'none') return false
+  const pre = source === 'asia' || source === 'london' || source === 'prev_day'
+  if (!pre) return false
+  if (side === 'long') return direction === 'bullish'
+  return direction === 'bearish'
 }
 
 /**

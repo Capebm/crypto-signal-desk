@@ -257,6 +257,7 @@ export default function AgentDashboard() {
             <tr>
               <th>Par</th>
               <th>Sinal</th>
+              <th>Sweep</th>
               <th>Score</th>
               <th>Preço</th>
               <th>24h</th>
@@ -293,6 +294,19 @@ export default function AgentDashboard() {
                   <td>
                     <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
                     <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
+                  </td>
+                  <td>
+                    {row.reactive ? (
+                      <span className="sweep-tag reactive" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                        Reactivo · {row.sweepLabel ?? 'pré'}
+                      </span>
+                    ) : row.sweepLabel ? (
+                      <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                        {row.sweepLabel}
+                      </span>
+                    ) : (
+                      <span className="sweep-tag muted">À espera</span>
+                    )}
                   </td>
                   <td>
                     <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
@@ -351,6 +365,7 @@ export default function AgentDashboard() {
                   fillPrice={openFill && resolveBase(row.symbol) === openFill.base.toUpperCase() ? fillPrice : undefined}
                   fillLabel="Fill OCO"
                   zones={row.zones}
+                  htfLevels={row.htfLevels}
                 />
               </article>
               <aside className="evidence-panel compact">
@@ -402,6 +417,13 @@ export default function AgentDashboard() {
           <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
             {session.badge}
           </span>
+          {selected?.reactive ? (
+            <span className="sweep-badge reactive">Reactivo · {selected.sweepLabel}</span>
+          ) : selected?.sweepLabel ? (
+            <span className="sweep-badge">Sweep · {selected.sweepLabel}</span>
+          ) : (
+            <span className="sweep-badge muted">À espera de sweep HTF</span>
+          )}
           <span className="tv-clock" title="Lisboa">{session.nowLisbon} PT</span>
           <span className="tv-clock muted" title="New York">{session.nowNy} ET</span>
         </div>
