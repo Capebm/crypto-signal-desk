@@ -5,7 +5,9 @@ import JournalDashboard from './journal/JournalDashboard'
 
 const TAB_KEY = 'crypto-desk-tab'
 
-export default function CryptoApp() {
+type Props = { onSwitchApp?: (app: 'garimpo' | 'crypto') => void }
+
+export default function CryptoApp({ onSwitchApp }: Props) {
   const [tab, setTab] = useState<CryptoTab>(() => {
     const saved = localStorage.getItem(TAB_KEY)
     return saved === 'journal' ? 'journal' : 'agent'
@@ -25,16 +27,43 @@ export default function CryptoApp() {
   }, [])
 
   return (
-    <>
-      <nav className="crypto-tabs" aria-label="Secções Crypto Desk">
-        <button type="button" className={tab === 'agent' ? 'active' : ''} onClick={() => setTab('agent')}>
-          Agente TJR
-        </button>
-        <button type="button" className={tab === 'journal' ? 'active' : ''} onClick={() => setTab('journal')}>
-          Diário
-        </button>
-      </nav>
-      {tab === 'agent' ? <AgentDashboard /> : <JournalDashboard />}
-    </>
+    <div className="desk-shell">
+      <aside className="desk-rail" aria-label="Navegação do desk">
+        <div className="desk-brand" title="Crypto Signal Desk">
+          <strong>CSD</strong>
+          <span>Desk</span>
+        </div>
+        <nav className="desk-rail-nav">
+          <button
+            type="button"
+            className={tab === 'agent' ? 'active' : ''}
+            onClick={() => setTab('agent')}
+            title="Agente TJR"
+          >
+            <span className="desk-rail-icon" aria-hidden>◈</span>
+            <span>Agente</span>
+          </button>
+          <button
+            type="button"
+            className={tab === 'journal' ? 'active' : ''}
+            onClick={() => setTab('journal')}
+            title="Diário"
+          >
+            <span className="desk-rail-icon" aria-hidden>☰</span>
+            <span>Diário</span>
+          </button>
+        </nav>
+        {onSwitchApp && (
+          <div className="desk-rail-foot">
+            <button type="button" className="desk-rail-ghost" onClick={() => onSwitchApp('garimpo')} title="Abrir Garimpo">
+              Garimpo
+            </button>
+          </div>
+        )}
+      </aside>
+      <div className="desk-main">
+        {tab === 'agent' ? <AgentDashboard /> : <JournalDashboard />}
+      </div>
+    </div>
   )
 }

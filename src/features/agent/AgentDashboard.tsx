@@ -8,7 +8,7 @@ import { evaluateTjrFull, evaluateTjrQuick, tjrActionLabel, tjrScoreColor, type 
 import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
 import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
-import { BinanceGuideTeaser, BinanceOrderPanel, STAKE_OPTIONS } from './BinanceTradeGuide'
+import { BinanceOrderPanel, STAKE_OPTIONS } from './BinanceTradeGuide'
 import OnboardingModal from './OnboardingModal'
 import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
@@ -250,249 +250,265 @@ export default function AgentDashboard() {
   const showBuyNowEmpty = rows.length > 0 && filter === 'COMPRAR_JA' && counts.COMPRAR_JA === 0 && visibleRows.length === 0
 
   const renderDecisionList = () => (
-    <section className="decision-list">
-      {visibleRows.map((row) => {
-        const gain = potentialUsdc(row, stakeUsdc)
+    <section className="desk-watchlist">
+      <div className="desk-table-wrap">
+        <table className="desk-table">
+          <thead>
+            <tr>
+              <th>Par</th>
+              <th>Sinal</th>
+              <th>Score</th>
+              <th>Preço</th>
+              <th>24h</th>
+              <th>Entrada</th>
+              <th>Stop</th>
+              <th>TP1</th>
+              <th>R:R</th>
+              <th>Pot. @ {stakeUsdc}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row) => {
+              const gain = potentialUsdc(row, stakeUsdc)
+              const open = selected?.symbol === row.symbol
+              return (
+                <tr
+                  key={row.symbol}
+                  className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
+                  onClick={() => {
+                    if (open) {
+                      setSelected(undefined)
+                      return
+                    }
+                    setRefinedSymbols((prev) => {
+                      const next = new Set(prev)
+                      next.delete(row.symbol)
+                      return next
+                    })
+                    setLoadingFull(row.symbol)
+                    setSelected(row)
+                  }}
+                >
+                  <td className="col-symbol">{formatTradingPair(row.symbol)}</td>
+                  <td>
+                    <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
+                    <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
+                  </td>
+                  <td>
+                    <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
+                      <strong>{row.score}</strong>
+                    </span>
+                  </td>
+                  <td className="num">{price(row.price)}</td>
+                  <td className={`num ${row.change24h >= 0 ? 'positive' : 'negative'}`}>{row.change24h.toFixed(1)}%</td>
+                  <td className="num">{price(row.entry)}</td>
+                  <td className="num">{price(row.stop)}</td>
+                  <td className="num">{price(row.target)}</td>
+                  <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
+                  <td className="num">{gain !== undefined ? <span className="positive">+{moneyShort(gain)}</span> : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && visibleRows.some((row) => row.symbol === selected.symbol) && (() => {
+        const row = visibleRows.find((r) => r.symbol === selected.symbol) ?? selected
         return (
-          <div className="decision-item" key={row.symbol}>
-            <article
-              className={`decision-card ${row.positionGuidance === 'SAIR' ? 'vender invalidated' : row.action.toLowerCase()} ${selected?.symbol === row.symbol ? 'selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
-              onClick={() => {
-                if (selected?.symbol === row.symbol) {
-                  setSelected(undefined)
-                  return
-                }
-                setRefinedSymbols((prev) => {
-                  const next = new Set(prev)
-                  next.delete(row.symbol)
-                  return next
-                })
-                setLoadingFull(row.symbol)
-                setSelected(row)
-              }}
-              tabIndex={0}
-              title="Clica para abrir gráfico e painel Binance."
-            >
-              <div className="decision-top">
-                <div>
-                  <p>{formatTradingPair(row.symbol)}</p>
-                  <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
-                </div>
-                <span className="tjr-score-badge" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties} title="Score de nova entrada (0–100)">
-                  <strong>{row.score}</strong><small>/100</small>
-                </span>
-              </div>
-              <p className="decision-meta">
-                {row.setupStatus} · {row.confidence}
-                {refinedSymbols.has(row.symbol) ? ' · MTF ✓' : row.action === 'COMPRAR' ? ' · scan 1h' : ''}
-                {row.riskReward !== undefined && <> · R:R {row.riskReward.toFixed(1)}×</>}
-              </p>
-              <p className="decision-price">{price(row.price)} <span className={row.change24h >= 0 ? 'positive' : 'negative'}>{row.change24h.toFixed(1)}% hoje</span></p>
-              {row.entry && row.stop && row.target && (
-                <p className="decision-levels-compact">
-                  {price(row.entry)} → {price(row.target)}
-                  {gain !== undefined && <> · <span className="positive">+{moneyShort(gain)}</span> @ {stakeUsdc} {AGENT_QUOTE_ASSET}</>}
-                </p>
-              )}
-              <p>{row.reasons[0]}</p>
-              <dl>
-                <div><dt>{row.entryTiming === 'RETRACE' ? 'Zona entrada' : 'Entrada'}</dt><dd>{price(row.entry)}</dd></div>
-                <div><dt>Stop</dt><dd>{price(row.stop)}</dd></div>
-                <div><dt>Alvo (venda)</dt><dd>{price(row.target)}{row.targetLabel ? ` · ${row.targetLabel}` : ''}</dd></div>
-                {row.targetSecondary !== undefined && (
-                  <div><dt>Alvo 2</dt><dd>{price(row.targetSecondary)}{row.targetSecondaryLabel ? ` · ${row.targetSecondaryLabel}` : ''}</dd></div>
-                )}
-              </dl>
-              <BinanceGuideTeaser row={row} tpMode={tpMode} />
-            </article>
-            {selected?.symbol === row.symbol && (
-              <section className="card-expanded">
-                <BinanceOrderPanel
-                  row={row}
-                  stakeUsdc={stakeUsdc}
-                  analysisReady={refinedSymbols.has(row.symbol)}
-                  refining={loadingFull === row.symbol}
-                  tpMode={tpMode}
-                  onPositionSaved={() => setPinKey((k) => k + 1)}
-                  onGoJournal={() => goToCryptoTab('journal')}
+          <section className="desk-workspace-chart" key={row.symbol}>
+            <BinanceOrderPanel
+              row={row}
+              stakeUsdc={stakeUsdc}
+              analysisReady={refinedSymbols.has(row.symbol)}
+              refining={loadingFull === row.symbol}
+              tpMode={tpMode}
+              onPositionSaved={() => setPinKey((k) => k + 1)}
+              onGoJournal={() => goToCryptoTab('journal')}
+            />
+            <div className="card-expanded-main">
+              <article className="chart-panel">
+                <header>
+                  <div>
+                    <p className="eyebrow">{formatTradingPair(row.symbol)}</p>
+                    <h2>{tjrActionLabel(row)} · {row.score}/100</h2>
+                  </div>
+                  <span>
+                    {loadingFull === row.symbol ? 'A refinar MTF…' : `Exec ${row.executionInterval ?? '15m'} · chart ${chartInterval}`}
+                  </span>
+                </header>
+                <PriceChart
+                  symbol={row.symbol}
+                  action={row.action}
+                  interval={chartInterval}
+                  onIntervalChange={setChartInterval}
+                  entry={row.entry}
+                  stop={row.stop}
+                  target={row.target}
+                  targetSecondary={row.targetSecondary}
+                  targetLabel={row.targetLabel}
+                  targetSecondaryLabel={row.targetSecondaryLabel}
+                  fillPrice={openFill && resolveBase(row.symbol) === openFill.base.toUpperCase() ? fillPrice : undefined}
+                  fillLabel="Fill OCO"
+                  zones={row.zones}
                 />
-                <div className="card-expanded-main">
-                  <article className="chart-panel">
-                    <header>
-                      <div><p className="eyebrow">{formatTradingPair(row.symbol)}</p><h2>{tjrActionLabel(row)} · score {row.score}/100</h2></div>
-                      <span title="Scan rápido em 1h; ao expandir refina com 4h/1h/15m/5m.">
-                        {loadingFull === row.symbol ? 'A refinar MTF…' : `Execução: ${row.executionInterval ?? '15m'} · gráfico: ${chartInterval}`}
-                      </span>
-                    </header>
-                    <PriceChart
-                      symbol={row.symbol}
-                      action={row.action}
-                      interval={chartInterval}
-                      onIntervalChange={setChartInterval}
-                      entry={row.entry}
-                      stop={row.stop}
-                      target={row.target}
-                      targetSecondary={row.targetSecondary}
-                      targetLabel={row.targetLabel}
-                      targetSecondaryLabel={row.targetSecondaryLabel}
-                      fillPrice={openFill && resolveBase(row.symbol) === openFill.base.toUpperCase() ? fillPrice : undefined}
-                      fillLabel="Fill OCO"
-                      zones={row.zones}
-                    />
-                  </article>
-                  <aside className="evidence-panel compact">
-                    {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
-                      <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
-                    )}
-                    <p className="evidence-summary">
-                      <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
-                      {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
-                      {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
-                    </p>
-                    <ul className="tjr-checklist inline">
-                      {row.checklist.map((item) => (
-                        <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
-                          <span>{item.complete ? '✓' : '○'}</span> {item.label}
-                        </li>
-                      ))}
-                    </ul>
-                    <details className="evidence-details">
-                      <summary>Detalhes &amp; notas</summary>
-                      {row.entryZone && row.entryTiming === 'RETRACE' && (
-                        <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
-                      )}
-                      {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
-                      {row.exitPlan && row.action === 'COMPRAR' && (
-                        <div className="exit-plan">
-                          <p><strong>Plano de saída:</strong> {row.exitPlan.note}</p>
-                          <ol>{row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-                        </div>
-                      )}
-                      <section className="bos-guide compact">
-                        <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
-                      </section>
-                    </details>
-                  </aside>
-                </div>
-              </section>
-            )}
-          </div>
+              </article>
+              <aside className="evidence-panel compact">
+                {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
+                  <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
+                )}
+                <p className="evidence-summary">
+                  <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
+                  {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
+                  {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
+                </p>
+                <ul className="tjr-checklist inline">
+                  {row.checklist.map((item) => (
+                    <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
+                      <span>{item.complete ? '✓' : '○'}</span> {item.label}
+                    </li>
+                  ))}
+                </ul>
+                <details className="evidence-details">
+                  <summary>Detalhes &amp; notas</summary>
+                  {row.entryZone && row.entryTiming === 'RETRACE' && (
+                    <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
+                  )}
+                  {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
+                  {row.exitPlan && row.action === 'COMPRAR' && (
+                    <div className="exit-plan">
+                      <p><strong>Plano de saída:</strong> {row.exitPlan.note}</p>
+                      <ol>{row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+                    </div>
+                  )}
+                  <section className="bos-guide compact">
+                    <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
+                  </section>
+                </details>
+              </aside>
+            </div>
+          </section>
         )
-      })}
+      })()}
     </section>
   )
 
   return (
-    <main className="agent-shell">
-      <header className="agent-header agent-header-compact">
-        <div>
-          <p className="eyebrow">AGENTE TJR · SPOT {AGENT_QUOTE_ASSET}</p>
-          <h1>O que fazer agora?</h1>
+    <main className="agent-shell desk-workspace">
+      <header className="tv-toolbar">
+        <div className="tv-toolbar-left">
+          <strong className="tv-symbol">SPOT/{AGENT_QUOTE_ASSET}</strong>
+          <span className="tv-sep">·</span>
+          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
+            {session.badge}
+          </span>
+          <span className="tv-clock" title="Lisboa">{session.nowLisbon} PT</span>
+          <span className="tv-clock muted" title="New York">{session.nowNy} ET</span>
         </div>
-        <button type="button" className="agent-scan-btn" onClick={() => void scan()} disabled={running}>
-          {running ? 'A analisar…' : 'Analisar mercado'}
-        </button>
+        <div className="tv-toolbar-right">
+          <button type="button" className="agent-scan-btn" onClick={() => void scan()} disabled={running}>
+            {running ? 'A analisar…' : 'Analisar mercado'}
+          </button>
+        </div>
       </header>
 
-      <section className="session-shell session-shell-compact">
-        <MarketClocks snapshot={marketClocks} />
+      <section className="zella-kpis" aria-label="Resumo do desk">
+        <article>
+          <span>PnL hoje</span>
+          <strong className={todayPnl.pnl >= 0 ? 'positive' : 'negative'}>
+            {todayPnl.pnl >= 0 ? '+' : ''}{todayPnl.pnl.toFixed(2)}
+          </strong>
+          <small>{AGENT_QUOTE_ASSET}</small>
+        </article>
+        <article>
+          <span>Trades</span>
+          <strong>{todayPnl.trades}</strong>
+          <small>hoje</small>
+        </article>
+        <article>
+          <span>Stake</span>
+          <strong>{stakeUsdc}</strong>
+          <small>{stakePct.toFixed(0)}% conta</small>
+        </article>
+        <article>
+          <span>Risco</span>
+          <strong>{riskProfiles[riskProfile].label}</strong>
+          <small>perfil</small>
+        </article>
+        <article>
+          <span>TP</span>
+          <strong>{tpModeMeta[tpMode].short}</strong>
+          <small>alvo</small>
+        </article>
+        <article className={session.inIdealWindow ? 'kpi-hot' : ''}>
+          <span>Sessão</span>
+          <strong>{session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
+          <small>{scanTimeLabel ? `scan ${scanTimeLabel}` : 'sem scan'}</small>
+        </article>
       </section>
 
-      <div className={`setup-preset-bar${scanStale ? ' stale' : ''}`}>
-        <span className="setup-preset-label">Setup</span>
-        <span>{riskProfiles[riskProfile].label}</span>
-        <span>·</span>
-        <span>TP {tpModeMeta[tpMode].short}</span>
-        <span>·</span>
-        <span>{stakeUsdc} {AGENT_QUOTE_ASSET} ({stakePct.toFixed(0)}%)</span>
-        <span>·</span>
-        <span className={todayPnl.pnl >= 0 ? 'positive' : 'negative'}>
-          Hoje {todayPnl.pnl >= 0 ? '+' : ''}{todayPnl.pnl.toFixed(2)} {AGENT_QUOTE_ASSET}
-          {todayPnl.trades > 0 && <> · {todayPnl.trades}t</>}
-        </span>
-        {scanTimeLabel && (
-          <>
-            <span>·</span>
-            <span className="setup-preset-scan">Scan {scanTimeLabel}</span>
-          </>
-        )}
-        {scanStale && <strong className="setup-preset-warn"> · re-analisa</strong>}
-      </div>
-
-      <section className="setup-sliders" aria-label="Sliders de setup e montante">
-        <div className="setup-slider risk">
-          <header>
-            <strong>Risco</strong>
-            <span>{riskProfiles[riskProfile].label}</span>
-          </header>
-          <input
+      <section className="tv-setup-bar" aria-label="Setup de risco e montante">
+        <label className="tv-setup-field">
+          <span>Risco</span>
+          <select
             aria-label="Perfil de risco"
-            type="range"
-            min="0"
-            max="2"
-            step="1"
             value={riskIndex}
             onChange={(event) => {
               setRiskIndex(Number(event.target.value))
               if (rows.length > 0) setStatus('Perfil alterado — aplica e re-analisa para recalcular.')
             }}
-          />
-          <div className="risk-labels"><span>Conservador</span><span>Equilibrado</span><span>Agressivo</span></div>
-        </div>
-        <div className="setup-slider tp">
-          <header>
-            <strong>
-              Take-profit
-              <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button>
-            </strong>
-            <span>{tpModeMeta[tpMode].short}</span>
-          </header>
-          <input
+          >
+            {profiles.map((profile, index) => (
+              <option key={profile} value={index}>{riskProfiles[profile].label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="tv-setup-field">
+          <span>TP <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button></span>
+          <select
             aria-label="Modo de take-profit"
-            type="range"
-            min="0"
-            max="2"
-            step="1"
             value={tpIndex}
             onChange={(event) => {
               setTpIndex(Number(event.target.value))
               if (rows.length > 0) setStatus('Modo TP alterado — aplica e re-analisa para recalcular o alvo.')
             }}
-          />
-          <div className="risk-labels"><span>1R</span><span>1.5R</span><span>Liquidez</span></div>
-        </div>
-        <div className="setup-slider stake">
-          <header>
-            <strong>Montante</strong>
-            <span>{stakeUsdc} {AGENT_QUOTE_ASSET} · {stakePct.toFixed(0)}%</span>
-          </header>
-          <input
+          >
+            {tpModes.map((mode, index) => (
+              <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
+            ))}
+          </select>
+        </label>
+        <label className="tv-setup-field">
+          <span>Montante</span>
+          <select
             aria-label="Montante por trade"
-            type="range"
-            min="0"
-            max={STAKE_OPTIONS.length - 1}
-            step="1"
             value={stakeIndex}
             onChange={(event) => setStakeIndex(Number(event.target.value))}
+          >
+            {STAKE_OPTIONS.map((value, index) => (
+              <option key={value} value={index}>{value} {AGENT_QUOTE_ASSET}</option>
+            ))}
+          </select>
+        </label>
+        <label className="tv-setup-field account">
+          <span>Conta</span>
+          <input
+            type="number"
+            min={50}
+            step={10}
+            value={accountUsdc}
+            onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
           />
-          <div className="risk-labels stake-labels">{STAKE_OPTIONS.map((value) => <span key={value}>{value}</span>)}</div>
-          <label className="account-size-field inline">
-            Conta
-            <input
-              type="number"
-              min={50}
-              step={10}
-              value={accountUsdc}
-              onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
-            />
-          </label>
-        </div>
+        </label>
         {rows.length > 0 && (
           <button type="button" className="setup-reapply" onClick={() => void scan()} disabled={running}>
-            {running ? 'A analisar…' : 'Aplicar + scan'}
+            {running ? '…' : 'Aplicar + scan'}
           </button>
         )}
+        {scanStale && <strong className="setup-preset-warn">Setup mudou — re-analisa</strong>}
       </section>
+
+      <MarketClocks snapshot={marketClocks} compact />
 
       <ActivePositionPin
         riskProfile={riskProfile}
@@ -514,8 +530,8 @@ export default function AgentDashboard() {
 
       {rows.length === 0 && !running && (
         <section className="scan-empty scan-welcome">
-          <h2>Mesa de trading Spot TJR</h2>
-          <p>Ajusta os <strong>sliders de setup</strong> (risco · TP · montante) acima e carrega <strong>Analisar mercado</strong> na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
+          <h2>Watchlist vazia</h2>
+          <p>Define risco · TP · montante na barra de setup e carrega <strong>Analisar mercado</strong>. Melhor na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
           {nyClock && !session.inIdealWindow && (
             <p className="scan-empty-hint">Agora: <strong>{nyClock.status}</strong> · {session.badge}</p>
           )}
@@ -524,7 +540,7 @@ export default function AgentDashboard() {
 
       {rows.length > 0 && (
         <>
-          <section className="agent-summary">
+          <section className="agent-summary desk-filters">
             <button type="button" className={filter === 'TODAS' ? 'active' : ''} onClick={() => setFilter('TODAS')}>Todas <span>{rows.length}</span></button>
             <button type="button" className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Comprar já <span>{counts.COMPRAR_JA}</span></button>
             <button type="button" className={filter === 'AGUARDAR_COMPRA' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR_COMPRA')}>Aguardar <span>{counts.AGUARDAR_COMPRA}</span></button>
@@ -553,11 +569,11 @@ export default function AgentDashboard() {
       )}
 
       <details className="agent-panel">
-        <summary>Ajuda setup · o que muda cada slider</summary>
+        <summary>Ajuda setup · o que muda cada controlo</summary>
         <div className="agent-panel-body setup-help">
           <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description}</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Montante:</strong> {stakeUsdc} {AGENT_QUOTE_ASSET} ≈ {stakePct.toFixed(1)}% da conta ({accountUsdc} {AGENT_QUOTE_ASSET}). Usado no painel Binance e no preview de lucro nos cartões.</p>
+          <p><strong>Montante:</strong> {stakeUsdc} {AGENT_QUOTE_ASSET} ≈ {stakePct.toFixed(1)}% da conta ({accountUsdc} {AGENT_QUOTE_ASSET}). Usado no painel Binance e no preview de lucro.</p>
         </div>
       </details>
       <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />

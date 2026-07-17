@@ -14,27 +14,25 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('active-app', app)
     document.title = app === 'crypto' ? 'Crypto Signal Desk' : 'GARIMPO — compra no mundo, vende em PT'
+    document.body.classList.toggle('desk-mode', app === 'crypto')
+    return () => document.body.classList.remove('desk-mode')
   }, [app])
+
+  if (app === 'crypto') {
+    return <CryptoApp onSwitchApp={setApp} />
+  }
 
   return (
     <>
       <nav className="app-switcher" aria-label="Escolher aplicação">
-        <button
-          type="button"
-          className={app === 'garimpo' ? 'active' : ''}
-          onClick={() => setApp('garimpo')}
-        >
+        <button type="button" className="active" onClick={() => setApp('garimpo')}>
           GARIMPO
         </button>
-        <button
-          type="button"
-          className={app === 'crypto' ? 'active' : ''}
-          onClick={() => setApp('crypto')}
-        >
+        <button type="button" onClick={() => setApp('crypto')}>
           Crypto Desk
         </button>
       </nav>
-      {app === 'garimpo' ? <Garimpo /> : <CryptoApp />}
+      <Garimpo />
       <AppFooter />
     </>
   )
