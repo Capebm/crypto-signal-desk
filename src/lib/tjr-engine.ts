@@ -76,6 +76,8 @@ export type SetupHit = {
 export type EvaluateOptions = {
   /** Spot: permite COMPRAR mesmo com sweep de high (default false). */
   allowHighSweepLong?: boolean
+  /** Rótulo do alinhamento SMT (ex. US500 no módulo T212). */
+  referenceLabel?: string
 }
 
 type TradeSide = 'long' | 'short'
@@ -297,6 +299,7 @@ function evaluate(
   options: EvaluateOptions = {},
 ): TjrDecision {
   const allowHighSweepLong = Boolean(options.allowHighSweepLong)
+  const referenceLabel = options.referenceLabel ?? 'BTC'
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
 
@@ -510,7 +513,7 @@ function evaluate(
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? 'Sem EQ — agressivo ok.' : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
-    { label: 'Alinhamento vs BTC', complete: indexAligned, note: symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
+    { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned, note: symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
     { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
   ]
@@ -534,7 +537,7 @@ function evaluate(
     else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS 1m.')
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
-    if (!indexAligned) reasons.push('Alt vs BTC desalinhados.')
+    if (!indexAligned) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
     if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
     else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
@@ -683,12 +686,13 @@ export function listBuyNowSetups(
   data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
   btc: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
   options: EvaluateOptions = {},
+  forcedSide?: TradeSide,
 ): SetupHit[] {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const hits: SetupHit[] = []
   for (const profile of profiles) {
     for (const mode of tpModes) {
-      const decision = evaluateTjrFull(symbol, data, btc, profile, mode, undefined, options)
+      const decision = evaluateTjrFull(symbol, data, btc, profile, mode, forcedSide, options)
       if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
         hits.push({ profile, tpMode: mode, label: setupLabel(profile, mode), score: decision.score })
       }
