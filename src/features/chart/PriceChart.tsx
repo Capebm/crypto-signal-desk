@@ -54,25 +54,25 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     if (!host.current) return
     const chart = createChart(host.current, {
       height: 420,
-      layout: { background: { type: ColorType.Solid, color: '#000000' }, textColor: '#737373' },
-      grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
-      rightPriceScale: { borderColor: '#262626' },
-      timeScale: { borderColor: '#262626', timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#787b86' },
+      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+      rightPriceScale: { borderColor: '#2a2e39' },
+      timeScale: { borderColor: '#2a2e39', timeVisible: true },
       crosshair: {
-        vertLine: { color: '#737373', width: 1, style: 3, labelBackgroundColor: '#1a1a1a' },
-        horzLine: { color: '#737373', width: 1, style: 3, labelBackgroundColor: '#1a1a1a' },
+        vertLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
+        horzLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
       },
     })
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: '#3ecf8e',
+      upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
-      wickUpColor: '#3ecf8e',
+      wickUpColor: '#26a69a',
       wickDownColor: '#ef5350',
     })
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
-    const ema20 = chart.addSeries(LineSeries, { color: '#3ecf8e', lineWidth: 1 })
-    const ema50 = chart.addSeries(LineSeries, { color: '#a3a3a3', lineWidth: 1 })
+    const ema20 = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1 })
+    const ema50 = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1 })
     let active = true
     setMessage('A carregar gráfico…')
 
@@ -80,21 +80,21 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       if (!active) return
       const time = (value: number) => Math.floor(value / 1000) as UTCTimestamp
       candles.setData(rows.map((row) => ({ time: time(row.openTime), open: row.open, high: row.high, low: row.low, close: row.close })))
-      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? 'rgba(62,207,142,0.4)' : 'rgba(239,83,80,0.4)' })))
+      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)' })))
       const closes = rows.map((row) => row.close)
       ema20.setData(ema(closes, 20).map((value, index) => ({ time: time(rows[index].openTime), value })))
       ema50.setData(ema(closes, 50).map((value, index) => ({ time: time(rows[index].openTime), value })))
-      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#3ecf8e' : action === 'VENDER' ? '#ef5350' : '#a3a3a3', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
+      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#26a69a' : action === 'VENDER' ? '#ef5350' : '#b2b5be', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
       if (fillPrice !== undefined && (entry === undefined || Math.abs(fillPrice - entry) > entry * 0.0005)) {
-        candles.createPriceLine({ price: fillPrice, color: '#a3a3a3', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: fillLabel })
+        candles.createPriceLine({ price: fillPrice, color: '#ff9800', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: fillLabel })
       }
       if (stop) candles.createPriceLine({ price: stop, color: '#ef5350', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
-      if (target) candles.createPriceLine({ price: target, color: '#3ecf8e', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
-      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#004d24', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
+      if (target) candles.createPriceLine({ price: target, color: '#26a69a', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
+      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#2962ff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
       for (const zone of zones) {
         if (zone.kind === 'fair-value-gap') {
-          candles.createPriceLine({ price: zone.low, color: 'rgba(62,207,142,0.45)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
-          candles.createPriceLine({ price: zone.high, color: 'rgba(62,207,142,0.45)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↑' })
+          candles.createPriceLine({ price: zone.low, color: 'rgba(41,98,255,0.55)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
+          candles.createPriceLine({ price: zone.high, color: 'rgba(41,98,255,0.55)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↑' })
         }
         if (zone.kind === 'equilibrium') {
           const mid = (zone.low + zone.high) / 2

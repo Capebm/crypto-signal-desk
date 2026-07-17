@@ -19,9 +19,9 @@ export type PreviousDayLine = {
 }
 
 const sessionColors: Record<SessionName, string> = {
-  asia: '#737373',
-  london: '#a3a3a3',
-  newyork: '#3ecf8e',
+  asia: '#ff9800',
+  london: '#2962ff',
+  newyork: '#ef5350',
 }
 
 const sessionLabels: Record<SessionName, string> = {
