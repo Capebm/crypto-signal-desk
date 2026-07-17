@@ -245,13 +245,28 @@ export default function AgentDashboard() {
       const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
       setRows(sorted)
 
-      const buyCandidates = scanAllSetups
-        ? sorted.slice(0, AUTO_REFINE_TOP)
-        : sorted.filter((row) => row.action === 'COMPRAR').slice(0, AUTO_REFINE_TOP)
+      // MTF só para candidatos a LONG. Com "Todos setups", NÃO usar top score global —
+      // senão o refine gasta-se em VENDER (sweeps de H / short), que Spot não compra.
+      const comprarQuick = sorted.filter((row) => row.action === 'COMPRAR')
+      const longWatch = sorted.filter(
+        (row) => row.action === 'ESPERAR' && row.bias === 'bullish' && !row.opposedSweep,
+      )
+      const buyCandidates = (() => {
+        if (!scanAllSetups) return comprarQuick.slice(0, AUTO_REFINE_TOP)
+        const pool: AgentRow[] = []
+        const pushUnique = (row: AgentRow) => {
+          if (pool.length >= AUTO_REFINE_TOP) return
+          if (pool.some((item) => item.symbol === row.symbol)) return
+          pool.push(row)
+        }
+        for (const row of comprarQuick) pushUnique(row)
+        for (const row of longWatch) pushUnique(row)
+        return pool
+      })()
       if (buyCandidates.length > 0) {
         setStatus(
           scanAllSetups
-            ? `Scan 1h ok · a testar 9 setups no top ${buyCandidates.length}…`
+            ? `Scan 1h ok · a testar setups no top ${buyCandidates.length} longs…`
             : `Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`,
         )
         let buyNow = 0
@@ -270,10 +285,17 @@ export default function AgentDashboard() {
           }
         }
         setStatus(
-          `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ. Expande o cartão para valores Binance.`,
+          buyNow > 0
+            ? `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ. Expande o cartão para valores Binance.`
+            : `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ (falta BOS 1m ou setup incompleto). Vê Aguardar.`,
         )
       } else {
-        setStatus(`${results.length} moedas analisadas. Nenhum candidato COMPRAR no scan 1h.`)
+        const highSweepHeavy = sorted.filter((row) => row.opposedSweep || row.action === 'VENDER').length
+        setStatus(
+          highSweepHeavy > sorted.length * 0.15
+            ? `${results.length} moedas · 0 candidatos LONG no scan 1h. Mercado cheio de sweeps de HIGH (setups de short) — Spot só compra após sweep de LOW.`
+            : `${results.length} moedas analisadas. Nenhum candidato COMPRAR no scan 1h.`,
+        )
       }
       setScanMeta({ at: new Date(), profile: riskProfile, tpMode, stakeUsdc })
     } catch {
