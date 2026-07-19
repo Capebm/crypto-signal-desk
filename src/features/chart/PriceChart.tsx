@@ -52,25 +52,25 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     if (!host.current) return
     const chart = createChart(host.current, {
       height: 420,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#787b86' },
-      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-      rightPriceScale: { borderColor: '#2a2e39' },
-      timeScale: { borderColor: '#2a2e39', timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: '#05070c' }, textColor: '#5d7390' },
+      grid: { vertLines: { color: '#121c2c' }, horzLines: { color: '#121c2c' } },
+      rightPriceScale: { borderColor: '#1e2d42' },
+      timeScale: { borderColor: '#1e2d42', timeVisible: true },
       crosshair: {
-        vertLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
-        horzLine: { color: '#758696', width: 1, style: 3, labelBackgroundColor: '#2a2e39' },
+        vertLine: { color: '#6e849e', width: 1, style: 3, labelBackgroundColor: '#121c2c' },
+        horzLine: { color: '#6e849e', width: 1, style: 3, labelBackgroundColor: '#121c2c' },
       },
     })
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
+      upColor: '#3dffb5',
+      downColor: '#ff4d6a',
       borderVisible: false,
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
+      wickUpColor: '#3dffb5',
+      wickDownColor: '#ff4d6a',
     })
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
-    const ema20 = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1 })
-    const ema50 = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1 })
+    const ema20 = chart.addSeries(LineSeries, { color: '#3ecbff', lineWidth: 1 })
+    const ema50 = chart.addSeries(LineSeries, { color: '#ff8a1f', lineWidth: 1 })
     let active = true
     setMessage('A carregar gráfico…')
 
@@ -78,17 +78,17 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       if (!active) return
       const time = (value: number) => Math.floor(value / 1000) as UTCTimestamp
       candles.setData(rows.map((row) => ({ time: time(row.openTime), open: row.open, high: row.high, low: row.low, close: row.close })))
-      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)' })))
+      volume.setData(rows.map((row) => ({ time: time(row.openTime), value: row.volume, color: row.close >= row.open ? 'rgba(61,255,181,0.4)' : 'rgba(255,77,106,0.4)' })))
       const closes = rows.map((row) => row.close)
       ema20.setData(ema(closes, 20).map((value, index) => ({ time: time(rows[index].openTime), value })))
       ema50.setData(ema(closes, 50).map((value, index) => ({ time: time(rows[index].openTime), value })))
-      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#26a69a' : action === 'VENDER' ? '#ef5350' : '#b2b5be', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
+      if (entry) candles.createPriceLine({ price: entry, color: action === 'COMPRAR' ? '#3dffb5' : action === 'VENDER' ? '#ff4d6a' : '#6e849e', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Entrada' })
       if (fillPrice !== undefined && (entry === undefined || Math.abs(fillPrice - entry) > entry * 0.0005)) {
-        candles.createPriceLine({ price: fillPrice, color: '#ff9800', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: fillLabel })
+        candles.createPriceLine({ price: fillPrice, color: '#ff8a1f', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: fillLabel })
       }
-      if (stop) candles.createPriceLine({ price: stop, color: '#ef5350', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
-      if (target) candles.createPriceLine({ price: target, color: '#26a69a', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
-      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#2962ff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
+      if (stop) candles.createPriceLine({ price: stop, color: '#ff4d6a', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Stop' })
+      if (target) candles.createPriceLine({ price: target, color: '#3dffb5', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: targetLabel ? `TP1 ${targetLabel}` : 'Alvo' })
+      if (targetSecondary) candles.createPriceLine({ price: targetSecondary, color: '#3ecbff', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2' })
       for (const zone of zones) {
         if (zone.kind === 'fair-value-gap') {
           candles.createPriceLine({ price: zone.low, color: 'rgba(41,98,255,0.55)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'FVG ↓' })
@@ -96,7 +96,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
         }
         if (zone.kind === 'equilibrium') {
           const mid = (zone.low + zone.high) / 2
-          candles.createPriceLine({ price: mid, color: '#787b86', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'EQ' })
+          candles.createPriceLine({ price: mid, color: '#5d7390', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'EQ' })
         }
       }
       if (showSessions && sessionIntervals.includes(interval)) {
@@ -114,7 +114,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       for (const level of htfLevels.slice(-8)) {
         candles.createPriceLine({
           price: level.price,
-          color: level.kind === 'high' ? '#b2b5be' : '#787b86',
+          color: level.kind === 'high' ? '#9aadc4' : '#5d7390',
           lineWidth: 1,
           lineStyle: 3,
           axisLabelVisible: true,

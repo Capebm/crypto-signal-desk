@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
@@ -236,6 +236,14 @@ export default function T212Dashboard() {
     return fetchYahooCandlesRaw(match.yahooSymbol, interval)
   }
 
+  useEffect(() => {
+    if (!selectedId) return
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById(`expand-t212-${selectedId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [selectedId])
+
   return (
     <main className="agent-shell desk-workspace t212-shell">
       <header className="tv-toolbar">
@@ -377,114 +385,118 @@ export default function T212Dashboard() {
                 {visibleRows.map((row) => {
                   const open = selectedId === row.instrument.id
                   return (
-                    <tr
-                      key={row.instrument.id}
-                      className={`${row.action.toLowerCase()}${open ? ' selected' : ''}${isBuyNow(row) ? ' buy-now' : ''}${isSellNow(row) ? ' sell-now' : ''}`}
-                      onClick={() => setSelectedId(open ? undefined : row.instrument.id)}
-                    >
-                      <td className="col-symbol">
-                        {row.instrument.short}
-                        <small className="desk-sub">{row.instrument.kind === 'index' ? 'Índice' : row.instrument.kind === 'metal' ? 'Metal' : 'Forex'}</small>
-                      </td>
-                      <td>
-                        <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
-                        <small className="desk-sub">{row.setupStatus}</small>
-                        {row.matchingSetups && row.matchingSetups.length > 0 && (
-                          <div className="setup-hit-row">
-                            {row.matchingSetups.map((hit) => {
-                              const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
-                              return (
-                                <span key={`${hit.profile}-${hit.tpMode}-${hit.action ?? ''}`} className={`setup-hit${isTrade ? ' current' : ''}`}>
-                                  {hit.label}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {row.opposedSweep && row.action !== 'VENDER' ? (
-                          <span className="sweep-tag warn">{row.sweepLabel ?? 'H'}</span>
-                        ) : row.reactive ? (
-                          <span className="sweep-tag reactive">Reactivo · {row.sweepLabel}</span>
-                        ) : row.sweepLabel ? (
-                          <span className="sweep-tag">{row.sweepLabel}</span>
-                        ) : (
-                          <span className="sweep-tag muted">Sem sweep</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
-                          <strong>{row.score}</strong>
-                        </span>
-                      </td>
-                      <td className="num">{money(row.price)}</td>
-                      <td className="num">{money(row.entry)}</td>
-                      <td className="num">{money(row.stop)}</td>
-                      <td className="num">{money(row.target)}</td>
-                      <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
-                    </tr>
+                    <Fragment key={row.instrument.id}>
+                      <tr
+                        className={`${row.action.toLowerCase()}${open ? ' selected' : ''}${isBuyNow(row) ? ' buy-now' : ''}${isSellNow(row) ? ' sell-now' : ''}`}
+                        onClick={() => setSelectedId(open ? undefined : row.instrument.id)}
+                      >
+                        <td className="col-symbol">
+                          {row.instrument.short}
+                          <small className="desk-sub">{row.instrument.kind === 'index' ? 'Índice' : row.instrument.kind === 'metal' ? 'Metal' : 'Forex'}</small>
+                        </td>
+                        <td>
+                          <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
+                          <small className="desk-sub">{row.setupStatus}</small>
+                          {row.matchingSetups && row.matchingSetups.length > 0 && (
+                            <div className="setup-hit-row">
+                              {row.matchingSetups.map((hit) => {
+                                const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
+                                return (
+                                  <span key={`${hit.profile}-${hit.tpMode}-${hit.action ?? ''}`} className={`setup-hit${isTrade ? ' current' : ''}`}>
+                                    {hit.label}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {row.opposedSweep && row.action !== 'VENDER' ? (
+                            <span className="sweep-tag warn">{row.sweepLabel ?? 'H'}</span>
+                          ) : row.reactive ? (
+                            <span className="sweep-tag reactive">Reactivo · {row.sweepLabel}</span>
+                          ) : row.sweepLabel ? (
+                            <span className="sweep-tag">{row.sweepLabel}</span>
+                          ) : (
+                            <span className="sweep-tag muted">Sem sweep</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
+                            <strong>{row.score}</strong>
+                          </span>
+                        </td>
+                        <td className="num">{money(row.price)}</td>
+                        <td className="num">{money(row.entry)}</td>
+                        <td className="num">{money(row.stop)}</td>
+                        <td className="num">{money(row.target)}</td>
+                        <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
+                      </tr>
+                      {open && selected && (
+                        <tr className="desk-expand-row" onClick={(event) => event.stopPropagation()}>
+                          <td colSpan={9}>
+                            <section className="desk-workspace-chart desk-row-expand" id={`expand-t212-${selected.instrument.id}`}>
+                              <T212TradeGuide instrument={selected.instrument} decision={selected} stakeEur={stakeEur} />
+                              <div className="card-expanded-main">
+                                <article className="chart-panel">
+                                  <header>
+                                    <div>
+                                      <p className="eyebrow">{selected.instrument.t212Label}</p>
+                                      <h2>{tjrActionLabel(selected)} · {selected.score}/100</h2>
+                                    </div>
+                                    <span>Yahoo · chart {chartInterval}</span>
+                                  </header>
+                                  <PriceChart
+                                    symbol={selected.instrument.short}
+                                    action={selected.action}
+                                    interval={chartInterval}
+                                    onIntervalChange={setChartInterval}
+                                    entry={selected.entry}
+                                    stop={selected.stop}
+                                    target={selected.target}
+                                    targetSecondary={selected.targetSecondary}
+                                    targetLabel={selected.targetLabel}
+                                    targetSecondaryLabel={selected.targetSecondaryLabel}
+                                    zones={selected.zones}
+                                    htfLevels={selected.htfLevels}
+                                    loadCandles={loadChartCandles}
+                                    staleHint="Dados Yahoo"
+                                  />
+                                </article>
+                                <aside className="evidence-panel compact">
+                                  <p className="evidence-summary">
+                                    <strong>Bias:</strong> {selected.bias === 'bullish' ? 'Altista' : selected.bias === 'bearish' ? 'Baixista' : 'Neutro'}
+                                    {' · '}<strong>Timing:</strong> {selected.entryTiming === 'AGORA' ? 'Entrar agora' : selected.entryTiming === 'RETRACE' ? 'Aguardar' : 'Sem entrada'}
+                                    {selected.riskReward !== undefined && <> · <strong>R:R</strong> {selected.riskReward.toFixed(1)}×</>}
+                                  </p>
+                                  {selected.matchingSetups && selected.matchingSetups.length > 0 && (
+                                    <p className="setup-hit-panel">
+                                      <strong>Setups agora:</strong> {selected.matchingSetups.map((hit) => hit.label).join(' · ')}
+                                    </p>
+                                  )}
+                                  <ul className="tjr-checklist inline">
+                                    {selected.checklist.map((item) => (
+                                      <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
+                                        <span>{item.complete ? '✓' : '○'}</span> {item.label}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  <details className="evidence-details">
+                                    <summary>Detalhes</summary>
+                                    {selected.reasons[0] && <p>{selected.reasons.join(' ')}</p>}
+                                  </details>
+                                </aside>
+                              </div>
+                            </section>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>
             </table>
           </div>
-
-          {selected && (
-            <section className="desk-workspace-chart" key={selected.instrument.id}>
-              <T212TradeGuide instrument={selected.instrument} decision={selected} stakeEur={stakeEur} />
-              <div className="card-expanded-main">
-                <article className="chart-panel">
-                  <header>
-                    <div>
-                      <p className="eyebrow">{selected.instrument.t212Label}</p>
-                      <h2>{tjrActionLabel(selected)} · {selected.score}/100</h2>
-                    </div>
-                    <span>Yahoo · chart {chartInterval}</span>
-                  </header>
-                  <PriceChart
-                    symbol={selected.instrument.short}
-                    action={selected.action}
-                    interval={chartInterval}
-                    onIntervalChange={setChartInterval}
-                    entry={selected.entry}
-                    stop={selected.stop}
-                    target={selected.target}
-                    targetSecondary={selected.targetSecondary}
-                    targetLabel={selected.targetLabel}
-                    targetSecondaryLabel={selected.targetSecondaryLabel}
-                    zones={selected.zones}
-                    htfLevels={selected.htfLevels}
-                    loadCandles={loadChartCandles}
-                    staleHint="Dados Yahoo"
-                  />
-                </article>
-                <aside className="evidence-panel compact">
-                  <p className="evidence-summary">
-                    <strong>Bias:</strong> {selected.bias === 'bullish' ? 'Altista' : selected.bias === 'bearish' ? 'Baixista' : 'Neutro'}
-                    {' · '}<strong>Timing:</strong> {selected.entryTiming === 'AGORA' ? 'Entrar agora' : selected.entryTiming === 'RETRACE' ? 'Aguardar' : 'Sem entrada'}
-                    {selected.riskReward !== undefined && <> · <strong>R:R</strong> {selected.riskReward.toFixed(1)}×</>}
-                  </p>
-                  {selected.matchingSetups && selected.matchingSetups.length > 0 && (
-                    <p className="setup-hit-panel">
-                      <strong>Setups agora:</strong> {selected.matchingSetups.map((hit) => hit.label).join(' · ')}
-                    </p>
-                  )}
-                  <ul className="tjr-checklist inline">
-                    {selected.checklist.map((item) => (
-                      <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
-                        <span>{item.complete ? '✓' : '○'}</span> {item.label}
-                      </li>
-                    ))}
-                  </ul>
-                  <details className="evidence-details">
-                    <summary>Detalhes</summary>
-                    {selected.reasons[0] && <p>{selected.reasons.join(' ')}</p>}
-                  </details>
-                </aside>
-              </div>
-            </section>
-          )}
         </section>
       )}
     </main>

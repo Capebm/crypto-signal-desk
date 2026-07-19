@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { dayId, pnlForDay } from '../../lib/journal/journal-stats'
@@ -333,6 +333,102 @@ export default function AgentDashboard() {
   const nyClock = marketClocks.clocks.find((clock) => clock.id === 'newyork')
   const showBuyNowEmpty = rows.length > 0 && filter === 'COMPRAR_JA' && counts.COMPRAR_JA === 0 && visibleRows.length === 0
 
+  const renderExpandedRow = (row: AgentRow) => (
+    <section className="desk-workspace-chart desk-row-expand" id={`expand-${row.symbol}`}>
+      <BinanceOrderPanel
+        row={row}
+        stakeUsdc={stakeUsdc}
+        analysisReady={refinedSymbols.has(row.symbol)}
+        refining={loadingFull === row.symbol}
+        tpMode={tpMode}
+        onPositionSaved={() => setPinKey((k) => k + 1)}
+        onGoJournal={() => goToCryptoTab('journal')}
+      />
+      <div className="card-expanded-main">
+        <article className="chart-panel">
+          <header>
+            <div>
+              <p className="eyebrow">{formatTradingPair(row.symbol)}</p>
+              <h2>{tjrActionLabel(row)} · {row.score}/100</h2>
+            </div>
+            <span>
+              {loadingFull === row.symbol ? 'A refinar MTF…' : `Exec ${row.executionInterval ?? '15m'} · chart ${chartInterval}`}
+            </span>
+          </header>
+          <PriceChart
+            symbol={row.symbol}
+            action={row.action}
+            interval={chartInterval}
+            onIntervalChange={setChartInterval}
+            entry={row.entry}
+            stop={row.stop}
+            target={row.target}
+            targetSecondary={row.targetSecondary}
+            targetLabel={row.targetLabel}
+            targetSecondaryLabel={row.targetSecondaryLabel}
+            fillPrice={openFill && resolveBase(row.symbol) === openFill.base.toUpperCase() ? fillPrice : undefined}
+            fillLabel="Fill OCO"
+            zones={row.zones}
+            htfLevels={row.htfLevels}
+          />
+        </article>
+        <aside className="evidence-panel compact">
+          {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
+            <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
+          )}
+          <p className="evidence-summary">
+            <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
+            {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
+            {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
+          </p>
+          {row.matchingSetups && row.matchingSetups.length > 0 && (
+            <p className="setup-hit-panel">
+              <strong>Setups COMPRAR JÁ:</strong>{' '}
+              {row.matchingSetups.map((hit) => hit.label).join(' · ')}
+              {row.tradeSetup && (
+                <> · <strong>níveis:</strong> {row.tradeSetup.label}</>
+              )}
+            </p>
+          )}
+          {!row.matchingSetups && row.tradeSetup && (
+            <p className="setup-hit-panel"><strong>Setup:</strong> {row.tradeSetup.label}</p>
+          )}
+          <ul className="tjr-checklist inline">
+            {row.checklist.map((item) => (
+              <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
+                <span>{item.complete ? '✓' : '○'}</span> {item.label}
+              </li>
+            ))}
+          </ul>
+          <details className="evidence-details">
+            <summary>Detalhes &amp; notas</summary>
+            {row.entryZone && row.entryTiming === 'RETRACE' && (
+              <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
+            )}
+            {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
+            {row.exitPlan && row.action === 'COMPRAR' && (
+              <div className="exit-plan">
+                <p><strong>Plano de saída:</strong> {row.exitPlan.note}</p>
+                <ol>{row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+              </div>
+            )}
+            <section className="bos-guide compact">
+              <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
+            </section>
+          </details>
+        </aside>
+      </div>
+    </section>
+  )
+
+  useEffect(() => {
+    if (!selected?.symbol) return
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById(`expand-${selected.symbol}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [selected?.symbol])
+
   const renderDecisionList = () => (
     <section className="desk-watchlist">
       <div className="desk-table-wrap">
@@ -356,179 +452,95 @@ export default function AgentDashboard() {
             {visibleRows.map((row) => {
               const gain = potentialUsdc(row, stakeUsdc)
               const open = selected?.symbol === row.symbol
+              const detail = open ? (visibleRows.find((r) => r.symbol === selected.symbol) ?? selected) : undefined
               return (
-                <tr
-                  key={row.symbol}
-                  className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
-                  onClick={() => {
-                    if (open) {
-                      setSelected(undefined)
-                      return
-                    }
-                    setRefinedSymbols((prev) => {
-                      const next = new Set(prev)
-                      next.delete(row.symbol)
-                      return next
-                    })
-                    setLoadingFull(row.symbol)
-                    setSelected(row)
-                  }}
-                >
-                  <td className="col-symbol">{formatTradingPair(row.symbol)}</td>
-                  <td>
-                    <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
-                    <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
-                    {row.matchingSetups && row.matchingSetups.length > 0 && (
-                      <div className="setup-hit-row" title="Setups que deram COMPRAR JÁ">
-                        {row.matchingSetups.map((hit) => {
-                          const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
-                          return (
-                            <span
-                              key={`${hit.profile}-${hit.tpMode}`}
-                              className={`setup-hit${isTrade ? ' current' : ''}`}
-                            >
-                              {hit.label}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {!row.matchingSetups && row.tradeSetup && row.action === 'COMPRAR' && row.entryTiming === 'AGORA' && (
-                      <div className="setup-hit-row">
-                        <span className="setup-hit current">{row.tradeSetup.label}</span>
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    {row.riskyHighLong ? (
-                      <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                        {row.sweepLabel ?? 'H · arriscado'}
+                <Fragment key={row.symbol}>
+                  <tr
+                    className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
+                    onClick={() => {
+                      if (open) {
+                        setSelected(undefined)
+                        return
+                      }
+                      setRefinedSymbols((prev) => {
+                        const next = new Set(prev)
+                        next.delete(row.symbol)
+                        return next
+                      })
+                      setLoadingFull(row.symbol)
+                      setSelected(row)
+                    }}
+                  >
+                    <td className="col-symbol">{formatTradingPair(row.symbol)}</td>
+                    <td>
+                      <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
+                      <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
+                      {row.matchingSetups && row.matchingSetups.length > 0 && (
+                        <div className="setup-hit-row" title="Setups que deram COMPRAR JÁ">
+                          {row.matchingSetups.map((hit) => {
+                            const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
+                            return (
+                              <span
+                                key={`${hit.profile}-${hit.tpMode}`}
+                                className={`setup-hit${isTrade ? ' current' : ''}`}
+                              >
+                                {hit.label}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {!row.matchingSetups && row.tradeSetup && row.action === 'COMPRAR' && row.entryTiming === 'AGORA' && (
+                        <div className="setup-hit-row">
+                          <span className="setup-hit current">{row.tradeSetup.label}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {row.riskyHighLong ? (
+                        <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          {row.sweepLabel ?? 'H · arriscado'}
+                        </span>
+                      ) : row.opposedSweep ? (
+                        <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          {row.sweepLabel ?? 'H · não comprar'}
+                        </span>
+                      ) : row.reactive ? (
+                        <span className="sweep-tag reactive" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          Reactivo · {row.sweepLabel ?? 'low'}
+                        </span>
+                      ) : row.sweepLabel ? (
+                        <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          {row.sweepLabel}
+                        </span>
+                      ) : (
+                        <span className="sweep-tag muted">Sem low</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
+                        <strong>{row.score}</strong>
                       </span>
-                    ) : row.opposedSweep ? (
-                      <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                        {row.sweepLabel ?? 'H · não comprar'}
-                      </span>
-                    ) : row.reactive ? (
-                      <span className="sweep-tag reactive" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                        Reactivo · {row.sweepLabel ?? 'low'}
-                      </span>
-                    ) : row.sweepLabel ? (
-                      <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                        {row.sweepLabel}
-                      </span>
-                    ) : (
-                      <span className="sweep-tag muted">Sem low</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="tjr-score-badge inline" style={{ '--score-color': tjrScoreColor(row.score) } as CSSProperties}>
-                      <strong>{row.score}</strong>
-                    </span>
-                  </td>
-                  <td className="num">{price(row.price)}</td>
-                  <td className={`num ${row.change24h >= 0 ? 'positive' : 'negative'}`}>{row.change24h.toFixed(1)}%</td>
-                  <td className="num">{price(row.entry)}</td>
-                  <td className="num">{price(row.stop)}</td>
-                  <td className="num">{price(row.target)}</td>
-                  <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
-                  <td className="num">{gain !== undefined ? <span className="positive">+{moneyShort(gain)}</span> : '—'}</td>
-                </tr>
+                    </td>
+                    <td className="num">{price(row.price)}</td>
+                    <td className={`num ${row.change24h >= 0 ? 'positive' : 'negative'}`}>{row.change24h.toFixed(1)}%</td>
+                    <td className="num">{price(row.entry)}</td>
+                    <td className="num">{price(row.stop)}</td>
+                    <td className="num">{price(row.target)}</td>
+                    <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
+                    <td className="num">{gain !== undefined ? <span className="positive">+{moneyShort(gain)}</span> : '—'}</td>
+                  </tr>
+                  {detail && (
+                    <tr className="desk-expand-row" onClick={(event) => event.stopPropagation()}>
+                      <td colSpan={11}>{renderExpandedRow(detail)}</td>
+                    </tr>
+                  )}
+                </Fragment>
               )
             })}
           </tbody>
         </table>
       </div>
-
-      {selected && visibleRows.some((row) => row.symbol === selected.symbol) && (() => {
-        const row = visibleRows.find((r) => r.symbol === selected.symbol) ?? selected
-        return (
-          <section className="desk-workspace-chart" key={row.symbol}>
-            <BinanceOrderPanel
-              row={row}
-              stakeUsdc={stakeUsdc}
-              analysisReady={refinedSymbols.has(row.symbol)}
-              refining={loadingFull === row.symbol}
-              tpMode={tpMode}
-              onPositionSaved={() => setPinKey((k) => k + 1)}
-              onGoJournal={() => goToCryptoTab('journal')}
-            />
-            <div className="card-expanded-main">
-              <article className="chart-panel">
-                <header>
-                  <div>
-                    <p className="eyebrow">{formatTradingPair(row.symbol)}</p>
-                    <h2>{tjrActionLabel(row)} · {row.score}/100</h2>
-                  </div>
-                  <span>
-                    {loadingFull === row.symbol ? 'A refinar MTF…' : `Exec ${row.executionInterval ?? '15m'} · chart ${chartInterval}`}
-                  </span>
-                </header>
-                <PriceChart
-                  symbol={row.symbol}
-                  action={row.action}
-                  interval={chartInterval}
-                  onIntervalChange={setChartInterval}
-                  entry={row.entry}
-                  stop={row.stop}
-                  target={row.target}
-                  targetSecondary={row.targetSecondary}
-                  targetLabel={row.targetLabel}
-                  targetSecondaryLabel={row.targetSecondaryLabel}
-                  fillPrice={openFill && resolveBase(row.symbol) === openFill.base.toUpperCase() ? fillPrice : undefined}
-                  fillLabel="Fill OCO"
-                  zones={row.zones}
-                  htfLevels={row.htfLevels}
-                />
-              </article>
-              <aside className="evidence-panel compact">
-                {row.invalidationReason && (row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO') && (
-                  <p className="invalidation-alert"><strong>{tjrActionLabel(row)}:</strong> {row.invalidationReason}</p>
-                )}
-                <p className="evidence-summary">
-                  <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
-                  {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
-                  {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
-                </p>
-                {row.matchingSetups && row.matchingSetups.length > 0 && (
-                  <p className="setup-hit-panel">
-                    <strong>Setups COMPRAR JÁ:</strong>{' '}
-                    {row.matchingSetups.map((hit) => hit.label).join(' · ')}
-                    {row.tradeSetup && (
-                      <> · <strong>níveis:</strong> {row.tradeSetup.label}</>
-                    )}
-                  </p>
-                )}
-                {!row.matchingSetups && row.tradeSetup && (
-                  <p className="setup-hit-panel"><strong>Setup:</strong> {row.tradeSetup.label}</p>
-                )}
-                <ul className="tjr-checklist inline">
-                  {row.checklist.map((item) => (
-                    <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
-                      <span>{item.complete ? '✓' : '○'}</span> {item.label}
-                    </li>
-                  ))}
-                </ul>
-                <details className="evidence-details">
-                  <summary>Detalhes &amp; notas</summary>
-                  {row.entryZone && row.entryTiming === 'RETRACE' && (
-                    <p><strong>Zona entrada:</strong> {price(row.entryZone.low)} – {price(row.entryZone.high)}</p>
-                  )}
-                  {row.reasons[0] && <p>{row.reasons.join(' ')}</p>}
-                  {row.exitPlan && row.action === 'COMPRAR' && (
-                    <div className="exit-plan">
-                      <p><strong>Plano de saída:</strong> {row.exitPlan.note}</p>
-                      <ol>{row.exitPlan.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-                    </div>
-                  )}
-                  <section className="bos-guide compact">
-                    <p><strong>BOS:</strong> Long válido enquanto close no {row.executionInterval ?? '15m'} não romper swing low. Se cartão = SAIR — INVALIDADO → vende.</p>
-                  </section>
-                </details>
-              </aside>
-            </div>
-          </section>
-        )
-      })()}
     </section>
   )
 
