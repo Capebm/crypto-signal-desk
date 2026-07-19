@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { T212Instrument } from '../../lib/yahoo-market'
@@ -17,7 +16,11 @@ const fmt = (value?: number, digits = 2) => {
 }
 
 export default function T212TradeGuide({ instrument, decision, stakeEur }: Props) {
-  const ready = decision.action === 'COMPRAR' && (decision.entryTiming === 'AGORA' || decision.entryTiming === 'RETRACE')
+  const ready =
+    (decision.action === 'COMPRAR' || decision.action === 'VENDER')
+    && (decision.entryTiming === 'AGORA' || decision.entryTiming === 'RETRACE')
+  const isShort = decision.action === 'VENDER'
+  const sideLabel = isShort ? 'Sell' : 'Buy'
   const riskPct = decision.entry && decision.stop
     ? (Math.abs(decision.entry - decision.stop) / decision.entry) * 100
     : undefined
@@ -35,30 +38,30 @@ export default function T212TradeGuide({ instrument, decision, stakeEur }: Props
       <p className="t212-guide-plan">
         Conta <strong>CFD</strong> → pesquisa <strong>{instrument.t212Search}</strong>
         {instrument.kind === 'forex' || instrument.kind === 'metal'
-          ? ' (FOREX / metal na T212).'
-          : ' (índice USA Tech 100 / USA 500).'}
-        {' '}Long-only neste módulo. Stop + Take profit no ticket.
+          ? ' (FOREX / metal).'
+          : ' (índice).'}
+        {' '}Long <strong>e short</strong> (Buy / Sell). Stop + Take profit no ticket.
       </p>
 
       {!ready ? (
-        <p className="binance-order-wait">Sem níveis de entrada — espera COMPRAR JÁ ou AGUARDAR na NY open.</p>
+        <p className="binance-order-wait">Sem níveis — espera COMPRAR/VENDER na sessão (dias úteis, preferir NY open).</p>
       ) : (
         <>
           <div className="t212-levels">
+            <div><span>Lado</span><strong className={isShort ? 'negative' : 'positive'}>{sideLabel}</strong></div>
             <div><span>Entrada</span><strong>{fmt(decision.entry)}</strong></div>
             <div><span>Stop</span><strong className="negative">{fmt(decision.stop)}</strong></div>
             <div><span>TP</span><strong className="positive">{fmt(decision.target)}</strong></div>
-            <div><span>R:R</span><strong>{decision.riskReward?.toFixed(1) ?? '—'}×</strong></div>
           </div>
           {riskPct !== undefined && (
-            <p className="desk-sub">Distância ao stop ≈ {riskPct.toFixed(2)}% · stake sugerido {stakeEur} €</p>
+            <p className="desk-sub">R:R {decision.riskReward?.toFixed(1) ?? '—'}× · stop ≈ {riskPct.toFixed(2)}% · stake ~{stakeEur} €</p>
           )}
           <ol className="t212-steps">
-            <li>Abre Trading 212 → conta <strong>CFD</strong> (não Invest).</li>
-            <li>Pesquisa <strong>{instrument.t212Search}</strong> e abre o instrumento.</li>
-            <li>Toca <strong>Buy</strong> (long). Ajusta tamanho para ~{stakeEur} € de margem/exposição.</li>
-            <li>Activa <strong>Stop loss</strong> @ {fmt(decision.stop)} e <strong>Take profit</strong> @ {fmt(decision.target)}.</li>
-            <li>Confirma. Depois regista o trade no Diário (moeda = {instrument.short}).</li>
+            <li>Abre Trading 212 → conta <strong>CFD</strong>.</li>
+            <li>Pesquisa <strong>{instrument.t212Search}</strong>.</li>
+            <li>Toca <strong>{sideLabel}</strong> ({isShort ? 'short' : 'long'}). Ajusta tamanho ~{stakeEur} €.</li>
+            <li>Stop @ {fmt(decision.stop)} · Take profit @ {fmt(decision.target)}.</li>
+            <li>Confirma e regista no Diário ({instrument.short}).</li>
           </ol>
           <div className="binance-wizard-footer">
             <button type="button" className="ghost" onClick={() => goToCryptoTab('journal')}>

@@ -7,12 +7,12 @@ import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import {
   evaluateTjrFull,
   formatSetupHitLabel,
-  listBuyNowSetups,
+  listActionNowSetups,
   tjrActionLabel,
   tjrScoreColor,
   type TjrDecision,
 } from '../../lib/tjr-engine'
-import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
+import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
 import type { Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
@@ -52,6 +52,11 @@ const money = (value?: number) => {
 
 const evalOptions = { referenceLabel: 'US500' as const }
 
+const isBuyNow = (row: TjrDecision) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
+const isSellNow = (row: TjrDecision) => row.action === 'VENDER' && row.entryTiming === 'AGORA'
+const isAguardar = (row: TjrDecision) =>
+  (row.action === 'COMPRAR' || row.action === 'VENDER') && row.entryTiming === 'RETRACE'
+
 export default function T212Dashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const [riskIndex, setRiskIndex] = useState(() => {
@@ -86,12 +91,13 @@ export default function T212Dashboard() {
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
-  const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
-  const [status, setStatus] = useState('Carrega Analisar para ver TECH100, US500 e FOREX.')
+  const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
+  const [status, setStatus] = useState('Carrega Analisar — TECH100, US500 e FOREX (long + short CFD).')
   const [running, setRunning] = useState(false)
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
+  const [cfdMarket, setCfdMarket] = useState(() => getCfdMarketStatus())
 
   useEffect(() => {
     try {
@@ -108,6 +114,7 @@ export default function T212Dashboard() {
     const tick = () => {
       setSession(getTradingSessionStatus())
       setMarketClocks(getMarketClocks())
+      setCfdMarket(getCfdMarketStatus())
     }
     tick()
     const id = window.setInterval(tick, 30_000)
@@ -117,60 +124,77 @@ export default function T212Dashboard() {
   const analyzeAll = async () => {
     setRunning(true)
     setSelectedId(undefined)
-    setStatus('A carregar referência US500…')
+    const market = getCfdMarketStatus()
+    setCfdMarket(market)
+    if (!market.open) {
+      setStatus(market.reason)
+      setRunning(false)
+      return
+    }
+    setStatus(`A carregar ${T212_INSTRUMENTS.length} instrumentos em paralelo…`)
     try {
-      const us500 = T212_INSTRUMENTS.find((item) => item.id === 'us500') ?? DEFAULT_T212_INSTRUMENT
-      const refPack = await getT212PlaybookCandles(us500)
+      const packs = await Promise.all(
+        T212_INSTRUMENTS.map(async (instrument) => {
+          const data = await getT212PlaybookCandles(instrument)
+          return { instrument, data }
+        }),
+      )
+      const refPack = packs.find((pack) => pack.instrument.id === 'us500')?.data ?? packs[0]?.data
+      if (!refPack) throw new Error('Sem candles de referência.')
+
       const results: T212Row[] = []
-      for (let index = 0; index < T212_INSTRUMENTS.length; index += 1) {
-        const instrument = T212_INSTRUMENTS[index]
-        setStatus(`TJR · ${index + 1}/${T212_INSTRUMENTS.length} · ${instrument.short}…`)
-        try {
-          const data = instrument.id === 'us500' ? refPack : await getT212PlaybookCandles(instrument)
-          const reference = instrument.id === 'us500' ? data : refPack
-          let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, 'long', evalOptions)
-          if (scanAllSetups) {
-            const matchingSetups = listBuyNowSetups(instrument.short, data, reference, evalOptions, 'long')
-            if (matchingSetups.length > 0) {
-              const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
-              if (userHit) {
-                decision = { ...decision, matchingSetups, tradeSetup: userHit }
-              } else {
-                const best = matchingSetups[0]
-                decision = {
-                  ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, 'long', evalOptions),
-                  matchingSetups,
-                  tradeSetup: best,
-                }
+      for (const { instrument, data } of packs) {
+        setStatus(
+          scanAllSetups
+            ? `${instrument.short} · 9 setups (Buy+Sell)…`
+            : `A avaliar ${instrument.short}…`,
+        )
+        const reference = instrument.id === 'us500' ? data : refPack
+        // Sem forcedSide: CFD permite long e short.
+        let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
+        if (scanAllSetups) {
+          const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
+          if (matchingSetups.length > 0) {
+            const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
+            if (userHit) {
+              decision = { ...decision, matchingSetups, tradeSetup: userHit }
+            } else {
+              const best = matchingSetups[0]
+              decision = {
+                ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions),
+                matchingSetups,
+                tradeSetup: best,
               }
             }
-          } else if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
-            decision = {
-              ...decision,
-              tradeSetup: {
-                profile: riskProfile,
-                tpMode,
-                label: formatSetupHitLabel(riskProfile, tpMode),
-                score: decision.score,
-              },
-            }
           }
-          const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
-          results.push({ ...decision, instrument, price })
-        } catch {
-          /* skip instrument */
+        } else if (isBuyNow(decision) || isSellNow(decision)) {
+          decision = {
+            ...decision,
+            tradeSetup: {
+              profile: riskProfile,
+              tpMode,
+              label: formatSetupHitLabel(riskProfile, tpMode),
+              score: decision.score,
+              action: decision.action,
+            },
+          }
         }
+        const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
+        results.push({ ...decision, instrument, price })
       }
+
       const sorted = results.sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
       setRows(sorted)
-      const buyNow = sorted.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA').length
-      const aguardar = sorted.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'RETRACE').length
+      const buyNow = sorted.filter(isBuyNow).length
+      const sellNow = sorted.filter(isSellNow).length
+      const aguardar = sorted.filter(isAguardar).length
       setStatus(
-        buyNow > 0
-          ? `${sorted.length} instrumentos · ${buyNow} COMPRAR JÁ — clica na linha para expandir e executar na T212.`
-          : `${sorted.length} instrumentos · 0 COMPRAR JÁ · ${aguardar} aguardar. Clica numa linha para ver detalhes.`,
+        buyNow + sellNow > 0
+          ? `${sorted.length} instrumentos · ${buyNow} COMPRAR · ${sellNow} VENDER — clica para expandir.`
+          : `${sorted.length} instrumentos · 0 agora · ${aguardar} aguardar. Melhor na NY open (dias úteis).`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
+      else if (sellNow > 0) setFilter('VENDER')
     } catch (error) {
       setRows([])
       setStatus(error instanceof Error ? error.message : 'Falha ao obter dados Yahoo.')
@@ -180,19 +204,27 @@ export default function T212Dashboard() {
   }
 
   useEffect(() => {
+    const market = getCfdMarketStatus()
+    setCfdMarket(market)
+    if (!market.open) {
+      setStatus(market.reason)
+      return
+    }
     void analyzeAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const counts = useMemo(() => ({
-    COMPRAR_JA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA').length,
-    AGUARDAR: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'RETRACE').length,
+    COMPRAR_JA: rows.filter(isBuyNow).length,
+    VENDER: rows.filter(isSellNow).length,
+    AGUARDAR: rows.filter(isAguardar).length,
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
   }), [rows])
 
   const visibleRows = rows.filter((row) => {
-    if (filter === 'COMPRAR_JA') return row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
-    if (filter === 'AGUARDAR') return row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
+    if (filter === 'COMPRAR_JA') return isBuyNow(row)
+    if (filter === 'VENDER') return isSellNow(row)
+    if (filter === 'AGUARDAR') return isAguardar(row)
     if (filter === 'ESPERAR') return row.action === 'ESPERAR'
     return true
   })
@@ -213,8 +245,10 @@ export default function T212Dashboard() {
           <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
             {session.badge}
           </span>
-          {selected?.opposedSweep ? (
+          {selected?.opposedSweep && selected.action !== 'VENDER' ? (
             <span className="sweep-badge warn">Sweep H · não comprar</span>
+          ) : selected?.action === 'VENDER' && selected.sweepLabel ? (
+            <span className="sweep-badge warn">Short · {selected.sweepLabel}</span>
           ) : selected?.reactive ? (
             <span className="sweep-badge reactive">Reactivo · {selected.sweepLabel}</span>
           ) : selected?.sweepLabel ? (
@@ -225,17 +259,26 @@ export default function T212Dashboard() {
           <span className="tv-clock">{session.nowLisbon} PT</span>
         </div>
         <div className="tv-toolbar-right">
-          <button type="button" className="agent-scan-btn" onClick={() => void analyzeAll()} disabled={running}>
-            {running ? 'A analisar…' : 'Analisar'}
+          <button type="button" className="agent-scan-btn" onClick={() => void analyzeAll()} disabled={running || !cfdMarket.open}>
+            {running ? 'A analisar…' : cfdMarket.open ? 'Analisar' : 'Mercado fechado'}
           </button>
         </div>
       </header>
+
+      {!cfdMarket.open && (
+        <p className="t212-closed-banner" role="status">{cfdMarket.reason}</p>
+      )}
 
       <section className="zella-kpis" aria-label="Resumo T212">
         <article>
           <span>Comprar já</span>
           <strong className={counts.COMPRAR_JA > 0 ? 'positive' : ''}>{counts.COMPRAR_JA}</strong>
-          <small>sinais</small>
+          <small>long</small>
+        </article>
+        <article>
+          <span>Vender</span>
+          <strong className={counts.VENDER > 0 ? 'negative' : ''}>{counts.VENDER}</strong>
+          <small>short CFD</small>
         </article>
         <article>
           <span>Aguardar</span>
@@ -245,21 +288,16 @@ export default function T212Dashboard() {
         <article>
           <span>Instrumentos</span>
           <strong>{rows.length || T212_INSTRUMENTS.length}</strong>
-          <small>watchlist</small>
+          <small>{scanAllSetups ? '× 9 setups' : 'watchlist'}</small>
         </article>
         <article>
           <span>Risco</span>
           <strong>{riskProfiles[riskProfile].label}</strong>
-          <small>perfil</small>
-        </article>
-        <article>
-          <span>TP</span>
-          <strong>{tpModeMeta[tpMode].short}</strong>
-          <small>alvo</small>
+          <small>{tpModeMeta[tpMode].short}</small>
         </article>
         <article className={session.inIdealWindow ? 'kpi-hot' : ''}>
           <span>Sessão</span>
-          <strong>{session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
+          <strong>{!cfdMarket.open ? 'Fechado' : session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
           <small>killzone</small>
         </article>
       </section>
@@ -289,7 +327,7 @@ export default function T212Dashboard() {
             ))}
           </select>
         </label>
-        <label className="tv-setup-toggle" title="Testa as 9 combinações risco×TP em cada instrumento">
+        <label className="tv-setup-toggle" title="Testa as 9 combinações risco×TP (Buy e Sell) em cada instrumento">
           <input
             type="checkbox"
             checked={scanAllSetups}
@@ -297,7 +335,7 @@ export default function T212Dashboard() {
           />
           <span>Todos setups</span>
         </label>
-        <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running}>
+        <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !cfdMarket.open}>
           {running ? '…' : 'Aplicar + scan'}
         </button>
       </section>
@@ -305,13 +343,14 @@ export default function T212Dashboard() {
       <MarketClocks snapshot={marketClocks} compact />
       <p className="agent-status">{status}</p>
       <p className="t212-disclaimer">
-        Dados OHLC via Yahoo. COMPRAR JÁ aparece na tabela (filtro verde) — clica a linha para expandir níveis e o guia T212 CFD.
+        CFD: long (Buy) e short (Sell). Dados Yahoo em paralelo. Fim de semana = mercado fechado (não é bug do TJR).
       </p>
 
       {rows.length > 0 && (
         <section className="agent-summary desk-filters">
           <button type="button" className={filter === 'TODAS' ? 'active' : ''} onClick={() => setFilter('TODAS')}>Todas <span>{rows.length}</span></button>
-          <button type="button" className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Comprar já <span>{counts.COMPRAR_JA}</span></button>
+          <button type="button" className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Comprar <span>{counts.COMPRAR_JA}</span></button>
+          <button type="button" className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Vender <span>{counts.VENDER}</span></button>
           <button type="button" className={filter === 'AGUARDAR' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR')}>Aguardar <span>{counts.AGUARDAR}</span></button>
           <button type="button" className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
         </section>
@@ -340,7 +379,7 @@ export default function T212Dashboard() {
                   return (
                     <tr
                       key={row.instrument.id}
-                      className={`${row.action.toLowerCase()}${open ? ' selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
+                      className={`${row.action.toLowerCase()}${open ? ' selected' : ''}${isBuyNow(row) ? ' buy-now' : ''}${isSellNow(row) ? ' sell-now' : ''}`}
                       onClick={() => setSelectedId(open ? undefined : row.instrument.id)}
                     >
                       <td className="col-symbol">
@@ -355,28 +394,23 @@ export default function T212Dashboard() {
                             {row.matchingSetups.map((hit) => {
                               const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
                               return (
-                                <span key={`${hit.profile}-${hit.tpMode}`} className={`setup-hit${isTrade ? ' current' : ''}`}>
+                                <span key={`${hit.profile}-${hit.tpMode}-${hit.action ?? ''}`} className={`setup-hit${isTrade ? ' current' : ''}`}>
                                   {hit.label}
                                 </span>
                               )
                             })}
                           </div>
                         )}
-                        {!row.matchingSetups && row.tradeSetup && row.action === 'COMPRAR' && row.entryTiming === 'AGORA' && (
-                          <div className="setup-hit-row">
-                            <span className="setup-hit current">{row.tradeSetup.label}</span>
-                          </div>
-                        )}
                       </td>
                       <td>
-                        {row.opposedSweep ? (
+                        {row.opposedSweep && row.action !== 'VENDER' ? (
                           <span className="sweep-tag warn">{row.sweepLabel ?? 'H'}</span>
                         ) : row.reactive ? (
                           <span className="sweep-tag reactive">Reactivo · {row.sweepLabel}</span>
                         ) : row.sweepLabel ? (
                           <span className="sweep-tag">{row.sweepLabel}</span>
                         ) : (
-                          <span className="sweep-tag muted">Sem low</span>
+                          <span className="sweep-tag muted">Sem sweep</span>
                         )}
                       </td>
                       <td>
@@ -433,8 +467,7 @@ export default function T212Dashboard() {
                   </p>
                   {selected.matchingSetups && selected.matchingSetups.length > 0 && (
                     <p className="setup-hit-panel">
-                      <strong>Setups COMPRAR JÁ:</strong> {selected.matchingSetups.map((hit) => hit.label).join(' · ')}
-                      {selected.tradeSetup && <> · <strong>níveis:</strong> {selected.tradeSetup.label}</>}
+                      <strong>Setups agora:</strong> {selected.matchingSetups.map((hit) => hit.label).join(' · ')}
                     </p>
                   )}
                   <ul className="tjr-checklist inline">

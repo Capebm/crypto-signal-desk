@@ -320,6 +320,17 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-text-muted);
   line-height: 1.4;
 }
+.t212-closed-banner {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--tv-red);
+  border-radius: 2px;
+  background: rgba(239, 83, 80, 0.12);
+  color: var(--tv-text);
+  font-size: .86rem;
+  line-height: 1.4;
+}
+.desk-table tr.sell-now { box-shadow: inset 3px 0 0 var(--tv-red); }
 .t212-guide-plan {
   margin: 0 0 12px;
   font-size: .84rem;

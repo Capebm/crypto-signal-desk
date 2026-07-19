@@ -71,6 +71,7 @@ export type SetupHit = {
   tpMode: TpMode
   label: string
   score: number
+  action?: Action
 }
 
 export type EvaluateOptions = {
@@ -688,13 +689,34 @@ export function listBuyNowSetups(
   options: EvaluateOptions = {},
   forcedSide?: TradeSide,
 ): SetupHit[] {
+  return listActionNowSetups(symbol, data, btc, options, forcedSide, 'buy')
+}
+
+/** COMPRAR e/ou VENDER com timing AGORA (CFD T212). */
+export function listActionNowSetups(
+  symbol: string,
+  data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
+  btc: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
+  options: EvaluateOptions = {},
+  forcedSide?: TradeSide,
+  mode: 'buy' | 'both' = 'buy',
+): SetupHit[] {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const hits: SetupHit[] = []
   for (const profile of profiles) {
-    for (const mode of tpModes) {
-      const decision = evaluateTjrFull(symbol, data, btc, profile, mode, forcedSide, options)
-      if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
-        hits.push({ profile, tpMode: mode, label: setupLabel(profile, mode), score: decision.score })
+    for (const modeTp of tpModes) {
+      const decision = evaluateTjrFull(symbol, data, btc, profile, modeTp, forcedSide, options)
+      const buyNow = decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA'
+      const sellNow = mode === 'both' && decision.action === 'VENDER' && decision.entryTiming === 'AGORA'
+      if (buyNow || sellNow) {
+        const sideTag = decision.action === 'VENDER' ? ' · Sell' : ''
+        hits.push({
+          profile,
+          tpMode: modeTp,
+          label: `${setupLabel(profile, modeTp)}${sideTag}`,
+          score: decision.score,
+          action: decision.action,
+        })
       }
     }
   }

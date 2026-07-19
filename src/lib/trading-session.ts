@@ -65,10 +65,38 @@ const zoneParts = (timeZone: string, date = new Date()) => {
  * - Londres 03:00–08:30 → AGUARDAR
  * - resto / Asia deep → quiet ou off
  */
+/** Calendário CFD (índices US + forex major) em America/New_York. */
+export function getCfdMarketStatus(date = new Date()): { open: boolean; reason: string } {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(date)
+  const ny = zoneParts('America/New_York', date)
+
+  if (weekday === 'Sat') {
+    return { open: false, reason: 'Sábado — índices e forex fechados. Volta domingo ~17:00 ET (forex) ou segunda 09:30 ET (índices).' }
+  }
+  if (weekday === 'Sun' && ny.mins < 17 * 60) {
+    return { open: false, reason: 'Domingo de manhã — forex ainda fechado (~abre 17:00 ET). Índices só segunda 09:30 ET.' }
+  }
+  if (weekday === 'Fri' && ny.mins >= 17 * 60) {
+    return { open: false, reason: 'Sexta após fecho — mercado encerrado até domingo à noite (forex).' }
+  }
+  return { open: true, reason: '' }
+}
+
 export function getTradingSessionStatus(date = new Date()): TradingSessionStatus {
   const ny = zoneParts('America/New_York', date)
   const lisbon = zoneParts('Europe/Lisbon', date)
   const base = { nowLisbon: lisbon.label, nowNy: ny.label }
+  const cfd = getCfdMarketStatus(date)
+  if (!cfd.open) {
+    return {
+      ...base,
+      window: 'off',
+      inIdealWindow: false,
+      allowEnterNow: false,
+      blockEntries: true,
+      badge: 'Mercado fechado (fim de semana)',
+    }
+  }
 
   // NY cash open window (prime TJR)
   if (ny.mins >= 9 * 60 + 30 && ny.mins < 11 * 60) {
