@@ -32,16 +32,23 @@ export const handler: Handler = async (event: HandlerEvent) => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; CSD-Desk/1.0)',
-        Accept: 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Accept: 'application/json,text/plain,*/*',
       },
     })
     const text = await response.text()
     if (!response.ok) {
+      let yahooMsg = ''
+      try {
+        const parsed = JSON.parse(text) as { chart?: { error?: { description?: string } } }
+        yahooMsg = parsed.chart?.error?.description ? ` — ${parsed.chart.error.description}` : ''
+      } catch {
+        /* ignore */
+      }
       return {
         statusCode: 502,
         headers,
-        body: JSON.stringify({ error: `Yahoo ${response.status}`, detail: text.slice(0, 200) }),
+        body: JSON.stringify({ error: `Yahoo ${response.status}${yahooMsg}`, symbol }),
       }
     }
     return { statusCode: 200, headers, body: text }

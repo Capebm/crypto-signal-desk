@@ -49,7 +49,7 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
     id: 'xauusd',
     t212Label: 'Gold',
     t212Search: 'XAUUSD / Gold',
-    yahooSymbol: 'XAUUSD=X',
+    yahooSymbol: 'GC=F',
     kind: 'metal',
     short: 'XAUUSD',
   },
@@ -142,14 +142,17 @@ export async function fetchYahooCandlesRaw(yahooSymbol: string, interval: Interv
     range: yahooRange[interval],
   })
   const response = await fetch(`/api/yahoo-candles?${params}`)
+  const payload = (await response.json().catch(() => ({}))) as YahooChartResponse & { error?: string; detail?: string }
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error || 'Não foi possível obter candles Yahoo.')
+    throw new Error(payload.error || `Yahoo ${response.status} (${yahooSymbol})`)
   }
-  const payload = (await response.json()) as YahooChartResponse
-  const candles = parseYahooChart(payload)
-  if (interval === '4h') return aggregateTo4h(candles)
-  return candles
+  try {
+    const candles = parseYahooChart(payload)
+    if (interval === '4h') return aggregateTo4h(candles)
+    return candles
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : `Yahoo sem dados (${yahooSymbol})`)
+  }
 }
 
 export async function getT212PlaybookCandles(instrument: T212Instrument = DEFAULT_T212_INSTRUMENT) {

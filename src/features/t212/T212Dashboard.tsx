@@ -133,12 +133,19 @@ export default function T212Dashboard() {
     }
     setStatus(`A carregar ${T212_INSTRUMENTS.length} instrumentos em paralelo…`)
     try {
-      const packs = await Promise.all(
+      const settled = await Promise.allSettled(
         T212_INSTRUMENTS.map(async (instrument) => {
           const data = await getT212PlaybookCandles(instrument)
           return { instrument, data }
         }),
       )
+      const packs = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+      const failed = settled
+        .map((result, index) => (result.status === 'rejected' ? T212_INSTRUMENTS[index].short : undefined))
+        .filter((value): value is string => Boolean(value))
+      if (packs.length === 0) {
+        throw new Error(failed.length ? `Yahoo falhou: ${failed.join(', ')}` : 'Sem candles Yahoo.')
+      }
       const refPack = packs.find((pack) => pack.instrument.id === 'us500')?.data ?? packs[0]?.data
       if (!refPack) throw new Error('Sem candles de referência.')
 
@@ -190,8 +197,8 @@ export default function T212Dashboard() {
       const aguardar = sorted.filter(isAguardar).length
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} instrumentos · ${buyNow} COMPRAR · ${sellNow} VENDER — clica para expandir.`
-          : `${sorted.length} instrumentos · 0 agora · ${aguardar} aguardar. Melhor na NY open (dias úteis).`,
+          ? `${sorted.length} instrumentos · ${buyNow} COMPRAR · ${sellNow} VENDER — clica para expandir.${failed.length ? ` · falhou: ${failed.join(', ')}` : ''}`
+          : `${sorted.length} instrumentos · 0 agora · ${aguardar} aguardar.${failed.length ? ` · falhou: ${failed.join(', ')}` : ''} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
