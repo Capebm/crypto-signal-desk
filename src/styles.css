@@ -1014,7 +1014,8 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .chart-panel header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .chart-panel h2, .evidence-panel h2 { margin: 5px 0 14px; font-size: 1.08rem; }
 .chart-panel header > span { color: var(--tv-text-secondary); font-size: .78rem; }
-.chart-host { position: relative; min-height: 470px; }
+.chart-host { position: relative; min-height: 320px; }
+.chart-canvas { width: 100%; min-height: 280px; touch-action: pan-x; }
 .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .chart-toolbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .chart-legend { display: flex; gap: 10px; padding: 0; color: var(--tv-text-secondary); font-size: .74rem; flex-wrap: wrap; }
@@ -1026,6 +1027,14 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .timeframe-tabs button.active { color: var(--tv-text); background: var(--tv-blue); outline: none; }
 .chart-legend span:first-child { color: var(--tv-text-secondary); } .chart-legend span:nth-child(2) { color: var(--tv-text-muted); }
 .chart-message { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--tv-border); border-radius: 2px; color: var(--tv-text-secondary); background: var(--tv-bg-elevated); font-size: .82rem; line-height: 1.4; }
+
+@media (max-width: 720px) {
+  .chart-host { min-height: 300px; }
+  .chart-legend { display: none; }
+  .chart-toolbar-actions { width: 100%; justify-content: space-between; }
+  .timeframe-tabs { flex: 1; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .timeframe-tabs button { padding: 8px 12px; flex: 0 0 auto; }
+}
 .evidence-panel p { color: var(--tv-text-secondary); line-height: 1.5; }
 .tjr-checklist { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
 .tjr-checklist li { display: flex; gap: 10px; padding: 10px; border-radius: 4px; background: var(--tv-border); }
