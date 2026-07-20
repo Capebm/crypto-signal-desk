@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CRYPTO_TAB_EVENT, type CryptoTab } from '../lib/crypto-tabs'
+import AppFooter from '../components/AppFooter'
 import AgentDashboard from './agent/AgentDashboard'
 import JournalDashboard from './journal/JournalDashboard'
 import T212Dashboard from './t212/T212Dashboard'
@@ -76,6 +77,7 @@ export default function CryptoApp({ onSwitchApp }: Props) {
       </aside>
       <div className="desk-main">
         {tab === 'agent' ? <AgentDashboard /> : tab === 't212' ? <T212Dashboard /> : <JournalDashboard />}
+        <AppFooter />
       </div>
     </div>
   )
