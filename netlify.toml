@@ -24,6 +24,10 @@
 [[redirects]]
   from = "/api/yahoo-candles"
   to = "/.netlify/functions/yahoo-candles"
+
+[[redirects]]
+  from = "/api/yahoo-pack"
+  to = "/.netlify/functions/yahoo-pack"
   status = 200
 
 [[headers]]

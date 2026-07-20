@@ -141,6 +141,52 @@ export function garimpoApiPlugin(): Plugin {
           return
         }
 
+        if (url.pathname === '/api/yahoo-pack' && req.method === 'GET') {
+          const symbol = url.searchParams.get('symbol')?.trim()
+          if (!symbol) {
+            sendJson(res, 400, { error: 'symbol inválido' })
+            return
+          }
+          const yahooHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'application/json,text/plain,*/*',
+          }
+          const specs = [
+            { key: '1h', interval: '60m', range: '60d' },
+            { key: '15m', interval: '15m', range: '60d' },
+            { key: '5m', interval: '5m', range: '60d' },
+            { key: '1m', interval: '1m', range: '7d' },
+          ] as const
+          try {
+            const settled = await Promise.all(
+              specs.map(async (spec) => {
+                const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(spec.interval)}&range=${encodeURIComponent(spec.range)}`
+                const response = await fetch(yahooUrl, { headers: yahooHeaders })
+                const payload = await response.json().catch(() => ({ chart: { error: { description: 'JSON inválido' } } }))
+                return { key: spec.key, ok: response.ok, status: response.status, payload }
+              }),
+            )
+            const charts: Record<string, unknown> = {}
+            const errors: string[] = []
+            for (const row of settled) {
+              if (!row.ok) {
+                const desc = (row.payload as { chart?: { error?: { description?: string } } })?.chart?.error?.description
+                errors.push(`${row.key}: Yahoo ${row.status}${desc ? ` — ${desc}` : ''}`)
+                continue
+              }
+              charts[row.key] = row.payload
+            }
+            if (!charts['1h'] || !charts['15m'] || !charts['5m']) {
+              sendJson(res, 502, { error: errors[0] || `Yahoo pack incompleto (${symbol})`, symbol, errors })
+              return
+            }
+            sendJson(res, 200, { symbol, charts, warnings: errors.length ? errors : undefined })
+          } catch (error) {
+            sendJson(res, 500, { error: error instanceof Error ? error.message : 'Yahoo pack failed' })
+          }
+          return
+        }
+
         next()
       })
     },

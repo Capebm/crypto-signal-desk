@@ -8,7 +8,7 @@ export type T212Instrument = {
   /** Pesquisa T212. */
   t212Search: string
   yahooSymbol: string
-  kind: 'index' | 'forex' | 'metal'
+  kind: 'index' | 'forex' | 'metal' | 'energy'
   short: string
 }
 
@@ -30,6 +30,30 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
     short: 'US500',
   },
   {
+    id: 'us30',
+    t212Label: 'USA 30',
+    t212Search: 'US30 / Wall Street',
+    yahooSymbol: '^DJI',
+    kind: 'index',
+    short: 'US30',
+  },
+  {
+    id: 'ger40',
+    t212Label: 'Germany 40',
+    t212Search: 'GER40 / DAX',
+    yahooSymbol: '^GDAXI',
+    kind: 'index',
+    short: 'GER40',
+  },
+  {
+    id: 'uk100',
+    t212Label: 'UK 100',
+    t212Search: 'UK100 / FTSE',
+    yahooSymbol: '^FTSE',
+    kind: 'index',
+    short: 'UK100',
+  },
+  {
     id: 'eurusd',
     t212Label: 'EUR/USD',
     t212Search: 'EURUSD',
@@ -46,12 +70,36 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
     short: 'GBPUSD',
   },
   {
+    id: 'usdjpy',
+    t212Label: 'USD/JPY',
+    t212Search: 'USDJPY',
+    yahooSymbol: 'USDJPY=X',
+    kind: 'forex',
+    short: 'USDJPY',
+  },
+  {
     id: 'xauusd',
     t212Label: 'Gold',
     t212Search: 'XAUUSD / Gold',
     yahooSymbol: 'GC=F',
     kind: 'metal',
     short: 'XAUUSD',
+  },
+  {
+    id: 'xagusd',
+    t212Label: 'Silver',
+    t212Search: 'XAGUSD / Silver',
+    yahooSymbol: 'SI=F',
+    kind: 'metal',
+    short: 'XAGUSD',
+  },
+  {
+    id: 'oil',
+    t212Label: 'US Crude',
+    t212Search: 'OIL / USOIL / CL',
+    yahooSymbol: 'CL=F',
+    kind: 'energy',
+    short: 'OIL',
   },
 ]
 
@@ -70,9 +118,9 @@ const yahooRange: Record<Interval, string> = {
   '1m': '7d',
   '5m': '60d',
   '15m': '60d',
-  '1h': '730d',
-  '4h': '730d',
-  '1d': 'max',
+  '1h': '60d',
+  '4h': '60d',
+  '1d': '2y',
 }
 
 type YahooChartResponse = {
@@ -141,7 +189,9 @@ export async function fetchYahooCandlesRaw(yahooSymbol: string, interval: Interv
     interval: yahooInterval[interval],
     range: yahooRange[interval],
   })
-  const response = await fetch(`/api/yahoo-candles?${params}`)
+  const response = await fetch(`/api/yahoo-candles?${params}`, {
+    signal: AbortSignal.timeout(18_000),
+  })
   const payload = (await response.json().catch(() => ({}))) as YahooChartResponse & { error?: string; detail?: string }
   if (!response.ok) {
     throw new Error(payload.error || `Yahoo ${response.status} (${yahooSymbol})`)
@@ -155,24 +205,72 @@ export async function fetchYahooCandlesRaw(yahooSymbol: string, interval: Interv
   }
 }
 
-export async function getT212PlaybookCandles(instrument: T212Instrument = DEFAULT_T212_INSTRUMENT) {
-  const [oneHour, fifteenMinute, fiveMinute] = await Promise.all([
-    fetchYahooCandlesRaw(instrument.yahooSymbol, '1h'),
-    fetchYahooCandlesRaw(instrument.yahooSymbol, '15m'),
-    fetchYahooCandlesRaw(instrument.yahooSymbol, '5m'),
-  ])
+type PlaybookPack = Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>
+
+const playbookCache = new Map<string, { at: number; data: PlaybookPack }>()
+const PLAYBOOK_TTL_MS = 90_000
+
+type YahooPackResponse = {
+  symbol?: string
+  charts?: Partial<Record<'1h' | '15m' | '5m' | '1m', YahooChartResponse>>
+  error?: string
+}
+
+async function fetchPlaybookViaPack(yahooSymbol: string): Promise<PlaybookPack> {
+  const response = await fetch(`/api/yahoo-pack?symbol=${encodeURIComponent(yahooSymbol)}`, {
+    signal: AbortSignal.timeout(22_000),
+  })
+  const payload = (await response.json().catch(() => ({}))) as YahooPackResponse
+  if (!response.ok) throw new Error(payload.error || `Yahoo pack ${response.status}`)
+  const charts = payload.charts
+  if (!charts?.['1h'] || !charts['15m'] || !charts['5m']) {
+    throw new Error(payload.error || `Yahoo pack incompleto (${yahooSymbol})`)
+  }
+  const oneHour = parseYahooChart(charts['1h'])
+  const fifteenMinute = parseYahooChart(charts['15m'])
+  const fiveMinute = parseYahooChart(charts['5m'])
   let oneMinute: Candle[]
   try {
-    oneMinute = await fetchYahooCandlesRaw(instrument.yahooSymbol, '1m')
+    oneMinute = charts['1m'] ? parseYahooChart(charts['1m']) : fiveMinute
   } catch {
     oneMinute = fiveMinute
   }
-  const fourHour = aggregateTo4h(oneHour)
   return {
-    '4h': fourHour,
+    '4h': aggregateTo4h(oneHour),
     '1h': oneHour,
     '15m': fifteenMinute,
     '5m': fiveMinute,
     '1m': oneMinute,
-  } as const
+  }
+}
+
+async function fetchPlaybookLegacy(yahooSymbol: string): Promise<PlaybookPack> {
+  const [oneHour, fifteenMinute, fiveMinute, oneMinuteOrNull] = await Promise.all([
+    fetchYahooCandlesRaw(yahooSymbol, '1h'),
+    fetchYahooCandlesRaw(yahooSymbol, '15m'),
+    fetchYahooCandlesRaw(yahooSymbol, '5m'),
+    fetchYahooCandlesRaw(yahooSymbol, '1m').catch(() => null),
+  ])
+  return {
+    '4h': aggregateTo4h(oneHour),
+    '1h': oneHour,
+    '15m': fifteenMinute,
+    '5m': fiveMinute,
+    '1m': oneMinuteOrNull ?? fiveMinute,
+  }
+}
+
+/** Candles MTF: 1 pedido pack (fallback 4 pedidos) + cache 90s. */
+export async function getT212PlaybookCandles(instrument: T212Instrument = DEFAULT_T212_INSTRUMENT): Promise<PlaybookPack> {
+  const cached = playbookCache.get(instrument.yahooSymbol)
+  if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
+
+  let data: PlaybookPack
+  try {
+    data = await fetchPlaybookViaPack(instrument.yahooSymbol)
+  } catch {
+    data = await fetchPlaybookLegacy(instrument.yahooSymbol)
+  }
+  playbookCache.set(instrument.yahooSymbol, { at: Date.now(), data })
+  return data
 }

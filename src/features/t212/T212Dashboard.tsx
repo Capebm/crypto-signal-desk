@@ -92,8 +92,9 @@ export default function T212Dashboard() {
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
-  const [status, setStatus] = useState('Carrega Analisar — TECH100, US500 e FOREX (long + short CFD).')
+  const [status, setStatus] = useState('Carrega Analisar — índices, forex, ouro/prata e crude (long + short CFD).')
   const [running, setRunning] = useState(false)
+  const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
@@ -124,81 +125,129 @@ export default function T212Dashboard() {
   const analyzeAll = async () => {
     setRunning(true)
     setSelectedId(undefined)
+    setRows([])
     const market = getCfdMarketStatus()
     setCfdMarket(market)
     if (!market.open) {
       setStatus(market.reason)
+      setScanProgress(undefined)
       setRunning(false)
       return
     }
-    setStatus(`A carregar ${T212_INSTRUMENTS.length} instrumentos em paralelo…`)
-    try {
-      const settled = await Promise.allSettled(
-        T212_INSTRUMENTS.map(async (instrument) => {
-          const data = await getT212PlaybookCandles(instrument)
-          return { instrument, data }
-        }),
-      )
-      const packs = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-      const failed = settled
-        .map((result, index) => (result.status === 'rejected' ? T212_INSTRUMENTS[index].short : undefined))
-        .filter((value): value is string => Boolean(value))
-      if (packs.length === 0) {
-        throw new Error(failed.length ? `Yahoo falhou: ${failed.join(', ')}` : 'Sem candles Yahoo.')
-      }
-      const refPack = packs.find((pack) => pack.instrument.id === 'us500')?.data ?? packs[0]?.data
-      if (!refPack) throw new Error('Sem candles de referência.')
+    const total = T212_INSTRUMENTS.length
+    setScanProgress({ pct: 2, label: 'Pack Yahoo…' })
+    setStatus('Scan rápido — resultados aparecem à medida que chegam…')
 
-      const results: T212Row[] = []
-      for (const { instrument, data } of packs) {
-        setStatus(
-          scanAllSetups
-            ? `${instrument.short} · 9 setups (Buy+Sell)…`
-            : `A avaliar ${instrument.short}…`,
-        )
-        const reference = instrument.id === 'us500' ? data : refPack
-        // Sem forcedSide: CFD permite long e short.
-        let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
-        if (scanAllSetups) {
-          const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
-          if (matchingSetups.length > 0) {
-            const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
-            if (userHit) {
-              decision = { ...decision, matchingSetups, tradeSetup: userHit }
-            } else {
-              const best = matchingSetups[0]
-              decision = {
-                ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions),
-                matchingSetups,
-                tradeSetup: best,
-              }
+    const buildRow = (
+      instrument: T212Instrument,
+      data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
+      reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
+    ): T212Row => {
+      let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
+      if (scanAllSetups) {
+        const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
+        if (matchingSetups.length > 0) {
+          const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
+          if (userHit) {
+            decision = { ...decision, matchingSetups, tradeSetup: userHit }
+          } else {
+            const best = matchingSetups[0]
+            decision = {
+              ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions),
+              matchingSetups,
+              tradeSetup: best,
             }
           }
-        } else if (isBuyNow(decision) || isSellNow(decision)) {
-          decision = {
-            ...decision,
-            tradeSetup: {
-              profile: riskProfile,
-              tpMode,
-              label: formatSetupHitLabel(riskProfile, tpMode),
-              score: decision.score,
-              action: decision.action,
-            },
-          }
         }
-        const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
-        results.push({ ...decision, instrument, price })
+      } else if (isBuyNow(decision) || isSellNow(decision)) {
+        decision = {
+          ...decision,
+          tradeSetup: {
+            profile: riskProfile,
+            tpMode,
+            label: formatSetupHitLabel(riskProfile, tpMode),
+            score: decision.score,
+            action: decision.action,
+          },
+        }
+      }
+      const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
+      return { ...decision, instrument, price }
+    }
+
+    const sortRows = (list: T212Row[]) =>
+      [...list].sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
+
+    const publish = (list: T212Row[], done: number, label: string) => {
+      setRows(sortRows(list))
+      setScanProgress({ pct: Math.min(99, Math.round((done / total) * 100)), label })
+      setStatus(label)
+    }
+
+    const mapPool = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>) => {
+      const out: R[] = new Array(items.length)
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < items.length) {
+          const index = cursor
+          cursor += 1
+          out[index] = await fn(items[index])
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
+      return out
+    }
+
+    try {
+      const results: T212Row[] = []
+      const failed: string[] = []
+      let done = 0
+
+      const refInstrument = T212_INSTRUMENTS.find((item) => item.id === 'us500') ?? T212_INSTRUMENTS[0]
+      let refPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
+      try {
+        refPack = await getT212PlaybookCandles(refInstrument)
+        results.push(buildRow(refInstrument, refPack, refPack))
+        done += 1
+        publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}`)
+      } catch (error) {
+        failed.push(refInstrument.short)
+        done += 1
+        setStatus(error instanceof Error ? error.message : `Falha ${refInstrument.short}`)
       }
 
-      const sorted = results.sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
+      const rest = T212_INSTRUMENTS.filter((item) => item.id !== refInstrument.id)
+      await mapPool(rest, 4, async (instrument) => {
+        try {
+          const data = await getT212PlaybookCandles(instrument)
+          if (!refPack) refPack = data
+          results.push(buildRow(instrument, data, refPack))
+        } catch {
+          failed.push(instrument.short)
+        } finally {
+          done += 1
+          publish(results, done, `OK · ${instrument.short} · ${done}/${total}`)
+        }
+      })
+
+      if (results.length === 0) {
+        throw new Error(failed.length ? `Yahoo falhou: ${failed.join(', ')}` : 'Sem candles Yahoo.')
+      }
+
+      const sorted = sortRows(results)
       setRows(sorted)
       const buyNow = sorted.filter(isBuyNow).length
       const sellNow = sorted.filter(isSellNow).length
       const aguardar = sorted.filter(isAguardar).length
+      const otherSetupHits = scanAllSetups
+        ? sorted.filter((row) => (row.matchingSetups?.length ?? 0) > 0).length
+        : 0
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} instrumentos · ${buyNow} COMPRAR · ${sellNow} VENDER — clica para expandir.${failed.length ? ` · falhou: ${failed.join(', ')}` : ''}`
-          : `${sorted.length} instrumentos · 0 agora · ${aguardar} aguardar.${failed.length ? ` · falhou: ${failed.join(', ')}` : ''} Melhor na NY open.`,
+          ? `${sorted.length} ok · ${buyNow} COMPRAR · ${sellNow} VENDER.${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          : otherSetupHits > 0
+            ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu AGORA.' : ''} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -207,6 +256,7 @@ export default function T212Dashboard() {
       setStatus(error instanceof Error ? error.message : 'Falha ao obter dados Yahoo.')
     } finally {
       setRunning(false)
+      setScanProgress(undefined)
     }
   }
 
@@ -342,7 +392,7 @@ export default function T212Dashboard() {
             ))}
           </select>
         </label>
-        <label className="tv-setup-toggle" title="Testa as 9 combinações risco×TP (Buy e Sell) em cada instrumento">
+        <label className="tv-setup-toggle" title="Corre as 9 combinações (3 riscos × 3 TPs). Inclui Agressivo — pode dar COMPRAR/VENDER mesmo em NY mid quando o teu perfil Conservador só AGUARDA.">
           <input
             type="checkbox"
             checked={scanAllSetups}
@@ -356,9 +406,15 @@ export default function T212Dashboard() {
       </section>
 
       <MarketClocks snapshot={marketClocks} compact />
+      {scanProgress && (
+        <div className="scan-progress" role="progressbar" aria-valuenow={scanProgress.pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="scan-progress-fill" style={{ width: `${scanProgress.pct}%` }} />
+          <span>{scanProgress.label}</span>
+        </div>
+      )}
       <p className="agent-status">{status}</p>
       <p className="t212-disclaimer">
-        CFD: long (Buy) e short (Sell). Dados Yahoo em paralelo. Fim de semana = mercado fechado (não é bug do TJR).
+        CFD: long (Buy) e short (Sell). Pack Yahoo (1 pedido/ativo) · resultados progressivos. Fim de semana = mercado fechado.
       </p>
 
       {rows.length > 0 && (
@@ -399,7 +455,12 @@ export default function T212Dashboard() {
                       >
                         <td className="col-symbol">
                           {row.instrument.short}
-                          <small className="desk-sub">{row.instrument.kind === 'index' ? 'Índice' : row.instrument.kind === 'metal' ? 'Metal' : 'Forex'}</small>
+                          <small className="desk-sub">{
+                            row.instrument.kind === 'index' ? 'Índice'
+                              : row.instrument.kind === 'metal' ? 'Metal'
+                                : row.instrument.kind === 'energy' ? 'Energia'
+                                  : 'Forex'
+                          }</small>
                         </td>
                         <td>
                           <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>

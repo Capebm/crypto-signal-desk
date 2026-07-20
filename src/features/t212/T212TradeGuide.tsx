@@ -37,9 +37,10 @@ export default function T212TradeGuide({ instrument, decision, stakeEur }: Props
 
       <p className="t212-guide-plan">
         Conta <strong>CFD</strong> → pesquisa <strong>{instrument.t212Search}</strong>
-        {instrument.kind === 'forex' || instrument.kind === 'metal'
-          ? ' (FOREX / metal).'
-          : ' (índice).'}
+        {instrument.kind === 'forex' ? ' (FOREX).'
+          : instrument.kind === 'metal' ? ' (metal).'
+            : instrument.kind === 'energy' ? ' (energia / crude).'
+              : ' (índice).'}
         {' '}Long <strong>e short</strong> (Buy / Sell). Stop + Take profit no ticket.
       </p>
 
