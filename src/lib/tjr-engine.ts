@@ -79,6 +79,11 @@ export type EvaluateOptions = {
   allowHighSweepLong?: boolean
   /** Rótulo do alinhamento SMT (ex. US500 no módulo T212). */
   referenceLabel?: string
+  /**
+   * Malha larga: gates + sessão como Agressivo (Londres / NY mid OK),
+   * mas R:R mínimo do perfil escolhido. Continua a exigir BOS 1m para AGORA.
+   */
+  wideNet?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -300,6 +305,9 @@ function evaluate(
   options: EvaluateOptions = {},
 ): TjrDecision {
   const allowHighSweepLong = Boolean(options.allowHighSweepLong)
+  const wideNet = Boolean(options.wideNet)
+  /** Flexível = Agressivo ou Malha larga (estrutura/sessão). */
+  const flexible = profile === 'agressivo' || wideNet
   const referenceLabel = options.referenceLabel ?? 'BTC'
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
@@ -326,7 +334,7 @@ function evaluate(
   const h1Invalidated = opposingBos(h1, side)
   const structureBroken = execInvalidated || h1Invalidated
 
-  const gates = tjrGates[profile]
+  const gates = wideNet ? tjrGates.agressivo : tjrGates[profile]
   const session = getTradingSessionStatus()
   const sessionLines = latestSessionLevels(primary1h)
   const prevDay = previousDayLevels(primary1h)
@@ -363,7 +371,7 @@ function evaluate(
   const drawHit = recentDrawLiquiditySweepDetailed(primary1h, alignedDraws)
   const opposedHit = recentDrawLiquiditySweepDetailed(primary1h, opposedDraws)
   const microSweep = h1.sweep ?? h4.sweep
-  const sweep = drawHit?.direction ?? (profile === 'agressivo' && isAligned(microSweep, side) ? microSweep : undefined)
+  const sweep = drawHit?.direction ?? (flexible && isAligned(microSweep, side) ? microSweep : undefined)
   const sweepOk = isAligned(sweep, side)
   const opposedSweep = Boolean(
     opposedHit
@@ -385,14 +393,14 @@ function evaluate(
   const biasOk = !h4Opposed && (
     (side === 'long' && (h4.trend === 'bullish' || (h1.trend === 'bullish' && sweepOk)))
     || (side === 'short' && (h4.trend === 'bearish' || (h1.trend === 'bearish' && sweepOk)))
-    || (profile === 'agressivo' && !blockOpposed && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
+    || (flexible && !blockOpposed && ((side === 'long' && h1.trend === 'bullish') || (side === 'short' && h1.trend === 'bearish')))
   )
 
   const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !blockOpposed)
   const confirmExec = confirmationHit(exec, side)
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
-  const displacementOk = profile === 'agressivo' || hasDisplacement(displaceCandles)
+  const displacementOk = flexible || hasDisplacement(displaceCandles)
   const confirmOk = confirmExec && confirmHtf && displacementOk
 
   const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
@@ -405,7 +413,7 @@ function evaluate(
   const eq = exec.eq ?? h1.eq ?? h4.eq
   const locationPrice = continueTouch ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
   const locationOk = !eq
-    ? profile === 'agressivo'
+    ? flexible
     : side === 'long'
       ? priceInDiscount(locationPrice, eq, 'bullish')
       : priceInPremium(locationPrice, eq, 'bearish')
@@ -450,7 +458,7 @@ function evaluate(
   if (setupReadyWithRr) {
     if (session.blockEntries) {
       sessionBlocked = true
-    } else if (entryTiming === 'AGORA' && !session.allowEnterNow && profile !== 'agressivo') {
+    } else if (entryTiming === 'AGORA' && !session.allowEnterNow && !flexible) {
       // Reactivo (sweep Ásia/Londres/dia ant.): permite COMPRAR JÁ também no NY mid.
       const reactiveNy = reactive && (session.window === 'ny' || session.window === 'ny_open')
       if (!reactiveNy) sessionDowngrade = true
@@ -512,11 +520,11 @@ function evaluate(
     { label: '3. Continuação (FVG / EQ)', complete: continuationOk && Boolean(entryZone), note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.' },
     { label: '4. Entrada 1m (retrace→BOS)', complete: ltfReady, note: quickScan ? 'Scan rápido — expande para 1m.' : ltfReady ? `Preço BOS 1m: ${ltf.entryPrice?.toPrecision(5) ?? '—'}.` : 'À espera do BOS 1m de entrada.' },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
-    { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? 'Sem EQ — agressivo ok.' : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
+    { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
     { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned, note: symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
-    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
+    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : wideNet && !session.allowEnterNow ? ' · malha larga' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
   ]
 
   const setupStatus = positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO'

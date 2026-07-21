@@ -31,6 +31,7 @@ const RISK_KEY = 'tjr-risk-index'
 const STAKE_KEY = 'tjr-stake-index'
 const HIGH_SWEEP_KEY = 'tjr-allow-high-sweep-long'
 const ALL_SETUPS_KEY = 'tjr-scan-all-setups'
+const WIDE_NET_KEY = 'tjr-wide-net'
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -111,6 +112,7 @@ export default function AgentDashboard() {
   const tpMode = tpModes[tpIndex]
   const [allowHighSweepLong, setAllowHighSweepLong] = useState(() => readBool(HIGH_SWEEP_KEY, false))
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
+  const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -118,7 +120,7 @@ export default function AgentDashboard() {
   const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode; stakeUsdc: number }>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
-  const evalOptions = useMemo(() => ({ allowHighSweepLong }), [allowHighSweepLong])
+  const evalOptions = useMemo(() => ({ allowHighSweepLong, wideNet }), [allowHighSweepLong, wideNet])
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [pinKey, setPinKey] = useState(0)
@@ -136,10 +138,11 @@ export default function AgentDashboard() {
       localStorage.setItem(ACCOUNT_KEY, String(accountUsdc))
       localStorage.setItem(HIGH_SWEEP_KEY, allowHighSweepLong ? '1' : '0')
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
+      localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
     } catch {
       /* ignore */
     }
-  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups])
+  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups, wideNet])
 
   useEffect(() => {
     const tick = () => {
@@ -213,7 +216,7 @@ export default function AgentDashboard() {
         setLoadingFull(undefined)
       }
     })()
-  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups])
+  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet])
 
   const scan = async () => {
     setRunning(true)
@@ -672,6 +675,17 @@ export default function AgentDashboard() {
             }}
           />
           <span>Long após H</span>
+        </label>
+        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS 1m para COMPRAR JÁ. Mais sinais, menor qualidade.">
+          <input
+            type="checkbox"
+            checked={wideNet}
+            onChange={(event) => {
+              setWideNet(event.target.checked)
+              if (rows.length > 0) setStatus('Malha larga — re-analisa para aplicar.')
+            }}
+          />
+          <span>Malha larga</span>
         </label>
         <label className="tv-setup-toggle" title="No refine MTF testa as 9 combinações risco×TP e mostra no cartão quais deram COMPRAR JÁ">
           <input

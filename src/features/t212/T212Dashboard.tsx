@@ -29,6 +29,7 @@ const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
 const STAKE_KEY = 't212-stake-eur'
 const ALL_SETUPS_KEY = 't212-scan-all-setups'
+const WIDE_NET_KEY = 't212-wide-net'
 
 const STAKE_OPTIONS = [20, 50, 100, 200] as const
 
@@ -52,8 +53,6 @@ const money = (value?: number) => {
   if (value === undefined || !Number.isFinite(value)) return '—'
   return value.toLocaleString('pt-PT', { maximumFractionDigits: value < 2 ? 5 : 2 })
 }
-
-const evalOptions = { referenceLabel: 'US500' as const }
 
 const isBuyNow = isEnterLongNow
 const isSellNow = isEnterShortNow
@@ -89,9 +88,14 @@ export default function T212Dashboard() {
     }
   })
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
+  const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
   const stakeEur = STAKE_OPTIONS[stakeIndex]
+  const evalOptions = useMemo(
+    () => ({ referenceLabel: 'US500' as const, wideNet }),
+    [wideNet],
+  )
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
@@ -110,10 +114,11 @@ export default function T212Dashboard() {
       localStorage.setItem(TP_KEY, tpMode)
       localStorage.setItem(STAKE_KEY, String(stakeIndex))
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
+      localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
     } catch {
       /* ignore */
     }
-  }, [riskIndex, tpMode, stakeIndex, scanAllSetups])
+  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet])
 
   useEffect(() => {
     const tick = () => {
@@ -396,6 +401,14 @@ export default function T212Dashboard() {
               <option key={value} value={index}>{value} €</option>
             ))}
           </select>
+        </label>
+        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS 1m. Mais sinais, menor qualidade.">
+          <input
+            type="checkbox"
+            checked={wideNet}
+            onChange={(event) => setWideNet(event.target.checked)}
+          />
+          <span>Malha larga</span>
         </label>
         <label className="tv-setup-toggle" title="Corre as 9 combinações (3 riscos × 3 TPs). Inclui Agressivo — pode dar COMPRAR/VENDER mesmo em NY mid quando o teu perfil Conservador só AGUARDA.">
           <input
