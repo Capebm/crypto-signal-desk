@@ -7,6 +7,9 @@ import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import {
   evaluateTjrFull,
   formatSetupHitLabel,
+  isAwaitingEntry,
+  isEnterLongNow,
+  isEnterShortNow,
   listActionNowSetups,
   tjrActionLabel,
   tjrScoreColor,
@@ -52,10 +55,11 @@ const money = (value?: number) => {
 
 const evalOptions = { referenceLabel: 'US500' as const }
 
-const isBuyNow = (row: TjrDecision) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
-const isSellNow = (row: TjrDecision) => row.action === 'VENDER' && row.entryTiming === 'AGORA'
-const isAguardar = (row: TjrDecision) =>
-  (row.action === 'COMPRAR' || row.action === 'VENDER') && row.entryTiming === 'RETRACE'
+const isBuyNow = isEnterLongNow
+const isSellNow = isEnterShortNow
+const isAguardar = isAwaitingEntry
+const isInvalidated = (row: TjrDecision) =>
+  row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO'
 
 export default function T212Dashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
@@ -244,13 +248,14 @@ export default function T212Dashboard() {
         : 0
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} COMPRAR · ${sellNow} VENDER.${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT.${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
           : otherSetupHits > 0
             ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu AGORA.' : ''} Melhor na NY open.`,
+            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
+      else setFilter('TODAS')
     } catch (error) {
       setRows([])
       setStatus(error instanceof Error ? error.message : 'Falha ao obter dados Yahoo.')
@@ -275,14 +280,14 @@ export default function T212Dashboard() {
     COMPRAR_JA: rows.filter(isBuyNow).length,
     VENDER: rows.filter(isSellNow).length,
     AGUARDAR: rows.filter(isAguardar).length,
-    ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
+    ESPERAR: rows.filter((row) => row.action === 'ESPERAR' || isInvalidated(row)).length,
   }), [rows])
 
   const visibleRows = rows.filter((row) => {
     if (filter === 'COMPRAR_JA') return isBuyNow(row)
     if (filter === 'VENDER') return isSellNow(row)
     if (filter === 'AGUARDAR') return isAguardar(row)
-    if (filter === 'ESPERAR') return row.action === 'ESPERAR'
+    if (filter === 'ESPERAR') return row.action === 'ESPERAR' || isInvalidated(row)
     return true
   })
 
@@ -336,14 +341,14 @@ export default function T212Dashboard() {
 
       <section className="zella-kpis" aria-label="Resumo T212">
         <article>
-          <span>Comprar já</span>
+          <span>Long já</span>
           <strong className={counts.COMPRAR_JA > 0 ? 'positive' : ''}>{counts.COMPRAR_JA}</strong>
-          <small>long</small>
+          <small>Buy CFD</small>
         </article>
         <article>
-          <span>Vender</span>
+          <span>Short já</span>
           <strong className={counts.VENDER > 0 ? 'negative' : ''}>{counts.VENDER}</strong>
-          <small>short CFD</small>
+          <small>Sell CFD</small>
         </article>
         <article>
           <span>Aguardar</span>
@@ -420,8 +425,8 @@ export default function T212Dashboard() {
       {rows.length > 0 && (
         <section className="agent-summary desk-filters">
           <button type="button" className={filter === 'TODAS' ? 'active' : ''} onClick={() => setFilter('TODAS')}>Todas <span>{rows.length}</span></button>
-          <button type="button" className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Comprar <span>{counts.COMPRAR_JA}</span></button>
-          <button type="button" className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Vender <span>{counts.VENDER}</span></button>
+          <button type="button" className={filter === 'COMPRAR_JA' ? 'active buy' : 'buy'} onClick={() => setFilter('COMPRAR_JA')}>Long <span>{counts.COMPRAR_JA}</span></button>
+          <button type="button" className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Short <span>{counts.VENDER}</span></button>
           <button type="button" className={filter === 'AGUARDAR' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR')}>Aguardar <span>{counts.AGUARDAR}</span></button>
           <button type="button" className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
         </section>
@@ -463,7 +468,7 @@ export default function T212Dashboard() {
                           }</small>
                         </td>
                         <td>
-                          <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
+                          <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row, { cfd: true })}</strong>
                           <small className="desk-sub">{row.setupStatus}</small>
                           {row.matchingSetups && row.matchingSetups.length > 0 && (
                             <div className="setup-hit-row">
@@ -510,7 +515,7 @@ export default function T212Dashboard() {
                                   <header>
                                     <div>
                                       <p className="eyebrow">{selected.instrument.t212Label}</p>
-                                      <h2>{tjrActionLabel(selected)} · {selected.score}/100</h2>
+                                      <h2>{tjrActionLabel(selected, { cfd: true })} · {selected.score}/100</h2>
                                     </div>
                                     <span>Yahoo · chart {chartInterval}</span>
                                   </header>

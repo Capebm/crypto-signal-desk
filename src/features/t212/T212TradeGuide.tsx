@@ -16,9 +16,16 @@ const fmt = (value?: number, digits = 2) => {
 }
 
 export default function T212TradeGuide({ instrument, decision, stakeEur }: Props) {
-  const ready =
-    (decision.action === 'COMPRAR' || decision.action === 'VENDER')
-    && (decision.entryTiming === 'AGORA' || decision.entryTiming === 'RETRACE')
+  const invalidated = decision.positionGuidance === 'SAIR' || decision.positionGuidance === 'REALIZAR_ALVO'
+  const enterReady =
+    !invalidated
+    && (decision.action === 'COMPRAR' || decision.action === 'VENDER')
+    && decision.entryTiming === 'AGORA'
+    && decision.positionGuidance === 'ENTRAR_AGORA'
+  const awaitReady =
+    !invalidated
+    && (decision.action === 'COMPRAR' || decision.action === 'VENDER')
+    && decision.entryTiming === 'RETRACE'
   const isShort = decision.action === 'VENDER'
   const sideLabel = isShort ? 'Sell' : 'Buy'
   const riskPct = decision.entry && decision.stop
@@ -30,7 +37,7 @@ export default function T212TradeGuide({ instrument, decision, stakeEur }: Props
       <header className="binance-order-head">
         <div>
           <p className="eyebrow">Trading 212 · CFD</p>
-          <h3>{instrument.t212Label} · {tjrActionLabel(decision)}</h3>
+          <h3>{instrument.t212Label} · {tjrActionLabel(decision, { cfd: true })}</h3>
         </div>
         <span className="desk-sub">Execução manual — sem API</span>
       </header>
@@ -41,15 +48,27 @@ export default function T212TradeGuide({ instrument, decision, stakeEur }: Props
           : instrument.kind === 'metal' ? ' (metal).'
             : instrument.kind === 'energy' ? ' (energia / crude).'
               : ' (índice).'}
-        {' '}Long <strong>e short</strong> (Buy / Sell). Stop + Take profit no ticket.
+        {' '}Long = <strong>Buy</strong> · Short = <strong>Sell</strong>.
       </p>
 
-      {!ready ? (
-        <p className="binance-order-wait">Sem níveis — espera COMPRAR/VENDER na sessão (dias úteis, preferir NY open).</p>
+      {invalidated ? (
+        <p className="binance-order-wait">
+          <strong>Não entres.</strong> {decision.positionGuidance === 'SAIR'
+            ? 'Setup invalidado (BOS contrário ou stop) — isto não é oportunidade de short/long.'
+            : 'Alvo atingido — se tinhas posição, realiza; se não, não abras nova.'}
+          {' '}Espera um sinal <strong>LONG JÁ</strong> ou <strong>SHORT JÁ</strong>.
+        </p>
+      ) : !enterReady && !awaitReady ? (
+        <p className="binance-order-wait">Sem níveis — espera LONG JÁ / SHORT JÁ (dias úteis, preferir NY open ~14:30–16:00 Lisboa).</p>
+      ) : awaitReady ? (
+        <p className="binance-order-wait">
+          Setup a formar ({isShort ? 'short' : 'long'}) — <strong>ainda não entres</strong>.
+          Espera BOS 1m → o estado muda para {isShort ? 'SHORT JÁ' : 'LONG JÁ'}.
+        </p>
       ) : (
         <>
           <div className="t212-levels">
-            <div><span>Lado</span><strong className={isShort ? 'negative' : 'positive'}>{sideLabel}</strong></div>
+            <div><span>Lado</span><strong className={isShort ? 'negative' : 'positive'}>{sideLabel} ({isShort ? 'short' : 'long'})</strong></div>
             <div><span>Entrada</span><strong>{fmt(decision.entry)}</strong></div>
             <div><span>Stop</span><strong className="negative">{fmt(decision.stop)}</strong></div>
             <div><span>TP</span><strong className="positive">{fmt(decision.target)}</strong></div>

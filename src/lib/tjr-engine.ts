@@ -624,9 +624,19 @@ export function tjrScoreColor(score: number): string {
   return '#5d7390'
 }
 
-export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): string {
+export function tjrActionLabel(
+  decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>,
+  opts: { cfd?: boolean } = {},
+): string {
   if (decision.positionGuidance === 'SAIR') return 'SAIR — INVALIDADO'
   if (decision.positionGuidance === 'REALIZAR_ALVO') return 'REALIZAR ALVO'
+  if (opts.cfd) {
+    if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 'LONG JÁ'
+    if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 'AGUARDAR LONG'
+    if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 'SHORT JÁ'
+    if (decision.action === 'VENDER' && decision.entryTiming === 'RETRACE') return 'AGUARDAR SHORT'
+    return decision.action
+  }
   if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 'COMPRAR JÁ'
   if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 'AGUARDAR COMPRA'
   if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 'SAIR JÁ'
@@ -634,12 +644,28 @@ export function tjrActionLabel(decision: Pick<TjrDecision, 'action' | 'entryTimi
   return decision.action
 }
 
+/** Entrada long válida (não é invalidação / realizar alvo). */
+export function isEnterLongNow(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): boolean {
+  return decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA' && decision.positionGuidance === 'ENTRAR_AGORA'
+}
+
+/** Entrada short válida (CFD) — exclui SAIR — INVALIDADO. */
+export function isEnterShortNow(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): boolean {
+  return decision.action === 'VENDER' && decision.entryTiming === 'AGORA' && decision.positionGuidance === 'ENTRAR_AGORA'
+}
+
+export function isAwaitingEntry(decision: Pick<TjrDecision, 'action' | 'entryTiming' | 'positionGuidance'>): boolean {
+  return (decision.action === 'COMPRAR' || decision.action === 'VENDER')
+    && decision.entryTiming === 'RETRACE'
+    && (decision.positionGuidance === 'AGUARDAR_ENTRADA' || decision.positionGuidance === 'ENTRAR_AGORA' || decision.positionGuidance === 'NEUTRO')
+}
+
 export function tjrSortRank(decision: TjrDecision): number {
   if (decision.positionGuidance === 'SAIR') return 0
   if (decision.positionGuidance === 'REALIZAR_ALVO') return 1
-  if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') return 2
+  if (isEnterLongNow(decision)) return 2
   if (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE') return 3
-  if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 4
+  if (isEnterShortNow(decision)) return 4
   if (decision.action === 'VENDER' && decision.entryTiming === 'RETRACE') return 5
   return 6
 }
@@ -706,8 +732,8 @@ export function listActionNowSetups(
   for (const profile of profiles) {
     for (const modeTp of tpModes) {
       const decision = evaluateTjrFull(symbol, data, btc, profile, modeTp, forcedSide, options)
-      const buyNow = decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA'
-      const sellNow = mode === 'both' && decision.action === 'VENDER' && decision.entryTiming === 'AGORA'
+      const buyNow = isEnterLongNow(decision)
+      const sellNow = mode === 'both' && isEnterShortNow(decision)
       if (buyNow || sellNow) {
         const sideTag = decision.action === 'VENDER' ? ' · Sell' : ''
         hits.push({
