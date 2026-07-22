@@ -35,6 +35,7 @@ const TP_KEY = 't212-tp-mode'
 const STAKE_KEY = 't212-stake-eur'
 const ALL_SETUPS_KEY = 't212-scan-all-setups'
 const WIDE_NET_KEY = 't212-wide-net'
+const CFD_PRACTICAL_KEY = 't212-cfd-practical'
 
 const STAKE_OPTIONS = [20, 50, 100, 200] as const
 
@@ -94,16 +95,18 @@ export default function T212Dashboard() {
   })
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
+  const [cfdPractical, setCfdPractical] = useState(() => readBool(CFD_PRACTICAL_KEY, true))
   const [watchIds, setWatchIds] = useState(() => readT212WatchlistIds())
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
   const stakeEur = STAKE_OPTIONS[stakeIndex]
 
-  /** Forex/metal/energia: SMT informativo. Índices: gate do perfil (ou Malha larga). */
+  /** Forex/metal/energia: SMT informativo. Índices: gate do perfil. CFD prático alarga confirmação/LTF. */
   const optionsFor = (instrument: T212Instrument) => ({
     referenceLabel: 'US500' as const,
     wideNet,
+    cfdPractical,
     ...(instrument.kind === 'index' ? {} : { requireSmtAlign: false as const }),
   })
 
@@ -125,11 +128,12 @@ export default function T212Dashboard() {
       localStorage.setItem(STAKE_KEY, String(stakeIndex))
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
+      localStorage.setItem(CFD_PRACTICAL_KEY, cfdPractical ? '1' : '0')
       writeT212WatchlistIds(watchIds)
     } catch {
       /* ignore */
     }
-  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet, watchIds])
+  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet, cfdPractical, watchIds])
 
   useEffect(() => {
     const tick = () => {
@@ -268,7 +272,7 @@ export default function T212Dashboard() {
           ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT.${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
           : otherSetupHits > 0
             ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''} Melhor na NY open.`,
+            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -422,13 +426,21 @@ export default function T212Dashboard() {
             ))}
           </select>
         </label>
-        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS 1m. Mais sinais, menor qualidade.">
+        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade.">
           <input
             type="checkbox"
             checked={wideNet}
             onChange={(event) => setWideNet(event.target.checked)}
           />
           <span>Malha larga</span>
+        </label>
+        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. Ligado por defeito — desliga para TJR estrito.">
+          <input
+            type="checkbox"
+            checked={cfdPractical}
+            onChange={(event) => setCfdPractical(event.target.checked)}
+          />
+          <span>CFD prático</span>
         </label>
         <label className="tv-setup-toggle" title="Corre as 9 combinações (3 riscos × 3 TPs). Inclui Agressivo — pode dar COMPRAR/VENDER mesmo em NY mid quando o teu perfil Conservador só AGUARDA.">
           <input

@@ -89,6 +89,11 @@ export type EvaluateOptions = {
    * T212: índices → true (Conservador); forex/metal/energia → false (informativo).
    */
   requireSmtAlign?: boolean
+  /**
+   * CFD prático (T212): confirmação exec OU 1h; BOS 5m conta como entrada se 1m falhar;
+   * discount mais flexível. Mais oportunidades, menos “puro” TJR.
+   */
+  cfdPractical?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -308,11 +313,13 @@ function evaluate(
   quickScan = false,
   tpMode: TpMode = '1_5r',
   options: EvaluateOptions = {},
+  candles5m?: Candle[],
 ): TjrDecision {
   const allowHighSweepLong = Boolean(options.allowHighSweepLong)
   const wideNet = Boolean(options.wideNet)
-  /** Flexível = Agressivo ou Malha larga (estrutura/sessão). */
-  const flexible = profile === 'agressivo' || wideNet
+  const cfdPractical = Boolean(options.cfdPractical)
+  /** Flexível = Agressivo, Malha larga ou CFD prático. */
+  const flexible = profile === 'agressivo' || wideNet || cfdPractical
   const referenceLabel = options.referenceLabel ?? 'BTC'
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
@@ -410,22 +417,33 @@ function evaluate(
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
   const displacementOk = flexible || hasDisplacement(displaceCandles)
-  const confirmOk = confirmExec && confirmHtf && displacementOk
+  const confirmOk = cfdPractical
+    ? (confirmExec || confirmHtf) && displacementOk
+    : confirmExec && confirmHtf && displacementOk
 
   const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
   const entryZone = continuationEntryZone(exec, side) ?? continuationEntryZone(h1, side)
   const continuationOk = !gates.requireContinuationTouch || Boolean(entryZone)
 
-  const ltf = candles1m && candles1m.length >= 12 ? ltfEntryConfirmation(candles1m, side) : { ready: false as const }
-  const ltfReady = ltf.ready
+  const ltf1m = candles1m && candles1m.length >= 12 ? ltfEntryConfirmation(candles1m, side) : { ready: false as const }
+  const ltf5m = cfdPractical && candles5m && candles5m.length >= 12
+    ? ltfEntryConfirmation(candles5m, side, 36)
+    : { ready: false as const }
+  const ltfReady = ltf1m.ready || Boolean(ltf5m.ready)
+  const ltfEntryPrice = ltf1m.entryPrice ?? ltf5m.entryPrice
+  const ltfVia5m = Boolean(cfdPractical && !ltf1m.ready && ltf5m.ready)
 
   const eq = exec.eq ?? h1.eq ?? h4.eq
   const locationPrice = continueTouch ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
+  const inDiscount = eq ? priceInDiscount(locationPrice, eq, 'bullish') : false
+  const inPremium = eq ? priceInPremium(locationPrice, eq, 'bearish') : false
+  const nearEqLong = Boolean(cfdPractical && eq && side === 'long' && locationPrice <= eq * 1.003)
+  const nearEqShort = Boolean(cfdPractical && eq && side === 'short' && locationPrice >= eq * 0.997)
   const locationOk = !eq
     ? flexible
     : side === 'long'
-      ? priceInDiscount(locationPrice, eq, 'bullish')
-      : priceInPremium(locationPrice, eq, 'bearish')
+      ? inDiscount || nearEqLong
+      : inPremium || nearEqShort
 
   const smt = symbol !== BTC_REFERENCE_SYMBOL ? smtDivergence(primary1h, btc1h) : undefined
   const smtAligned = symbol === BTC_REFERENCE_SYMBOL || isAligned(smt, side)
@@ -449,7 +467,7 @@ function evaluate(
         : 'NENHUM'
 
   const entryRef = entryTiming === 'AGORA'
-    ? (ltf.entryPrice ?? exec.price)
+    ? (ltfEntryPrice ?? exec.price)
     : entryZone
       ? zoneMid(entryZone)
       : exec.price
@@ -485,7 +503,7 @@ function evaluate(
       : entryTiming
 
   const entry = finalTiming === 'AGORA'
-    ? (ltf.entryPrice ?? exec.price)
+    ? (ltfEntryPrice ?? exec.price)
     : entryZone
       ? zoneMid(entryZone)
       : levelsEntry
@@ -529,11 +547,21 @@ function evaluate(
 
   const checklist = [
     { label: '1. Sweep (draw HTF)', complete: (sweepOk && !blockOpposed) || riskyHighLong, note: sweepNote },
-    { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk ? `BOS/IFVG no ${execLabel}+1h com displacement.` : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.` },
+    { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk
+      ? (cfdPractical && !(confirmExec && confirmHtf)
+        ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
+        : `BOS/IFVG no ${execLabel}+1h com displacement.`)
+      : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.` },
     { label: '3. Continuação (FVG / EQ)', complete: continuationOk && Boolean(entryZone), note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.' },
-    { label: '4. Entrada 1m (retrace→BOS)', complete: ltfReady, note: quickScan ? 'Scan rápido — expande para 1m.' : ltfReady ? `Preço BOS 1m: ${ltf.entryPrice?.toPrecision(5) ?? '—'}.` : 'À espera do BOS 1m de entrada.' },
+    { label: '4. Entrada LTF (retrace→BOS)', complete: ltfReady, note: quickScan
+      ? 'Scan rápido — expande para LTF.'
+      : ltfReady
+        ? (ltfVia5m
+          ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
+          : `Preço BOS 1m: ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
+        : 'À espera do BOS 1m (ou 5m em CFD prático).' },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
-    { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
+    { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? (nearEqLong && !inDiscount ? 'Perto do EQ (CFD prático).' : 'Discount.') : (nearEqShort && !inPremium ? 'Perto do EQ (CFD prático).' : 'Premium.')) : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
     { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned || !gates.requireSmtAlign, note: !gates.requireSmtAlign
       ? (smtAligned ? `SMT ${smt ?? 'n/d'} (informativo).` : smt ? `SMT ${smt} (informativo — não bloqueia).` : 'SMT opcional neste instrumento.')
@@ -558,7 +586,8 @@ function evaluate(
     if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo de low (${sweepLabel}).` : '1· Sweep de low HTF.')
     if (confirmOk) reasons.push('2· Confirmação + displacement.')
     if (resolvedTiming === 'AGORA') reasons.push(`4· Entrada 1m @ ${entry.toPrecision(5)}.`)
-    else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS 1m.')
+    else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS LTF.')
+    if (ltfVia5m) reasons.push('Entrada via BOS 5m (CFD prático — Yahoo 1m fraco).')
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
     if (!indexAligned && gates.requireSmtAlign) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
@@ -722,7 +751,7 @@ export function evaluateTjrFull(
   const execLabel = aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
   const side = forcedSide ?? inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
-  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode, options)
+  return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode, options, data['5m'])
 }
 
 const setupLabel = (profile: RiskProfile, tpMode: TpMode) =>
