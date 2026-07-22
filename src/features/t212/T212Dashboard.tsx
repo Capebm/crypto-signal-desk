@@ -19,9 +19,14 @@ import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus } from '..
 import type { Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
-  T212_INSTRUMENTS,
+  T212_CATALOG,
+  T212_CORE_IDS,
+  T212_EXTRA_INSTRUMENTS,
   fetchYahooCandlesRaw,
   getT212PlaybookCandles,
+  readT212WatchlistIds,
+  resolveT212Watchlist,
+  writeT212WatchlistIds,
   type T212Instrument,
 } from '../../lib/yahoo-market'
 
@@ -89,13 +94,18 @@ export default function T212Dashboard() {
   })
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
+  const [watchIds, setWatchIds] = useState(() => readT212WatchlistIds())
+  const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
   const stakeEur = STAKE_OPTIONS[stakeIndex]
-  const evalOptions = useMemo(
-    () => ({ referenceLabel: 'US500' as const, wideNet }),
-    [wideNet],
-  )
+
+  /** Forex/metal/energia: SMT informativo. Índices: gate do perfil (ou Malha larga). */
+  const optionsFor = (instrument: T212Instrument) => ({
+    referenceLabel: 'US500' as const,
+    wideNet,
+    ...(instrument.kind === 'index' ? {} : { requireSmtAlign: false as const }),
+  })
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
@@ -115,10 +125,11 @@ export default function T212Dashboard() {
       localStorage.setItem(STAKE_KEY, String(stakeIndex))
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
+      writeT212WatchlistIds(watchIds)
     } catch {
       /* ignore */
     }
-  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet])
+  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet, watchIds])
 
   useEffect(() => {
     const tick = () => {
@@ -143,7 +154,7 @@ export default function T212Dashboard() {
       setRunning(false)
       return
     }
-    const total = T212_INSTRUMENTS.length
+    const total = watchlist.length
     setScanProgress({ pct: 2, label: 'Pack Yahoo…' })
     setStatus('Scan rápido — resultados aparecem à medida que chegam…')
 
@@ -152,6 +163,7 @@ export default function T212Dashboard() {
       data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
       reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
     ): T212Row => {
+      const evalOptions = optionsFor(instrument)
       let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
       if (scanAllSetups) {
         const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
@@ -212,7 +224,7 @@ export default function T212Dashboard() {
       const failed: string[] = []
       let done = 0
 
-      const refInstrument = T212_INSTRUMENTS.find((item) => item.id === 'us500') ?? T212_INSTRUMENTS[0]
+      const refInstrument = watchlist.find((item) => item.id === 'us500') ?? watchlist[0]
       let refPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
       try {
         refPack = await getT212PlaybookCandles(refInstrument)
@@ -225,7 +237,7 @@ export default function T212Dashboard() {
         setStatus(error instanceof Error ? error.message : `Falha ${refInstrument.short}`)
       }
 
-      const rest = T212_INSTRUMENTS.filter((item) => item.id !== refInstrument.id)
+      const rest = watchlist.filter((item) => item.id !== refInstrument.id)
       await mapPool(rest, 4, async (instrument) => {
         try {
           const data = await getT212PlaybookCandles(instrument)
@@ -299,8 +311,16 @@ export default function T212Dashboard() {
   const selected = rows.find((row) => row.instrument.id === selectedId)
 
   const loadChartCandles = (symbol: string, interval: Interval) => {
-    const match = T212_INSTRUMENTS.find((item) => item.short === symbol) ?? selected?.instrument ?? DEFAULT_T212_INSTRUMENT
+    const match = T212_CATALOG.find((item) => item.short === symbol) ?? selected?.instrument ?? DEFAULT_T212_INSTRUMENT
     return fetchYahooCandlesRaw(match.yahooSymbol, interval)
+  }
+
+  const toggleExtra = (id: string) => {
+    setWatchIds((prev) => {
+      const on = prev.includes(id)
+      const next = on ? prev.filter((item) => item !== id) : [...prev, id]
+      return resolveT212Watchlist(next).map((item) => item.id)
+    })
   }
 
   useEffect(() => {
@@ -362,8 +382,8 @@ export default function T212Dashboard() {
         </article>
         <article>
           <span>Instrumentos</span>
-          <strong>{rows.length || T212_INSTRUMENTS.length}</strong>
-          <small>{scanAllSetups ? '× 9 setups' : 'watchlist'}</small>
+          <strong>{rows.length || watchlist.length}</strong>
+          <small>{scanAllSetups ? '× 9 setups' : `${watchlist.length} ativos`}</small>
         </article>
         <article>
           <span>Risco</span>
@@ -422,6 +442,23 @@ export default function T212Dashboard() {
           {running ? '…' : 'Aplicar + scan'}
         </button>
       </section>
+
+      <details className="t212-watchlist-panel">
+        <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
+        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT obrigatório só em <strong>índices</strong>; forex/metal/energia = informativo.</p>
+        <div className="t212-extra-grid">
+          {T212_EXTRA_INSTRUMENTS.map((item) => {
+            const on = watchIds.includes(item.id)
+            return (
+              <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
+                <input type="checkbox" checked={on} onChange={() => toggleExtra(item.id)} />
+                <span>{item.short}</span>
+                <small>{item.kind === 'index' ? 'Índice' : item.kind === 'forex' ? 'Forex' : item.kind === 'metal' ? 'Metal' : 'Energia'}</small>
+              </label>
+            )
+          })}
+        </div>
+      </details>
 
       <MarketClocks snapshot={marketClocks} compact />
       {scanProgress && (

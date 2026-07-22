@@ -103,7 +103,125 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
   },
 ]
 
+/** Extras opcionais (utilizador liga na watchlist). */
+export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
+  {
+    id: 'fra40',
+    t212Label: 'France 40',
+    t212Search: 'FRA40 / CAC',
+    yahooSymbol: '^FCHI',
+    kind: 'index',
+    short: 'FRA40',
+  },
+  {
+    id: 'eu50',
+    t212Label: 'EU 50',
+    t212Search: 'EU50 / EURO STOXX',
+    yahooSymbol: '^STOXX50E',
+    kind: 'index',
+    short: 'EU50',
+  },
+  {
+    id: 'jp225',
+    t212Label: 'Japan 225',
+    t212Search: 'JP225 / Nikkei',
+    yahooSymbol: '^N225',
+    kind: 'index',
+    short: 'JP225',
+  },
+  {
+    id: 'audusd',
+    t212Label: 'AUD/USD',
+    t212Search: 'AUDUSD',
+    yahooSymbol: 'AUDUSD=X',
+    kind: 'forex',
+    short: 'AUDUSD',
+  },
+  {
+    id: 'usdchf',
+    t212Label: 'USD/CHF',
+    t212Search: 'USDCHF',
+    yahooSymbol: 'USDCHF=X',
+    kind: 'forex',
+    short: 'USDCHF',
+  },
+  {
+    id: 'eurjpy',
+    t212Label: 'EUR/JPY',
+    t212Search: 'EURJPY',
+    yahooSymbol: 'EURJPY=X',
+    kind: 'forex',
+    short: 'EURJPY',
+  },
+  {
+    id: 'copper',
+    t212Label: 'Copper',
+    t212Search: 'COPPER / HG',
+    yahooSymbol: 'HG=F',
+    kind: 'metal',
+    short: 'COPPER',
+  },
+  {
+    id: 'ngas',
+    t212Label: 'Natural Gas',
+    t212Search: 'NATGAS / NG',
+    yahooSymbol: 'NG=F',
+    kind: 'energy',
+    short: 'NGAS',
+  },
+]
+
+/** Catálogo completo (core + extras). */
+export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTRA_INSTRUMENTS]
+
+export const T212_CORE_IDS = T212_INSTRUMENTS.map((item) => item.id)
+
 export const DEFAULT_T212_INSTRUMENT = T212_INSTRUMENTS[0]
+
+const WATCHLIST_KEY = 't212-watchlist-ids'
+
+export function instrumentById(id: string): T212Instrument | undefined {
+  return T212_CATALOG.find((item) => item.id === id)
+}
+
+/** Core sempre activo; extras = ids guardados que existem no catálogo. */
+export function readT212WatchlistIds(): string[] {
+  const core = [...T212_CORE_IDS]
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY)
+    if (!raw) return core
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return core
+    const extras = parsed
+      .filter((id): id is string => typeof id === 'string')
+      .filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
+    return [...core, ...extras.filter((id, index, all) => all.indexOf(id) === index)]
+  } catch {
+    return core
+  }
+}
+
+export function writeT212WatchlistIds(ids: string[]) {
+  const extras = ids.filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
+  try {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(extras))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
+  const unique = [...new Set([...T212_CORE_IDS, ...ids])]
+  return unique
+    .map((id) => instrumentById(id))
+    .filter((item): item is T212Instrument => Boolean(item))
+}
+
+/** SMT obrigatório só em índices (Conservador/Equilibrado); forex/metal/energia = informativo. */
+export function t212RequireSmtAlign(instrument: T212Instrument, profileRequires: boolean): boolean {
+  if (!profileRequires) return false
+  return instrument.kind === 'index'
+}
 
 const yahooInterval: Record<Interval, string> = {
   '1m': '1m',

@@ -84,6 +84,11 @@ export type EvaluateOptions = {
    * mas R:R mínimo do perfil escolhido. Continua a exigir BOS 1m para AGORA.
    */
   wideNet?: boolean
+  /**
+   * Override do gate SMT do perfil.
+   * T212: índices → true (Conservador); forex/metal/energia → false (informativo).
+   */
+  requireSmtAlign?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -334,7 +339,11 @@ function evaluate(
   const h1Invalidated = opposingBos(h1, side)
   const structureBroken = execInvalidated || h1Invalidated
 
-  const gates = wideNet ? tjrGates.agressivo : tjrGates[profile]
+  const gatesBase = wideNet ? tjrGates.agressivo : tjrGates[profile]
+  const gates = {
+    ...gatesBase,
+    requireSmtAlign: options.requireSmtAlign ?? gatesBase.requireSmtAlign,
+  }
   const session = getTradingSessionStatus()
   const sessionLines = latestSessionLevels(primary1h)
   const prevDay = previousDayLevels(primary1h)
@@ -422,7 +431,11 @@ function evaluate(
   const smtAligned = symbol === BTC_REFERENCE_SYMBOL || isAligned(smt, side)
   const smtOk = !gates.requireSmtAlign || smtAligned || smt === undefined
   const smtBlocked = gates.requireSmtAlign && smt !== undefined && !isAligned(smt, side)
-  const indexAligned = symbol === BTC_REFERENCE_SYMBOL || smt === undefined || isAligned(smt, side)
+  // Só bloqueia desalinhamento quando SMT é obrigatório (antes bloqueava sempre se SMT existisse).
+  const indexAligned = !gates.requireSmtAlign
+    || symbol === BTC_REFERENCE_SYMBOL
+    || smt === undefined
+    || isAligned(smt, side)
 
   const sweepGate = !gates.requireSweep || sweepOk
   const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !blockOpposed
@@ -522,7 +535,9 @@ function evaluate(
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? 'Discount.' : 'Premium.') : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
-    { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned, note: symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
+    { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned || !gates.requireSmtAlign, note: !gates.requireSmtAlign
+      ? (smtAligned ? `SMT ${smt ?? 'n/d'} (informativo).` : smt ? `SMT ${smt} (informativo — não bloqueia).` : 'SMT opcional neste instrumento.')
+      : symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
     { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : wideNet && !session.allowEnterNow ? ' · malha larga' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
   ]
@@ -546,7 +561,7 @@ function evaluate(
     else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS 1m.')
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
-    if (!indexAligned) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
+    if (!indexAligned && gates.requireSmtAlign) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
     if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
     else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')

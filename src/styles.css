@@ -342,6 +342,45 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-text-muted);
   line-height: 1.4;
 }
+.t212-watchlist-panel {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--tv-border);
+  background: var(--tv-bg-elevated);
+  font-size: 0.82rem;
+}
+.t212-watchlist-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--tv-text-secondary);
+  letter-spacing: 0.03em;
+}
+.t212-watchlist-panel .desk-sub { margin: 8px 0 10px; }
+.t212-extra-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.t212-extra-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--tv-border);
+  background: var(--tv-bg);
+  color: var(--tv-text-secondary);
+  cursor: pointer;
+  font-size: 0.74rem;
+}
+.t212-extra-chip.on {
+  border-color: var(--tv-amber);
+  color: var(--tv-text);
+}
+.t212-extra-chip small {
+  color: var(--tv-text-muted);
+  text-transform: uppercase;
+  font-size: 0.62rem;
+}
 .t212-closed-banner {
   margin: 0 0 10px;
   padding: 10px 12px;
