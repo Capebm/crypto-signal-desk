@@ -514,19 +514,20 @@ function evaluate(
 
   const tradeReady = setupReadyWithRr && !sessionBlocked
 
-  // Stop/alvo teóricos só com posição aberta — no scanner matavam longs em discount profundo.
+  // SAIR / stop / alvo só com posição aberta — no scanner é ESPERAR (não “sair” do nada).
   const stopTriggered = Boolean(options.openPosition)
     && (side === 'long' ? exec.price <= stop : exec.price >= stop)
   const targetReached = Boolean(options.openPosition)
     && (side === 'long' ? exec.price >= target : exec.price <= target)
   const invalidationLabel = execInvalidated ? execLabel : h1Invalidated ? '1h' : execLabel
+  const exitInvalidation = Boolean(options.openPosition) && (structureBroken || stopTriggered)
 
   let positionGuidance: PositionGuidance = 'NEUTRO'
   let invalidationReason: string | undefined
   let action: Action = tradeReady ? sideToAction(side) : 'ESPERAR'
   let resolvedTiming: EntryTiming = finalTiming
 
-  if (structureBroken || stopTriggered) {
+  if (exitInvalidation) {
     action = 'VENDER'
     resolvedTiming = 'AGORA'
     positionGuidance = 'SAIR'
@@ -540,6 +541,8 @@ function evaluate(
     invalidationReason = 'Alvo de liquidez atingido — realiza lucro.'
   } else if (tradeReady) {
     positionGuidance = finalTiming === 'AGORA' ? 'ENTRAR_AGORA' : 'AGUARDAR_ENTRADA'
+  } else if (structureBroken) {
+    invalidationReason = bosInvalidationNote(side, invalidationLabel)
   }
 
   const sweepNote = opposedSweep && opposedHit
@@ -747,10 +750,11 @@ export function evaluateTjrQuick(
   profile: RiskProfile,
   tpMode: TpMode = '1_5r',
   options: EvaluateOptions = {},
+  forcedSide?: TradeSide,
 ): TjrDecision {
   const h1 = structureSnapshot(candles1h)
   const h4proxy = structureSnapshot(candles1h.slice(-80))
-  const side = inferSide(h4proxy.trend, h1.trend, h1.sweep ?? h4proxy.sweep)
+  const side = forcedSide ?? inferSide(h4proxy.trend, h1.trend, h1.sweep ?? h4proxy.sweep)
   return evaluate(symbol, side, h4proxy, h1, h1, '15m', candles1h, btc1h, profile, undefined, candles1h, true, tpMode, options)
 }
 

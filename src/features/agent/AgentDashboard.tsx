@@ -164,8 +164,8 @@ export default function AgentDashboard() {
     const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
     const openHere = Boolean(openFill && resolveBase(symbol) === openFill.base.toUpperCase())
     const opts = { ...evalOptions, openPosition: openHere }
-    let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, undefined, opts)
-    const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, opts) : undefined
+    let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, 'long', opts)
+    const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, opts, 'long') : undefined
     if (scanAllSetups && matchingSetups && matchingSetups.length > 0) {
       const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
       if (userHit) {
@@ -177,7 +177,7 @@ export default function AgentDashboard() {
       } else {
         const best = matchingSetups[0]
         decision = {
-          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, undefined, opts),
+          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, 'long', opts),
           matchingSetups,
           tradeSetup: best,
         }
@@ -243,7 +243,7 @@ export default function AgentDashboard() {
         const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
           try {
             const candles1h = await getCandles(market.symbol, '1h')
-            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, quickProfile, quickTp, evalOptions)
+            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, quickProfile, quickTp, evalOptions, 'long')
             const rowPrice = candles1h.at(-1)?.close ?? 0
             return { ...decision, symbol: market.symbol, price: rowPrice, change24h: market.priceChangePercent }
           } catch {
@@ -803,8 +803,8 @@ export default function AgentDashboard() {
           <section className="agent-rules">
             <div><strong>COMPRAR JÁ</strong><span>4 passos: sweep → BOS 5m → zona → BOS 1m.</span></div>
             <div><strong>AGUARDAR</strong><span>Setup ok; à espera retrace + BOS 1m.</span></div>
-            <div><strong>VENDER</strong><span>BOS contrário, stop ou alvo.</span></div>
-            <div><strong>ESPERAR</strong><span>Modelo incompleto ou fora killzone.</span></div>
+            <div><strong>VENDER</strong><span>Só com posição aberta (stop/alvo/BOS). Sem trade = não aparece.</span></div>
+            <div><strong>ESPERAR</strong><span>Sem setup long completo (sweep LOW, estrutura, killzone…).</span></div>
           </section>
           <details className="tjr-glossary">
             <summary>Glossário (BOS · FVG · SMT)</summary>
