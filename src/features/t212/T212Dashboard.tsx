@@ -381,14 +381,18 @@ export default function T212Dashboard() {
           <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
             {session.badge}
           </span>
-          {selected?.opposedSweep && selected.action !== 'VENDER' ? (
-            <span className="sweep-badge warn">Sweep H · não comprar</span>
+          {selected?.riskyHighLong ? (
+            <span className="sweep-badge warn">Sweep H · long arriscado</span>
+          ) : selected?.softOpposed ? (
+            <span className="sweep-badge">Sweep ok · oposto aviso</span>
+          ) : selected?.opposedSweep && selected.action !== 'VENDER' ? (
+            <span className="sweep-badge warn">Opposed · bloqueia</span>
           ) : selected?.action === 'VENDER' && selected.sweepLabel ? (
             <span className="sweep-badge warn">Short · {selected.sweepLabel}</span>
           ) : selected?.reactive ? (
             <span className="sweep-badge reactive">Reactivo · {selected.sweepLabel}</span>
           ) : selected?.sweepLabel ? (
-            <span className="sweep-badge">Sweep L · {selected.sweepLabel}</span>
+            <span className="sweep-badge">Sweep · {selected.sweepLabel}</span>
           ) : (
             <span className="sweep-badge muted">Clica num instrumento</span>
           )}
@@ -582,7 +586,9 @@ export default function T212Dashboard() {
                           )}
                         </td>
                         <td>
-                          {row.opposedSweep && row.action !== 'VENDER' ? (
+                          {row.softOpposed ? (
+                            <span className="sweep-tag">{row.sweepLabel ?? 'ok · aviso'}</span>
+                          ) : row.opposedSweep && row.action !== 'VENDER' ? (
                             <span className="sweep-tag warn">{row.sweepLabel ?? 'H'}</span>
                           ) : row.reactive ? (
                             <span className="sweep-tag reactive">Reactivo · {row.sweepLabel}</span>

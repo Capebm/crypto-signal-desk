@@ -56,6 +56,8 @@ export type TjrDecision = Decision & {
   reactive?: boolean
   /** Sweep de high (setup de short) — Spot não compra (salvo allowHighSweepLong). */
   opposedSweep?: boolean
+  /** Malha/CFD: opposed presente mas sweep alinhado manda — não bloqueia. */
+  softOpposed?: boolean
   /** Long permitido apesar de sweep de high (arriscado). */
   riskyHighLong?: boolean
   /** Combinações risco×TP que também dão COMPRAR JÁ. */
@@ -398,10 +400,12 @@ function evaluate(
     && ((side === 'long' && opposedHit.direction === 'bearish') || (side === 'short' && opposedHit.direction === 'bullish')),
   )
   const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
-  const blockOpposed = opposedSweep && !riskyHighLong
+  // CFD prático / Malha larga: se já há sweep alinhado, o oposto é aviso — não veto (evita chop a matar os dois lados).
+  const softOpposed = (cfdPractical || wideNet) && sweepOk && opposedSweep
+  const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
   const sweepLabel = sweepOk && drawHit
-    ? drawHit.label
+    ? (softOpposed && opposedHit ? `${drawHit.label} · oposto aviso` : drawHit.label)
     : opposedSweep && opposedHit
       ? (riskyHighLong ? `${opposedHit.label} · H arriscado` : `${opposedHit.label} · não comprar`)
       : sweepOk
@@ -548,12 +552,20 @@ function evaluate(
   const sweepNote = opposedSweep && opposedHit
     ? (riskyHighLong
       ? `Sweep de HIGH (${opposedHit.label}) — long ARRISCADO (toggle activo). Continuação possível; não é setup TJR clássico.`
-      : `Sweep de HIGH (${opposedHit.label}) — Spot só long; não COMPRAR (seria setup de short).`)
+      : softOpposed
+        ? (side === 'long'
+          ? `Sweep de LOW ok; ${opposedHit.label} oposto = aviso (malha/CFD) — não bloqueia.`
+          : `Sweep de HIGH ok; ${opposedHit.label} oposto = aviso (malha/CFD) — não bloqueia.`)
+        : side === 'long'
+          ? `Sweep de HIGH (${opposedHit.label}) — bloqueia long (opposed). Spot não shorta.`
+          : `Sweep de LOW (${opposedHit.label}) — bloqueia short (opposed).`)
     : !sweepOk
       ? (gates.requireSweep ? 'Obrigatório: wick além de um LOW HTF (Ásia L / Londres L / 1h L…).' : 'Sem sweep de low — opcional neste perfil, desde que sem sweep de high.')
       : reactive
         ? `Reactivo · ${sweepLabel} (low) — sweep pré-NY; não esperes outro raid.`
-        : `Sweep de LOW · ${sweepLabel} (${sweep}).`
+        : side === 'short'
+          ? `Sweep de HIGH · ${sweepLabel} (${sweep}).`
+          : `Sweep de LOW · ${sweepLabel} (${sweep}).`
 
   const checklist = [
     { label: '1. Sweep (draw HTF)', complete: (sweepOk && !blockOpposed) || riskyHighLong, note: sweepNote },
@@ -591,7 +603,16 @@ function evaluate(
   const reasons: string[] = []
   if (positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO') reasons.push(invalidationReason!)
   else {
-    if (opposedSweep && opposedHit && !riskyHighLong) reasons.push(`Sweep de high (${opposedHit.label}): Spot não short — ESPERAR / não comprar.`)
+    if (opposedSweep && opposedHit && !riskyHighLong && !softOpposed) {
+      reasons.push(side === 'long'
+        ? `Sweep de high (${opposedHit.label}): bloqueia long (opposed).`
+        : `Sweep de low (${opposedHit.label}): bloqueia short (opposed).`)
+    }
+    if (softOpposed && opposedHit) {
+      reasons.push(side === 'long'
+        ? `Opposed ${opposedHit.label} = aviso (malha/CFD); sweep LOW manda.`
+        : `Opposed ${opposedHit.label} = aviso (malha/CFD); sweep HIGH manda.`)
+    }
     if (riskyHighLong && opposedHit) reasons.push(`Long arriscado após sweep de high (${opposedHit.label}).`)
     if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo de low (${sweepLabel}).` : '1· Sweep de low HTF.')
     if (confirmOk) reasons.push('2· Confirmação + displacement.')
@@ -638,6 +659,7 @@ function evaluate(
     sweepLabel,
     reactive,
     opposedSweep,
+    softOpposed,
     riskyHighLong,
     htfLevels,
     exitPlan: buildExitPlan(

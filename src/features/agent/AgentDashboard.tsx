@@ -511,6 +511,10 @@ export default function AgentDashboard() {
                         <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
                           {row.sweepLabel ?? 'H · arriscado'}
                         </span>
+                      ) : row.softOpposed ? (
+                        <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          {row.sweepLabel ?? 'ok · oposto aviso'}
+                        </span>
                       ) : row.opposedSweep ? (
                         <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
                           {row.sweepLabel ?? 'H · não comprar'}
@@ -565,6 +569,8 @@ export default function AgentDashboard() {
           </span>
           {selected?.riskyHighLong ? (
             <span className="sweep-badge warn">Sweep H · long arriscado</span>
+          ) : selected?.softOpposed ? (
+            <span className="sweep-badge">Sweep ok · oposto aviso</span>
           ) : selected?.opposedSweep ? (
             <span className="sweep-badge warn">Sweep H · não comprar</span>
           ) : selected?.reactive ? (
