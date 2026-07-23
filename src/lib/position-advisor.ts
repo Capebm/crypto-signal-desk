@@ -143,7 +143,10 @@ export async function runPositionAdvice(
   tpMode: TpMode = '1_5r',
 ): Promise<PositionAdviceResult> {
   const [data, btc] = await Promise.all([fetchPlaybook(input.symbol), fetchPlaybook(btcSymbol)])
-  const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode, 'long')
+  const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode, 'long', {
+    openPosition: true,
+    sessionMarket: 'crypto',
+  })
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition(input, currentPrice, decision)
 }

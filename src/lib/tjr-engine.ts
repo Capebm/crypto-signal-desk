@@ -94,6 +94,10 @@ export type EvaluateOptions = {
    * discount mais flexível. Mais oportunidades, menos “puro” TJR.
    */
   cfdPractical?: boolean
+  /** Sessão: crypto Spot ignora fecho CFD de fim de semana. Default cfd. */
+  sessionMarket?: 'cfd' | 'crypto'
+  /** Só com posição aberta: stop/alvo teóricos podem disparar SAIR / REALIZAR. */
+  openPosition?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -351,7 +355,7 @@ function evaluate(
     ...gatesBase,
     requireSmtAlign: options.requireSmtAlign ?? gatesBase.requireSmtAlign,
   }
-  const session = getTradingSessionStatus()
+  const session = getTradingSessionStatus(new Date(), { market: options.sessionMarket ?? 'cfd' })
   const sessionLines = latestSessionLevels(primary1h)
   const prevDay = previousDayLevels(primary1h)
   const swings1h = findTjrSwings(primary1h)
@@ -510,8 +514,11 @@ function evaluate(
 
   const tradeReady = setupReadyWithRr && !sessionBlocked
 
-  const stopTriggered = side === 'long' ? exec.price <= stop : exec.price >= stop
-  const targetReached = side === 'long' ? exec.price >= target : exec.price <= target
+  // Stop/alvo teóricos só com posição aberta — no scanner matavam longs em discount profundo.
+  const stopTriggered = Boolean(options.openPosition)
+    && (side === 'long' ? exec.price <= stop : exec.price >= stop)
+  const targetReached = Boolean(options.openPosition)
+    && (side === 'long' ? exec.price >= target : exec.price <= target)
   const invalidationLabel = execInvalidated ? execLabel : h1Invalidated ? '1h' : execLabel
 
   let positionGuidance: PositionGuidance = 'NEUTRO'
@@ -694,6 +701,17 @@ export function tjrActionLabel(
   if (decision.action === 'VENDER' && decision.entryTiming === 'AGORA') return 'SAIR JÁ'
   if (decision.action === 'VENDER' && decision.entryTiming === 'RETRACE') return 'PREPARAR SAÍDA'
   return decision.action
+}
+
+/** Texto de timing — nunca “Entrar agora” quando o setup está invalidado. */
+export function tjrTimingLabel(
+  decision: Pick<TjrDecision, 'entryTiming' | 'positionGuidance'>,
+): string {
+  if (decision.positionGuidance === 'SAIR') return 'Invalidado — não entrar'
+  if (decision.positionGuidance === 'REALIZAR_ALVO') return 'Realizar alvo'
+  if (decision.positionGuidance === 'ENTRAR_AGORA' && decision.entryTiming === 'AGORA') return 'Entrar agora'
+  if (decision.entryTiming === 'RETRACE' || decision.positionGuidance === 'AGUARDAR_ENTRADA') return 'Aguardar retrace'
+  return 'Sem entrada'
 }
 
 /** Entrada long válida (não é invalidação / realizar alvo). */

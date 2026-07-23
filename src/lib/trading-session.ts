@@ -40,6 +40,13 @@ export type TradingSessionStatus = {
   nowNy: string
 }
 
+export type SessionMarket = 'cfd' | 'crypto'
+
+export type SessionOptions = {
+  /** CFD: fecha fim de semana. Crypto Spot: 24/7 — só killzones TJR. Default: cfd. */
+  market?: SessionMarket
+}
+
 const zoneParts = (timeZone: string, date = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
@@ -82,19 +89,22 @@ export function getCfdMarketStatus(date = new Date()): { open: boolean; reason: 
   return { open: true, reason: '' }
 }
 
-export function getTradingSessionStatus(date = new Date()): TradingSessionStatus {
+export function getTradingSessionStatus(date = new Date(), options: SessionOptions = {}): TradingSessionStatus {
+  const market = options.market ?? 'cfd'
   const ny = zoneParts('America/New_York', date)
   const lisbon = zoneParts('Europe/Lisbon', date)
   const base = { nowLisbon: lisbon.label, nowNy: ny.label }
-  const cfd = getCfdMarketStatus(date)
-  if (!cfd.open) {
-    return {
-      ...base,
-      window: 'off',
-      inIdealWindow: false,
-      allowEnterNow: false,
-      blockEntries: true,
-      badge: 'Mercado fechado (fim de semana)',
+  if (market === 'cfd') {
+    const cfd = getCfdMarketStatus(date)
+    if (!cfd.open) {
+      return {
+        ...base,
+        window: 'off',
+        inIdealWindow: false,
+        allowEnterNow: false,
+        blockEntries: true,
+        badge: 'Mercado fechado (fim de semana)',
+      }
     }
   }
 

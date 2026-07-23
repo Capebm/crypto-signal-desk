@@ -12,6 +12,7 @@ import {
   isEnterShortNow,
   listActionNowSetups,
   tjrActionLabel,
+  tjrTimingLabel,
   tjrScoreColor,
   type TjrDecision,
 } from '../../lib/tjr-engine'
@@ -107,6 +108,7 @@ export default function T212Dashboard() {
     referenceLabel: 'US500' as const,
     wideNet,
     cfdPractical,
+    sessionMarket: 'cfd' as const,
     ...(instrument.kind === 'index' ? {} : { requireSmtAlign: false as const }),
   })
 
@@ -601,7 +603,7 @@ export default function T212Dashboard() {
                                 <aside className="evidence-panel compact">
                                   <p className="evidence-summary">
                                     <strong>Bias:</strong> {selected.bias === 'bullish' ? 'Altista' : selected.bias === 'bearish' ? 'Baixista' : 'Neutro'}
-                                    {' · '}<strong>Timing:</strong> {selected.entryTiming === 'AGORA' ? 'Entrar agora' : selected.entryTiming === 'RETRACE' ? 'Aguardar' : 'Sem entrada'}
+                                    {' · '}<strong>Timing:</strong> {tjrTimingLabel(selected)}
                                     {selected.riskReward !== undefined && <> · <strong>R:R</strong> {selected.riskReward.toFixed(1)}×</>}
                                   </p>
                                   {selected.matchingSetups && selected.matchingSetups.length > 0 && (

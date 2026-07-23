@@ -10,6 +10,8 @@ import {
   formatSetupHitLabel,
   listBuyNowSetups,
   tjrActionLabel,
+  tjrTimingLabel,
+  isEnterLongNow,
   tjrScoreColor,
   type TjrDecision,
 } from '../../lib/tjr-engine'
@@ -120,8 +122,11 @@ export default function AgentDashboard() {
   const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode; stakeUsdc: number }>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
-  const evalOptions = useMemo(() => ({ allowHighSweepLong, wideNet }), [allowHighSweepLong, wideNet])
-  const [session, setSession] = useState(() => getTradingSessionStatus())
+  const evalOptions = useMemo(
+    () => ({ allowHighSweepLong, wideNet, sessionMarket: 'crypto' as const }),
+    [allowHighSweepLong, wideNet],
+  )
+  const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [pinKey, setPinKey] = useState(0)
   const [advisorOpen, setAdvisorOpen] = useState(false)
@@ -146,7 +151,7 @@ export default function AgentDashboard() {
 
   useEffect(() => {
     const tick = () => {
-      setSession(getTradingSessionStatus())
+      setSession(getTradingSessionStatus(new Date(), { market: 'crypto' }))
       setMarketClocks(getMarketClocks())
       setTodayPnl(pnlForDay(getClosedTrades(), dayId(Date.now())))
     }
@@ -157,8 +162,10 @@ export default function AgentDashboard() {
 
   const refineRow = async (symbol: string, fallback: Pick<AgentRow, 'price' | 'change24h'>) => {
     const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
-    let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, undefined, evalOptions)
-    const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, evalOptions) : undefined
+    const openHere = Boolean(openFill && resolveBase(symbol) === openFill.base.toUpperCase())
+    const opts = { ...evalOptions, openPosition: openHere }
+    let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, undefined, opts)
+    const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, opts) : undefined
     if (scanAllSetups && matchingSetups && matchingSetups.length > 0) {
       const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
       if (userHit) {
@@ -170,12 +177,12 @@ export default function AgentDashboard() {
       } else {
         const best = matchingSetups[0]
         decision = {
-          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, undefined, evalOptions),
+          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, undefined, opts),
           matchingSetups,
           tradeSetup: best,
         }
       }
-    } else if (decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA') {
+    } else if (isEnterLongNow(decision)) {
       decision = {
         ...decision,
         tradeSetup: {
@@ -282,7 +289,7 @@ export default function AgentDashboard() {
           setStatus(`MTF · ${index + 1}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}…`)
           try {
             const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
-            if (refined.action === 'COMPRAR' && refined.entryTiming === 'AGORA') buyNow += 1
+            if (isEnterLongNow(refined)) buyNow += 1
           } catch {
             /* mantém scan 1h deste par */
           }
@@ -310,7 +317,7 @@ export default function AgentDashboard() {
   }
 
   const counts = {
-    COMPRAR_JA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'AGORA').length,
+    COMPRAR_JA: rows.filter((row) => isEnterLongNow(row)).length,
     AGUARDAR_COMPRA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'RETRACE').length,
     VENDER: rows.filter((row) => row.action === 'VENDER').length,
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
@@ -320,7 +327,7 @@ export default function AgentDashboard() {
     const symbolMatch = !normalizedQuery || row.symbol.includes(normalizedQuery) || row.symbol.replace(/USDC$/, '').includes(normalizedQuery)
     if (!symbolMatch) return false
     if (filter === 'TODAS') return true
-    if (filter === 'COMPRAR_JA') return row.action === 'COMPRAR' && row.entryTiming === 'AGORA'
+    if (filter === 'COMPRAR_JA') return isEnterLongNow(row)
     if (filter === 'AGUARDAR_COMPRA') return row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
     if (filter === 'VENDER') return row.action === 'VENDER'
     return row.action === 'ESPERAR'
@@ -381,7 +388,7 @@ export default function AgentDashboard() {
           )}
           <p className="evidence-summary">
             <strong>Bias:</strong> {row.bias === 'bullish' ? 'Altista' : row.bias === 'bearish' ? 'Baixista' : 'Neutro'}
-            {' · '}<strong>Timing:</strong> {row.entryTiming === 'AGORA' ? 'Entrar agora' : row.entryTiming === 'RETRACE' ? 'Aguardar retrace' : 'Sem entrada'}
+            {' · '}<strong>Timing:</strong> {tjrTimingLabel(row)}
             {row.riskReward !== undefined && <> · <strong>R:R</strong> {row.riskReward.toFixed(1)}×</>}
           </p>
           {row.matchingSetups && row.matchingSetups.length > 0 && (
@@ -459,7 +466,7 @@ export default function AgentDashboard() {
               return (
                 <Fragment key={row.symbol}>
                   <tr
-                    className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${row.action === 'COMPRAR' && row.entryTiming === 'AGORA' ? ' buy-now' : ''}`}
+                    className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${isEnterLongNow(row) ? ' buy-now' : ''}`}
                     onClick={() => {
                       if (open) {
                         setSelected(undefined)
@@ -493,7 +500,7 @@ export default function AgentDashboard() {
                           })}
                         </div>
                       )}
-                      {!row.matchingSetups && row.tradeSetup && row.action === 'COMPRAR' && row.entryTiming === 'AGORA' && (
+                      {!row.matchingSetups && row.tradeSetup && isEnterLongNow(row) && (
                         <div className="setup-hit-row">
                           <span className="setup-hit current">{row.tradeSetup.label}</span>
                         </div>
