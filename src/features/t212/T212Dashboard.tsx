@@ -20,6 +20,7 @@ import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus } from '..
 import type { Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
+  T212_BTC_INSTRUMENT,
   T212_CATALOG,
   T212_CORE_IDS,
   T212_EXTRA_INSTRUMENTS,
@@ -27,6 +28,7 @@ import {
   getT212PlaybookCandles,
   readT212WatchlistIds,
   resolveT212Watchlist,
+  t212KindLabel,
   writeT212WatchlistIds,
   type T212Instrument,
 } from '../../lib/yahoo-market'
@@ -103,25 +105,28 @@ export default function T212Dashboard() {
   const tpMode = tpModes[tpIndex]
   const stakeEur = STAKE_OPTIONS[stakeIndex]
 
-  /** Forex/metal/energia: SMT informativo. Índices: gate do perfil. CFD prático alarga confirmação/LTF. */
+  /** Índices: SMT do perfil. Resto informativo. Crypto CFD: sessão 24/7 (não fecha fim de semana). */
   const optionsFor = (instrument: T212Instrument) => ({
-    referenceLabel: 'US500' as const,
+    referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
     wideNet,
     cfdPractical,
-    sessionMarket: 'cfd' as const,
+    sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
     ...(instrument.kind === 'index' ? {} : { requireSmtAlign: false as const }),
   })
+
+  const hasCryptoWatch = useMemo(() => watchlist.some((item) => item.kind === 'crypto'), [watchlist])
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
-  const [status, setStatus] = useState('Carrega Analisar — índices, forex, ouro/prata e crude (long + short CFD).')
+  const [status, setStatus] = useState('Carrega Analisar — índices, forex, metais, energia e crypto CFD (long + short).')
   const [running, setRunning] = useState(false)
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [cfdMarket, setCfdMarket] = useState(() => getCfdMarketStatus())
+  const canScan = cfdMarket.open || hasCryptoWatch
 
   useEffect(() => {
     try {
@@ -154,15 +159,23 @@ export default function T212Dashboard() {
     setRows([])
     const market = getCfdMarketStatus()
     setCfdMarket(market)
-    if (!market.open) {
+    const scanList = market.open
+      ? watchlist
+      : watchlist.filter((item) => item.kind === 'crypto')
+    if (scanList.length === 0) {
       setStatus(market.reason)
       setScanProgress(undefined)
       setRunning(false)
       return
     }
-    const total = watchlist.length
+    const cryptoOnly = !market.open
+    const total = scanList.length
     setScanProgress({ pct: 2, label: 'Pack Yahoo…' })
-    setStatus('Scan rápido — resultados aparecem à medida que chegam…')
+    setStatus(
+      cryptoOnly
+        ? 'Fim de semana CFD — a analisar só crypto CFD…'
+        : 'Scan rápido — resultados aparecem à medida que chegam…',
+    )
 
     const buildRow = (
       instrument: T212Instrument,
@@ -230,11 +243,28 @@ export default function T212Dashboard() {
       const failed: string[] = []
       let done = 0
 
-      const refInstrument = watchlist.find((item) => item.id === 'us500') ?? watchlist[0]
-      let refPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
+      const indexRef = scanList.find((item) => item.id === 'us500') ?? scanList.find((item) => item.kind === 'index')
+      const needsCryptoRef = scanList.some((item) => item.kind === 'crypto')
+      let indexRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
+      let cryptoRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
+
+      if (needsCryptoRef) {
+        try {
+          cryptoRefPack = await getT212PlaybookCandles(T212_BTC_INSTRUMENT)
+        } catch {
+          /* BTC ref opcional */
+        }
+      }
+
+      const refInstrument = indexRef ?? scanList[0]
       try {
-        refPack = await getT212PlaybookCandles(refInstrument)
-        results.push(buildRow(refInstrument, refPack, refPack))
+        const data = await getT212PlaybookCandles(refInstrument)
+        if (refInstrument.kind === 'index' || refInstrument.id === 'us500') indexRefPack = data
+        if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
+        const refPack = refInstrument.kind === 'crypto'
+          ? (cryptoRefPack ?? data)
+          : (indexRefPack ?? data)
+        results.push(buildRow(refInstrument, data, refPack))
         done += 1
         publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}`)
       } catch (error) {
@@ -243,11 +273,15 @@ export default function T212Dashboard() {
         setStatus(error instanceof Error ? error.message : `Falha ${refInstrument.short}`)
       }
 
-      const rest = watchlist.filter((item) => item.id !== refInstrument.id)
+      const rest = scanList.filter((item) => item.id !== refInstrument.id)
       await mapPool(rest, 4, async (instrument) => {
         try {
           const data = await getT212PlaybookCandles(instrument)
-          if (!refPack) refPack = data
+          if (instrument.kind !== 'crypto' && !indexRefPack) indexRefPack = data
+          if (instrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
+          const refPack = instrument.kind === 'crypto'
+            ? (cryptoRefPack ?? data)
+            : (indexRefPack ?? cryptoRefPack ?? data)
           results.push(buildRow(instrument, data, refPack))
         } catch {
           failed.push(instrument.short)
@@ -269,12 +303,13 @@ export default function T212Dashboard() {
       const otherSetupHits = scanAllSetups
         ? sorted.filter((row) => (row.matchingSetups?.length ?? 0) > 0).length
         : 0
+      const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT.${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT.${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
           : otherSetupHits > 0
-            ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
+            ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -291,7 +326,7 @@ export default function T212Dashboard() {
   useEffect(() => {
     const market = getCfdMarketStatus()
     setCfdMarket(market)
-    if (!market.open) {
+    if (!market.open && !watchlist.some((item) => item.kind === 'crypto')) {
       setStatus(market.reason)
       return
     }
@@ -360,14 +395,18 @@ export default function T212Dashboard() {
           <span className="tv-clock">{session.nowLisbon} PT</span>
         </div>
         <div className="tv-toolbar-right">
-          <button type="button" className="agent-scan-btn" onClick={() => void analyzeAll()} disabled={running || !cfdMarket.open}>
-            {running ? 'A analisar…' : cfdMarket.open ? 'Analisar' : 'Mercado fechado'}
+          <button type="button" className="agent-scan-btn" onClick={() => void analyzeAll()} disabled={running || !canScan}>
+            {running ? 'A analisar…' : canScan ? 'Analisar' : 'Mercado fechado'}
           </button>
         </div>
       </header>
 
       {!cfdMarket.open && (
-        <p className="t212-closed-banner" role="status">{cfdMarket.reason}</p>
+        <p className="t212-closed-banner" role="status">
+          {hasCryptoWatch
+            ? `${cfdMarket.reason} Crypto CFD na watchlist continua disponível para scan.`
+            : cfdMarket.reason}
+        </p>
       )}
 
       <section className="zella-kpis" aria-label="Resumo T212">
@@ -398,7 +437,7 @@ export default function T212Dashboard() {
         </article>
         <article className={session.inIdealWindow ? 'kpi-hot' : ''}>
           <span>Sessão</span>
-          <strong>{!cfdMarket.open ? 'Fechado' : session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
+          <strong>{!cfdMarket.open && !hasCryptoWatch ? 'Fechado' : session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
           <small>killzone</small>
         </article>
       </section>
@@ -452,14 +491,14 @@ export default function T212Dashboard() {
           />
           <span>Todos setups</span>
         </label>
-        <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !cfdMarket.open}>
+        <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}
         </button>
       </section>
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT obrigatório só em <strong>índices</strong>; forex/metal/energia = informativo.</p>
+        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT obrigatório só em <strong>índices</strong>; forex/metal/energia/crypto = informativo. Crypto CFD = long + short (Buy/Sell).</p>
         <div className="t212-extra-grid">
           {T212_EXTRA_INSTRUMENTS.map((item) => {
             const on = watchIds.includes(item.id)
@@ -467,7 +506,7 @@ export default function T212Dashboard() {
               <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
                 <input type="checkbox" checked={on} onChange={() => toggleExtra(item.id)} />
                 <span>{item.short}</span>
-                <small>{item.kind === 'index' ? 'Índice' : item.kind === 'forex' ? 'Forex' : item.kind === 'metal' ? 'Metal' : 'Energia'}</small>
+                <small>{t212KindLabel(item.kind)}</small>
               </label>
             )
           })}
@@ -483,7 +522,7 @@ export default function T212Dashboard() {
       )}
       <p className="agent-status">{status}</p>
       <p className="t212-disclaimer">
-        CFD: long (Buy) e short (Sell). Pack Yahoo (1 pedido/ativo) · resultados progressivos. Fim de semana = mercado fechado.
+        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
       </p>
 
       {rows.length > 0 && (
@@ -524,12 +563,7 @@ export default function T212Dashboard() {
                       >
                         <td className="col-symbol">
                           {row.instrument.short}
-                          <small className="desk-sub">{
-                            row.instrument.kind === 'index' ? 'Índice'
-                              : row.instrument.kind === 'metal' ? 'Metal'
-                                : row.instrument.kind === 'energy' ? 'Energia'
-                                  : 'Forex'
-                          }</small>
+                          <small className="desk-sub">{t212KindLabel(row.instrument.kind)}</small>
                         </td>
                         <td>
                           <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row, { cfd: true })}</strong>

@@ -8,7 +8,7 @@ export type T212Instrument = {
   /** Pesquisa T212. */
   t212Search: string
   yahooSymbol: string
-  kind: 'index' | 'forex' | 'metal' | 'energy'
+  kind: 'index' | 'forex' | 'metal' | 'energy' | 'crypto'
   short: string
 }
 
@@ -169,7 +169,52 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
     kind: 'energy',
     short: 'NGAS',
   },
+  {
+    id: 'btc',
+    t212Label: 'Bitcoin',
+    t212Search: 'BTC / Bitcoin',
+    yahooSymbol: 'BTC-USD',
+    kind: 'crypto',
+    short: 'BTC',
+  },
+  {
+    id: 'eth',
+    t212Label: 'Ethereum',
+    t212Search: 'ETH / Ethereum',
+    yahooSymbol: 'ETH-USD',
+    kind: 'crypto',
+    short: 'ETH',
+  },
+  {
+    id: 'sol',
+    t212Label: 'Solana',
+    t212Search: 'SOL / Solana',
+    yahooSymbol: 'SOL-USD',
+    kind: 'crypto',
+    short: 'SOL',
+  },
+  {
+    id: 'xrp',
+    t212Label: 'XRP',
+    t212Search: 'XRP',
+    yahooSymbol: 'XRP-USD',
+    kind: 'crypto',
+    short: 'XRP',
+  },
+  {
+    id: 'doge',
+    t212Label: 'Dogecoin',
+    t212Search: 'DOGE / Dogecoin',
+    yahooSymbol: 'DOGE-USD',
+    kind: 'crypto',
+    short: 'DOGE',
+  },
 ]
+
+/** Crypto CFD extras ligados por defeito na 1.ª visita / migração. */
+export const T212_DEFAULT_CRYPTO_IDS = ['btc', 'eth', 'sol'] as const
+
+export const T212_BTC_INSTRUMENT = T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'btc')!
 
 /** Catálogo completo (core + extras). */
 export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTRA_INSTRUMENTS]
@@ -184,20 +229,43 @@ export function instrumentById(id: string): T212Instrument | undefined {
   return T212_CATALOG.find((item) => item.id === id)
 }
 
+const CRYPTO_SEED_KEY = 't212-crypto-seeded-v1'
+
 /** Core sempre activo; extras = ids guardados que existem no catálogo. */
 export function readT212WatchlistIds(): string[] {
   const core = [...T212_CORE_IDS]
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY)
-    if (!raw) return core
+    const seedCrypto = () => {
+      try {
+        if (!localStorage.getItem(CRYPTO_SEED_KEY)) {
+          localStorage.setItem(CRYPTO_SEED_KEY, '1')
+          return true
+        }
+      } catch {
+        /* ignore */
+      }
+      return false
+    }
+
+    if (!raw) {
+      seedCrypto()
+      return [...core, ...T212_DEFAULT_CRYPTO_IDS]
+    }
     const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return core
-    const extras = parsed
+    if (!Array.isArray(parsed)) {
+      seedCrypto()
+      return [...core, ...T212_DEFAULT_CRYPTO_IDS]
+    }
+    let extras = parsed
       .filter((id): id is string => typeof id === 'string')
       .filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
+    if (seedCrypto()) {
+      extras = [...extras, ...T212_DEFAULT_CRYPTO_IDS]
+    }
     return [...core, ...extras.filter((id, index, all) => all.indexOf(id) === index)]
   } catch {
-    return core
+    return [...core, ...T212_DEFAULT_CRYPTO_IDS]
   }
 }
 
@@ -217,10 +285,18 @@ export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
     .filter((item): item is T212Instrument => Boolean(item))
 }
 
-/** SMT obrigatório só em índices (Conservador/Equilibrado); forex/metal/energia = informativo. */
+/** SMT obrigatório só em índices (Conservador/Equilibrado); forex/metal/energia/crypto = informativo. */
 export function t212RequireSmtAlign(instrument: T212Instrument, profileRequires: boolean): boolean {
   if (!profileRequires) return false
   return instrument.kind === 'index'
+}
+
+export function t212KindLabel(kind: T212Instrument['kind']): string {
+  if (kind === 'index') return 'Índice'
+  if (kind === 'forex') return 'Forex'
+  if (kind === 'metal') return 'Metal'
+  if (kind === 'energy') return 'Energia'
+  return 'Crypto'
 }
 
 const yahooInterval: Record<Interval, string> = {

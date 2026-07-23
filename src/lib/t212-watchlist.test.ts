@@ -29,5 +29,9 @@ describe('t212 watchlist + smt policy', () => {
 
     const forex = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'forex')!
     expect(t212RequireSmtAlign(forex, true)).toBe(false)
+
+    const crypto = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'crypto')!
+    expect(crypto.yahooSymbol).toMatch(/-USD$/)
+    expect(t212RequireSmtAlign(crypto, true)).toBe(false)
   })
 })
