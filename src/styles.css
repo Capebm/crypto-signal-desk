@@ -391,6 +391,19 @@ body.desk-mode { overflow: hidden; }
   font-size: .86rem;
   line-height: 1.4;
 }
+.agent-ny-mid-banner {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--tv-amber);
+  border-radius: 2px;
+  background: var(--tv-bg-elevated);
+  color: var(--tv-text);
+  font-size: .8rem;
+  line-height: 1.4;
+}
+.agent-ny-mid-banner.warn {
+  border-color: var(--tv-red);
+}
 .desk-table tr.sell-now { box-shadow: inset 3px 0 0 var(--tv-red); }
 .t212-guide-plan {
   margin: 0 0 12px;

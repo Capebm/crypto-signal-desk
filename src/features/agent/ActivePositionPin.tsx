@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getPlaybookCandles } from '../../lib/binance'
 import { clearOpenPosition, loadOpenPosition, parseOpenNumber, type SavedOpenPosition } from '../../lib/open-position-store'
+import { hoursSinceIso, isPastTimeStop, TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
 import { resolvePositionSymbol, runPositionAdvice, type PositionAdviceResult } from '../../lib/position-advisor'
 import type { RiskProfile } from '../../lib/risk-profile'
 import type { TpMode } from '../../lib/tp-mode'
@@ -67,6 +68,8 @@ export default function ActivePositionPin({ riskProfile, tpMode, refreshKey = 0,
   if (!saved) return null
 
   const pair = formatTradingPair(resolvePositionSymbol(saved.base))
+  const heldHours = hoursSinceIso(saved.savedAt)
+  const pastTimeStop = isPastTimeStop(saved.savedAt)
   const adviceClass =
     result?.advice === 'SAIR' ? 'pos-sair'
       : result?.advice === 'REALIZAR' ? 'pos-realizar'
@@ -82,6 +85,11 @@ export default function ActivePositionPin({ riskProfile, tpMode, refreshKey = 0,
           <span className={result.pnlPct >= 0 ? 'positive' : 'negative'}>
             {result.pnlPct >= 0 ? '+' : ''}{result.pnlPct.toFixed(2)}%
             {result.pnlUsdc !== undefined && <> · {result.pnlUsdc >= 0 ? '+' : ''}{result.pnlUsdc.toFixed(2)} {AGENT_QUOTE_ASSET}</>}
+          </span>
+        )}
+        {heldHours !== undefined && (
+          <span className={pastTimeStop ? 'negative' : 'desk-sub'} title={TIME_STOP_NOTE}>
+            {heldHours.toFixed(1)}h{pastTimeStop ? ` · time-stop ${TIME_STOP_HOURS}h` : ''}
           </span>
         )}
       </div>

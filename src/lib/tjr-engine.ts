@@ -100,6 +100,11 @@ export type EvaluateOptions = {
   sessionMarket?: 'cfd' | 'crypto'
   /** Só com posição aberta: stop/alvo teóricos podem disparar SAIR / REALIZAR. */
   openPosition?: boolean
+  /**
+   * Spot (diário): não permitir COMPRAR JÁ no NY mid — baixa para AGUARDAR
+   * mesmo com Agressivo / Malha larga. Default false no motor; Agente liga por defeito.
+   */
+  avoidNyMidEnter?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -272,11 +277,13 @@ const buildExitPlan = (
             'OCO com 50%: TP limit no 1.º draw HTF (baixa resistência) + stop abaixo do swing.',
             `Limit sell 50% restante em ${targetSecondaryLabel ?? '2.º alvo'} — só coloca após fill da compra.`,
             'Re-analisa: cartão SAIR = vende o resto a mercado.',
+            'Time-stop 8h no resto da posição se não houver progresso.',
             'Após +1R, podes subir stop para abaixo do último swing low.',
           ]
         : [
             'Ao entrar: stop-loss em stop (ordem stop-limit ou OCO).',
             `Take-profit limit em target${targetLabel ? ` (${targetLabel})` : ''} — liquidez oposta.`,
+            'Time-stop 8h: sem progresso (perto do TP / BOS a favor) → considera sair.',
             'Re-analisa periodicamente: se o agente mostrar SAIR — INVALIDADO, vende.',
             'Após +1R de lucro, podes subir o stop para abaixo do último swing low.',
           ],
@@ -494,9 +501,14 @@ function evaluate(
 
   let sessionBlocked = false
   let sessionDowngrade = false
+  let nyMidAvoided = false
   if (setupReadyWithRr) {
     if (session.blockEntries) {
       sessionBlocked = true
+    } else if (entryTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter) {
+      // Diário Spot: NY mid concentrava perdas — não COMPRAR JÁ mesmo com malha/agressivo.
+      sessionDowngrade = true
+      nyMidAvoided = true
     } else if (entryTiming === 'AGORA' && !session.allowEnterNow && !flexible) {
       // Reactivo (sweep Ásia/Londres/dia ant.): permite COMPRAR JÁ também no NY mid.
       const reactiveNy = reactive && (session.window === 'ny' || session.window === 'ny_open')
@@ -589,7 +601,7 @@ function evaluate(
       ? (smtAligned ? `SMT ${smt ?? 'n/d'} (informativo).` : smt ? `SMT ${smt} (informativo — não bloqueia).` : 'SMT opcional neste instrumento.')
       : symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
-    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${sessionDowngrade ? ' · AGORA→AGUARDAR' : wideNet && !session.allowEnterNow ? ' · malha larga' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
+    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${nyMidAvoided ? ' · Evitar NY mid → AGUARDAR' : sessionDowngrade ? ' · AGORA→AGUARDAR' : wideNet && !session.allowEnterNow ? ' · malha larga' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
   ]
 
   const setupStatus = positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO'
@@ -623,6 +635,7 @@ function evaluate(
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
     if (!indexAligned && gates.requireSmtAlign) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
     if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
+    else if (nyMidAvoided) reasons.push('NY mid: COMPRAR JÁ desactivado (Evitar NY mid) — só AGUARDAR.')
     else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
     if (!tradeReady && !sessionBlocked && !blockOpposed) {

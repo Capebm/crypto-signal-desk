@@ -34,6 +34,7 @@ const STAKE_KEY = 'tjr-stake-index'
 const HIGH_SWEEP_KEY = 'tjr-allow-high-sweep-long'
 const ALL_SETUPS_KEY = 'tjr-scan-all-setups'
 const WIDE_NET_KEY = 'tjr-wide-net'
+const AVOID_NY_MID_KEY = 'tjr-avoid-ny-mid'
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -116,6 +117,7 @@ export default function AgentDashboard() {
   const [allowHighSweepLong, setAllowHighSweepLong] = useState(() => readBool(HIGH_SWEEP_KEY, false))
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
+  const [avoidNyMid, setAvoidNyMid] = useState(() => readBool(AVOID_NY_MID_KEY, true))
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -124,8 +126,13 @@ export default function AgentDashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const evalOptions = useMemo(
-    () => ({ allowHighSweepLong, wideNet, sessionMarket: 'crypto' as const }),
-    [allowHighSweepLong, wideNet],
+    () => ({
+      allowHighSweepLong,
+      wideNet,
+      sessionMarket: 'crypto' as const,
+      avoidNyMidEnter: avoidNyMid,
+    }),
+    [allowHighSweepLong, wideNet, avoidNyMid],
   )
   const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
@@ -145,10 +152,11 @@ export default function AgentDashboard() {
       localStorage.setItem(HIGH_SWEEP_KEY, allowHighSweepLong ? '1' : '0')
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
+      localStorage.setItem(AVOID_NY_MID_KEY, avoidNyMid ? '1' : '0')
     } catch {
       /* ignore */
     }
-  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups, wideNet])
+  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
 
   useEffect(() => {
     const tick = () => {
@@ -271,7 +279,7 @@ export default function AgentDashboard() {
         setLoadingFull(undefined)
       }
     })()
-  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet])
+  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
 
   const scan = async () => {
     setRunning(true)
@@ -638,6 +646,17 @@ export default function AgentDashboard() {
         </div>
       </header>
 
+      {session.window === 'ny' && avoidNyMid && (
+        <p className="agent-ny-mid-banner" role="status">
+          NY mid activo — <strong>Evitar NY mid</strong> ligado: sem COMPRAR JÁ (só AGUARDAR). O teu diário perdia mais nesta janela.
+        </p>
+      )}
+      {session.window === 'ny' && !avoidNyMid && (
+        <p className="agent-ny-mid-banner warn" role="status">
+          NY mid — atenção: no diário esta sessão teve WR baixo. Liga <strong>Evitar NY mid</strong> para bloquear COMPRAR JÁ.
+        </p>
+      )}
+
       <section className="zella-kpis" aria-label="Resumo do desk">
         <article>
           <span>PnL hoje</span>
@@ -747,6 +766,17 @@ export default function AgentDashboard() {
             }}
           />
           <span>Malha larga</span>
+        </label>
+        <label className="tv-setup-toggle" title="Diário: NY mid concentrava perdas. Com isto ON, COMPRAR JÁ no NY mid baixa para AGUARDAR (mesmo com Malha/Agressivo).">
+          <input
+            type="checkbox"
+            checked={avoidNyMid}
+            onChange={(event) => {
+              setAvoidNyMid(event.target.checked)
+              if (rows.length > 0) setStatus('Evitar NY mid — re-analisa para aplicar.')
+            }}
+          />
+          <span>Evitar NY mid</span>
         </label>
         <label className="tv-setup-toggle" title="No refine MTF testa as 9 combinações risco×TP e mostra no cartão quais deram COMPRAR JÁ">
           <input

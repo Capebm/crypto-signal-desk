@@ -7,6 +7,7 @@ import {
 } from '../../lib/binance-prices'
 import { saveOpenPosition } from '../../lib/open-position-store'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
+import { TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
 import { tpModeMeta, type TpMode } from '../../lib/tp-mode'
 
 type Row = TjrDecision & { symbol: string; price: number }
@@ -229,6 +230,9 @@ export function BinanceOrderPanel({
       ) : stopDistancePct !== undefined ? (
         <p className="binance-order-meta">Risco até stop: ~{stopDistancePct.toFixed(1).replace('.', ',')}%</p>
       ) : null}
+      <p className="binance-order-warn time-stop" title={TIME_STOP_NOTE}>
+        <strong>Time-stop {TIME_STOP_HOURS}h:</strong> se não estiveres perto do TP ou com BOS a favor, considera sair.
+      </p>
 
       {wizard === 'buy' && (
         <div className="binance-order-groups single">
