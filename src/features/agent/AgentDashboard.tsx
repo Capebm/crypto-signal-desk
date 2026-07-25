@@ -81,6 +81,7 @@ export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
   const [status, setStatus] = useState('Pronto — analisa na NY open ou vê posição aberta abaixo.')
   const [running, setRunning] = useState(false)
+  const [refreshingAguardar, setRefreshingAguardar] = useState(false)
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
   const [query, setQuery] = useState('')
@@ -193,12 +194,59 @@ export default function AgentDashboard() {
         },
       }
     }
+    const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? fallback.price
     const patch = (row: AgentRow): AgentRow =>
-      row.symbol === symbol ? { ...decision, symbol, price: fallback.price, change24h: fallback.change24h } : row
+      row.symbol === symbol ? { ...decision, symbol, price, change24h: fallback.change24h } : row
     setRows((prev) => prev.map(patch))
     setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
     setRefinedSymbols((prev) => new Set(prev).add(symbol))
-    return patch({ ...decision, symbol, price: fallback.price, change24h: fallback.change24h })
+    return patch({ ...decision, symbol, price, change24h: fallback.change24h })
+  }
+
+  const isAguardarCompra = (row: Pick<AgentRow, 'action' | 'entryTiming'>) =>
+    row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
+
+  /** Re-avalia MTF todas as AGUARDAR COMPRA — vê quais passam a COMPRAR JÁ / ESPERAR. */
+  const refreshAguardar = async () => {
+    const targets = rows.filter(isAguardarCompra)
+    if (targets.length === 0 || running) return
+    setRunning(true)
+    setRefreshingAguardar(true)
+    setFilter('AGUARDAR_COMPRA')
+    setScanProgress({ pct: 0, label: `Refresh Aguardar · 0/${targets.length}` })
+    setStatus(`Refresh MTF · ${targets.length} em Aguardar…`)
+    let buyNow = 0
+    let stillWait = 0
+    let toEsperar = 0
+    let failed = 0
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const row = targets[index]
+        setScanProgress({
+          pct: Math.round(((index + 1) / targets.length) * 100),
+          label: `Refresh Aguardar · ${index + 1}/${targets.length} · ${formatTradingPair(row.symbol)}`,
+        })
+        setStatus(`Refresh Aguardar · ${index + 1}/${targets.length} · ${formatTradingPair(row.symbol)}…`)
+        try {
+          const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
+          if (isEnterLongNow(refined)) buyNow += 1
+          else if (isAguardarCompra(refined)) stillWait += 1
+          else toEsperar += 1
+        } catch {
+          failed += 1
+        }
+      }
+      setStatus(
+        `Refresh Aguardar (${targets.length}): ${buyNow} → COMPRAR JÁ · ${stillWait} ainda AGUARDAR · ${toEsperar} → ESPERAR/outro${failed ? ` · ${failed} falhou` : ''}.`,
+      )
+      if (buyNow > 0) setFilter('COMPRAR_JA')
+      else if (stillWait > 0) setFilter('AGUARDAR_COMPRA')
+      else setFilter('TODAS')
+    } finally {
+      setRunning(false)
+      setRefreshingAguardar(false)
+      setScanProgress(undefined)
+    }
   }
 
   useEffect(() => {
@@ -318,7 +366,7 @@ export default function AgentDashboard() {
 
   const counts = {
     COMPRAR_JA: rows.filter((row) => isEnterLongNow(row)).length,
-    AGUARDAR_COMPRA: rows.filter((row) => row.action === 'COMPRAR' && row.entryTiming === 'RETRACE').length,
+    AGUARDAR_COMPRA: rows.filter((row) => isAguardarCompra(row)).length,
     VENDER: rows.filter((row) => row.action === 'VENDER').length,
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
   }
@@ -328,7 +376,7 @@ export default function AgentDashboard() {
     if (!symbolMatch) return false
     if (filter === 'TODAS') return true
     if (filter === 'COMPRAR_JA') return isEnterLongNow(row)
-    if (filter === 'AGUARDAR_COMPRA') return row.action === 'COMPRAR' && row.entryTiming === 'RETRACE'
+    if (filter === 'AGUARDAR_COMPRA') return isAguardarCompra(row)
     if (filter === 'VENDER') return row.action === 'VENDER'
     return row.action === 'ESPERAR'
   })
@@ -758,6 +806,17 @@ export default function AgentDashboard() {
             <button type="button" className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Vender <span>{counts.VENDER}</span></button>
             <button type="button" className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
             <label>Pesquisar<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Ex.: RE/${AGENT_QUOTE_ASSET}`} /></label>
+            {counts.AGUARDAR_COMPRA > 0 && (
+              <button
+                type="button"
+                className="setup-reapply refresh-aguardar"
+                onClick={() => void refreshAguardar()}
+                disabled={running}
+                title="Re-avalia MTF só as AGUARDAR COMPRA — vê quais passam a COMPRAR JÁ ou caem para ESPERAR"
+              >
+                {refreshingAguardar ? 'A refrescar…' : `Refresh Aguardar (${counts.AGUARDAR_COMPRA})`}
+              </button>
+            )}
           </section>
 
           {showBuyNowEmpty && (

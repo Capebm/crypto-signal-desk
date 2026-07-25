@@ -445,6 +445,10 @@ body.desk-mode { overflow: hidden; }
 .market-clocks.compact .market-clock-status { font-size: .64rem; }
 
 .desk-filters { margin: 8px 0 10px; }
+.desk-filters .refresh-aguardar {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .desk-watchlist { display: grid; gap: 12px; margin-bottom: 14px; }
 .desk-table-wrap {
   overflow: auto;
