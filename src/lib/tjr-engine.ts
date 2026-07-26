@@ -687,26 +687,56 @@ function evaluate(
   }, minRr)
 }
 
-export function computeTjrScore(decision: TjrDecision, minRr = 1.5): number {
-  const steps = decision.checklist.filter((item) => /^[1-4]\./.test(item.label))
-  const stepsPct = steps.filter((item) => item.complete).length / Math.max(steps.length, 1)
-  const checklistPct = decision.checklist.filter((item) => item.complete).length / Math.max(decision.checklist.length, 1)
+/** Pesos por item do checklist — passos TJR 1–4 pesam mais que gates secundários. */
+const checklistItemWeight = (label: string): number => {
+  if (label.startsWith('1.')) return 18
+  if (label.startsWith('2.')) return 16
+  if (label.startsWith('3.')) return 12
+  if (label.startsWith('4.')) return 14
+  if (label.startsWith('Bias HTF')) return 10
+  if (label.startsWith('Discount')) return 8
+  if (label.startsWith('Estrutura')) return 8
+  if (label.startsWith('Alinhamento')) return 4
+  if (label.startsWith('R:R')) return 6
+  if (label.startsWith('Killzone')) return 4
+  return 3
+}
 
-  const actionWeight =
-    decision.positionGuidance === 'SAIR' ? 0.92
-      : decision.positionGuidance === 'REALIZAR_ALVO' ? 0.88
-        : decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA' ? 1
-          : decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE' ? 0.72
-            : decision.action === 'VENDER' ? 0.65
-              : 0.22
+/**
+ * Score 0–100: soma ponderada do checklist (até ~70) + bónus de estado/acção.
+ * Assim 8 checks completos separa-se claramente de 3 — o antigo factor 0.22 em ESPERAR comprimia tudo.
+ */
+export function computeTjrScore(decision: TjrDecision, minRr = 1.5): number {
+  let checklistPts = 0
+  let checklistMax = 0
+  for (const item of decision.checklist) {
+    const w = checklistItemWeight(item.label)
+    checklistMax += w
+    if (item.complete) checklistPts += w
+  }
+  const checklistBand = checklistMax > 0 ? (checklistPts / checklistMax) * 70 : 0
+
+  const actionBonus =
+    decision.positionGuidance === 'SAIR' ? 18
+      : decision.positionGuidance === 'REALIZAR_ALVO' ? 16
+        : decision.action === 'COMPRAR' && decision.entryTiming === 'AGORA' && decision.positionGuidance === 'ENTRAR_AGORA' ? 25
+          : decision.action === 'VENDER' && decision.entryTiming === 'AGORA' && decision.positionGuidance === 'ENTRAR_AGORA' ? 25
+            : decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE' ? 14
+              : decision.action === 'VENDER' && decision.entryTiming === 'RETRACE' ? 14
+                : 0
+
+  const setupBonus = decision.setupStatus === 'CONFIRMADA' ? 4 : decision.setupStatus === 'A_AGUARDAR' ? 2 : 0
+  const confBonus = decision.confidence === 'Alta' ? 4 : decision.confidence === 'Média' ? 2 : 0
 
   const rr = decision.riskReward ?? 0
-  const rrFactor = rr >= minRr && rr <= 3 ? Math.min(1, 0.55 + (rr - minRr) / 2.5) : rr > 0 ? 0.25 : 0
-  const setupFactor = decision.setupStatus === 'CONFIRMADA' ? 1 : decision.setupStatus === 'A_AGUARDAR' ? 0.55 : 0.15
-  const confFactor = decision.confidence === 'Alta' ? 1 : decision.confidence === 'Média' ? 0.7 : 0.35
-  const raw = actionWeight * (stepsPct * 0.35 + checklistPct * 0.15 + setupFactor * 0.25 + confFactor * 0.1 + rrFactor * 0.15)
+  const rrBonus = rr >= minRr && rr <= 3.05 ? Math.min(4, 1 + (rr - minRr) * 1.5) : rr > 0 ? 0.5 : 0
 
-  return Math.round(Math.min(100, Math.max(0, raw * 100)))
+  let penalty = 0
+  if (decision.opposedSweep && !decision.softOpposed && !decision.riskyHighLong) penalty += 6
+  if (decision.riskyHighLong) penalty += 3
+
+  const raw = checklistBand + actionBonus + setupBonus + confBonus + rrBonus - penalty
+  return Math.round(Math.min(100, Math.max(0, raw)))
 }
 
 function finalize(decision: Omit<TjrDecision, 'score'>, minRr: number): TjrDecision {

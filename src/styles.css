@@ -536,6 +536,29 @@ body.desk-mode { overflow: hidden; }
   background: var(--tv-bg-elevated);
 }
 .desk-table tbody tr.desk-expand-row:hover { background: var(--tv-bg-elevated); }
+.desk-expand-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--tv-border);
+}
+.desk-expand-close {
+  padding: 8px 12px;
+  font-size: .8rem;
+  color: var(--tv-text);
+  background: var(--tv-toolbar);
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.desk-expand-close:hover {
+  border-color: var(--tv-blue);
+  color: #fff;
+  background: var(--tv-blue);
+}
 .desk-table tbody tr.desk-expand-row > td {
   padding: 0;
   white-space: normal;

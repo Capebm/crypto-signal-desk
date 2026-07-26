@@ -70,6 +70,9 @@ const moneyShort = (value: number) =>
 
 const resolveBase = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
+const sortByScore = <T extends { score: number; riskReward?: number }>(list: T[]) =>
+  [...list].sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
+
 const potentialUsdc = (row: AgentRow, stake: number) => {
   if (!row.entry || !row.target || row.entry <= 0 || row.action !== 'COMPRAR') return undefined
   return stake * ((row.target - row.entry) / row.entry)
@@ -205,7 +208,7 @@ export default function AgentDashboard() {
     const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? fallback.price
     const patch = (row: AgentRow): AgentRow =>
       row.symbol === symbol ? { ...decision, symbol, price, change24h: fallback.change24h } : row
-    setRows((prev) => prev.map(patch))
+    setRows((prev) => sortByScore(prev.map(patch)))
     setSelected((prev) => (prev?.symbol === symbol ? patch(prev) : prev))
     setRefinedSymbols((prev) => new Set(prev).add(symbol))
     return patch({ ...decision, symbol, price, change24h: fallback.change24h })
@@ -308,7 +311,7 @@ export default function AgentDashboard() {
         }))
         results.push(...batch.filter((row): row is AgentRow => row !== undefined))
       }
-      const sorted = results.sort((left, right) => right.score - left.score || (right.riskReward ?? 0) - (left.riskReward ?? 0))
+      const sorted = sortByScore(results)
       setRows(sorted)
 
       // MTF só para candidatos a LONG. Com "Todos setups", NÃO usar top score global —
@@ -379,7 +382,7 @@ export default function AgentDashboard() {
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR').length,
   }
   const normalizedQuery = query.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  const visibleRows = rows.filter((row) => {
+  const visibleRows = sortByScore(rows.filter((row) => {
     const symbolMatch = !normalizedQuery || row.symbol.includes(normalizedQuery) || row.symbol.replace(/USDC$/, '').includes(normalizedQuery)
     if (!symbolMatch) return false
     if (filter === 'TODAS') return true
@@ -387,7 +390,17 @@ export default function AgentDashboard() {
     if (filter === 'AGUARDAR_COMPRA') return isAguardarCompra(row)
     if (filter === 'VENDER') return row.action === 'VENDER'
     return row.action === 'ESPERAR'
-  })
+  }))
+
+  const closeDetail = () => {
+    const symbol = selected?.symbol
+    setSelected(undefined)
+    setLoadingFull(undefined)
+    if (!symbol) return
+    window.requestAnimationFrame(() => {
+      document.querySelector(`tr[data-symbol="${symbol}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }
 
   const scanStale = Boolean(
     scanMeta && (scanMeta.profile !== riskProfile || scanMeta.tpMode !== tpMode || scanMeta.stakeUsdc !== stakeUsdc),
@@ -401,6 +414,12 @@ export default function AgentDashboard() {
 
   const renderExpandedRow = (row: AgentRow) => (
     <section className="desk-workspace-chart desk-row-expand" id={`expand-${row.symbol}`}>
+      <div className="desk-expand-toolbar">
+        <button type="button" className="desk-expand-close" onClick={closeDetail}>
+          ← Fechar · voltar à lista
+        </button>
+        <span className="desk-sub">{formatTradingPair(row.symbol)} · {tjrActionLabel(row)}</span>
+      </div>
       <BinanceOrderPanel
         row={row}
         stakeUsdc={stakeUsdc}
@@ -522,10 +541,11 @@ export default function AgentDashboard() {
               return (
                 <Fragment key={row.symbol}>
                   <tr
+                    data-symbol={row.symbol}
                     className={`${row.positionGuidance === 'SAIR' ? 'row-exit' : row.action.toLowerCase()}${open ? ' selected' : ''}${isEnterLongNow(row) ? ' buy-now' : ''}`}
                     onClick={() => {
                       if (open) {
-                        setSelected(undefined)
+                        closeDetail()
                         return
                       }
                       setRefinedSymbols((prev) => {

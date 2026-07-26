@@ -341,15 +341,26 @@ export default function T212Dashboard() {
     ESPERAR: rows.filter((row) => row.action === 'ESPERAR' || isInvalidated(row)).length,
   }), [rows])
 
-  const visibleRows = rows.filter((row) => {
-    if (filter === 'COMPRAR_JA') return isBuyNow(row)
-    if (filter === 'VENDER') return isSellNow(row)
-    if (filter === 'AGUARDAR') return isAguardar(row)
-    if (filter === 'ESPERAR') return row.action === 'ESPERAR' || isInvalidated(row)
-    return true
-  })
+  const visibleRows = [...rows]
+    .filter((row) => {
+      if (filter === 'COMPRAR_JA') return isBuyNow(row)
+      if (filter === 'VENDER') return isSellNow(row)
+      if (filter === 'AGUARDAR') return isAguardar(row)
+      if (filter === 'ESPERAR') return row.action === 'ESPERAR' || isInvalidated(row)
+      return true
+    })
+    .sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
 
   const selected = rows.find((row) => row.instrument.id === selectedId)
+
+  const closeDetail = () => {
+    const id = selectedId
+    setSelectedId(undefined)
+    if (!id) return
+    window.requestAnimationFrame(() => {
+      document.querySelector(`tr[data-t212="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }
 
   const loadChartCandles = (symbol: string, interval: Interval) => {
     const match = T212_CATALOG.find((item) => item.short === symbol) ?? selected?.instrument ?? DEFAULT_T212_INSTRUMENT
@@ -562,8 +573,9 @@ export default function T212Dashboard() {
                   return (
                     <Fragment key={row.instrument.id}>
                       <tr
+                        data-t212={row.instrument.id}
                         className={`${row.action.toLowerCase()}${open ? ' selected' : ''}${isBuyNow(row) ? ' buy-now' : ''}${isSellNow(row) ? ' sell-now' : ''}`}
-                        onClick={() => setSelectedId(open ? undefined : row.instrument.id)}
+                        onClick={() => (open ? closeDetail() : setSelectedId(row.instrument.id))}
                       >
                         <td className="col-symbol">
                           {row.instrument.short}
@@ -613,6 +625,12 @@ export default function T212Dashboard() {
                         <tr className="desk-expand-row" onClick={(event) => event.stopPropagation()}>
                           <td colSpan={9}>
                             <section className="desk-workspace-chart desk-row-expand" id={`expand-t212-${selected.instrument.id}`}>
+                              <div className="desk-expand-toolbar">
+                                <button type="button" className="desk-expand-close" onClick={closeDetail}>
+                                  ← Fechar · voltar à lista
+                                </button>
+                                <span className="desk-sub">{selected.instrument.short} · {tjrActionLabel(selected, { cfd: true })}</span>
+                              </div>
                               <T212TradeGuide instrument={selected.instrument} decision={selected} stakeEur={stakeEur} />
                               <div className="card-expanded-main">
                                 <article className="chart-panel">
