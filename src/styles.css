@@ -193,6 +193,11 @@ body.desk-mode { overflow: hidden; }
   color: var(--tv-red);
   background: var(--tv-red-soft);
 }
+.sweep-badge.caution {
+  border-color: #e8a838;
+  color: #ffd28a;
+  background: rgba(255, 176, 32, .12);
+}
 .sweep-badge.muted { color: var(--tv-text-muted); font-weight: 600; }
 .sweep-tag {
   display: inline-block;
@@ -205,6 +210,7 @@ body.desk-mode { overflow: hidden; }
 }
 .sweep-tag.reactive { color: var(--tv-green); }
 .sweep-tag.warn { color: var(--tv-red); }
+.sweep-tag.caution { color: #e8a838; }
 .sweep-tag.muted { color: var(--tv-text-muted); font-weight: 500; }
 .tv-toolbar .agent-scan-btn { padding: 8px 14px; font-size: .84rem; }
 
@@ -1118,12 +1124,15 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .tjr-checklist { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
 .tjr-checklist li { display: flex; gap: 10px; padding: 10px; border-radius: 4px; background: var(--tv-border); }
 .tjr-checklist li.done { border-left: 3px solid var(--tv-green); }
+.tjr-checklist li.partial { border-left: 3px solid #e8a838; background: rgba(255, 176, 32, .08); }
 .tjr-checklist li.pending { border-left: 3px solid var(--tv-border); }
 .tjr-checklist li span { font-weight: 700; color: var(--tv-text-secondary); }
+.tjr-checklist li.partial span { color: #e8a838; }
 .tjr-checklist li p { margin: 4px 0 0; font-size: .85rem; color: var(--tv-text-secondary); }
 .tjr-checklist.inline { flex-direction: row; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .tjr-checklist.inline li { padding: 4px 8px; font-size: .72rem; border-left: none; border-radius: 2px; }
 .tjr-checklist.inline li.done { border: 1px solid var(--tv-green); background: var(--tv-panel); }
+.tjr-checklist.inline li.partial { border: 1px solid #e8a838; background: rgba(255, 176, 32, .1); color: #ffd28a; }
 .tjr-checklist.inline li.pending { border: 1px solid var(--tv-border); background: var(--tv-bg-elevated); opacity: .75; }
 .tjr-checklist.inline li span { margin-right: 2px; }
 .evidence-panel.compact { padding: 12px 14px; }

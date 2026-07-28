@@ -480,8 +480,12 @@ export default function AgentDashboard() {
           )}
           <ul className="tjr-checklist inline">
             {row.checklist.map((item) => (
-              <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
-                <span>{item.complete ? '✓' : '○'}</span> {item.label}
+              <li
+                key={item.label}
+                className={item.partial ? 'partial' : item.complete ? 'done' : 'pending'}
+                title={item.note}
+              >
+                <span>{item.partial ? '!' : item.complete ? '✓' : '○'}</span> {item.label}
               </li>
             ))}
           </ul>
@@ -588,8 +592,8 @@ export default function AgentDashboard() {
                           {row.sweepLabel ?? 'H · arriscado'}
                         </span>
                       ) : row.softOpposed ? (
-                        <span className="sweep-tag" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
-                          {row.sweepLabel ?? 'ok · oposto aviso'}
+                        <span className="sweep-tag caution" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
+                          {row.sweepLabel ?? 'só malha'}
                         </span>
                       ) : row.opposedSweep ? (
                         <span className="sweep-tag warn" title={row.checklist.find((i) => i.label.startsWith('1.'))?.note}>
@@ -646,7 +650,7 @@ export default function AgentDashboard() {
           {selected?.riskyHighLong ? (
             <span className="sweep-badge warn">Sweep H · long arriscado</span>
           ) : selected?.softOpposed ? (
-            <span className="sweep-badge">Sweep ok · oposto aviso</span>
+            <span className="sweep-badge caution">Só malha · oposto aviso</span>
           ) : selected?.opposedSweep ? (
             <span className="sweep-badge warn">Sweep H · não comprar</span>
           ) : selected?.reactive ? (

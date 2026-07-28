@@ -395,7 +395,7 @@ export default function T212Dashboard() {
           {selected?.riskyHighLong ? (
             <span className="sweep-badge warn">Sweep H · long arriscado</span>
           ) : selected?.softOpposed ? (
-            <span className="sweep-badge">Sweep ok · oposto aviso</span>
+            <span className="sweep-badge caution">Só malha · oposto aviso</span>
           ) : selected?.opposedSweep && selected.action !== 'VENDER' ? (
             <span className="sweep-badge warn">Opposed · bloqueia</span>
           ) : selected?.action === 'VENDER' && selected.sweepLabel ? (
@@ -598,8 +598,10 @@ export default function T212Dashboard() {
                           )}
                         </td>
                         <td>
-                          {row.softOpposed ? (
-                            <span className="sweep-tag">{row.sweepLabel ?? 'ok · aviso'}</span>
+                          {row.riskyHighLong ? (
+                            <span className="sweep-tag warn">{row.sweepLabel ?? 'H arriscado'}</span>
+                          ) : row.softOpposed ? (
+                            <span className="sweep-tag caution">{row.sweepLabel ?? 'só malha'}</span>
                           ) : row.opposedSweep && row.action !== 'VENDER' ? (
                             <span className="sweep-tag warn">{row.sweepLabel ?? 'H'}</span>
                           ) : row.reactive ? (
@@ -671,8 +673,12 @@ export default function T212Dashboard() {
                                   )}
                                   <ul className="tjr-checklist inline">
                                     {selected.checklist.map((item) => (
-                                      <li key={item.label} className={item.complete ? 'done' : 'pending'} title={item.note}>
-                                        <span>{item.complete ? '✓' : '○'}</span> {item.label}
+                                      <li
+                                        key={item.label}
+                                        className={item.partial ? 'partial' : item.complete ? 'done' : 'pending'}
+                                        title={item.note}
+                                      >
+                                        <span>{item.partial ? '!' : item.complete ? '✓' : '○'}</span> {item.label}
                                       </li>
                                     ))}
                                   </ul>

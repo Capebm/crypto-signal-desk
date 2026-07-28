@@ -72,6 +72,46 @@ describe('computeTjrScore (algorithm contract)', () => {
     }))
     expect(sair).toBeGreaterThan(50)
   })
+
+  it('caps softOpposed / riskyHighLong below classic COMPRAR JÁ', () => {
+    const checks = fullChecklist([true, true, true, true, true, true, true, true, true, true])
+    const classic = computeTjrScore(base({
+      action: 'COMPRAR',
+      entryTiming: 'AGORA',
+      positionGuidance: 'ENTRAR_AGORA',
+      setupStatus: 'CONFIRMADA',
+      confidence: 'Alta',
+      riskReward: 1.5,
+      checklist: checks,
+    }))
+    const malha = computeTjrScore(base({
+      action: 'COMPRAR',
+      entryTiming: 'AGORA',
+      positionGuidance: 'ENTRAR_AGORA',
+      setupStatus: 'CONFIRMADA',
+      confidence: 'Média',
+      riskReward: 1.5,
+      softOpposed: true,
+      opposedSweep: true,
+      checklist: checks.map((item, i) => (i === 0 ? { ...item, partial: true } : item)),
+    }))
+    const risky = computeTjrScore(base({
+      action: 'COMPRAR',
+      entryTiming: 'AGORA',
+      positionGuidance: 'ENTRAR_AGORA',
+      setupStatus: 'CONFIRMADA',
+      confidence: 'Média',
+      riskReward: 1.5,
+      riskyHighLong: true,
+      opposedSweep: true,
+      checklist: checks.map((item, i) => (i === 0 ? { ...item, partial: true } : item)),
+    }))
+    expect(classic).toBeGreaterThanOrEqual(90)
+    expect(malha).toBeLessThanOrEqual(84)
+    expect(malha).toBeLessThan(classic)
+    expect(risky).toBeLessThanOrEqual(72)
+    expect(risky).toBeLessThan(malha)
+  })
 })
 
 describe('tjrActionLabel', () => {

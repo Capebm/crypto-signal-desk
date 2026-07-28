@@ -40,7 +40,7 @@ export type TjrDecision = Decision & {
   entryZone?: { low: number; high: number }
   positionGuidance: PositionGuidance
   invalidationReason?: string
-  checklist: { label: string; complete: boolean; note: string }[]
+  checklist: { label: string; complete: boolean; note: string; partial?: boolean }[]
   executionInterval?: '5m' | '15m'
   zones: PriceZone[]
   exitPlan?: ExitPlan
@@ -412,7 +412,11 @@ function evaluate(
   const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
   const sweepLabel = sweepOk && drawHit
-    ? (softOpposed && opposedHit ? `${drawHit.label} · oposto aviso` : drawHit.label)
+    ? (softOpposed && opposedHit
+      ? `${drawHit.label} · só malha`
+      : riskyHighLong && opposedHit
+        ? `${drawHit.label} · H+L`
+        : drawHit.label)
     : opposedSweep && opposedHit
       ? (riskyHighLong ? `${opposedHit.label} · H arriscado` : `${opposedHit.label} · não comprar`)
       : sweepOk
@@ -579,8 +583,17 @@ function evaluate(
           ? `Sweep de HIGH · ${sweepLabel} (${sweep}).`
           : `Sweep de LOW · ${sweepLabel} (${sweep}).`
 
+  // Sweep “completo” só no clássico (low alinhado, sem oposto a bloquear).
+  // Malha / Long após H: partial — UI âmbar + score capped (não parece setup 100).
+  const sweepClassicOk = sweepOk && !blockOpposed && !softOpposed && !riskyHighLong
+  const sweepPartial = Boolean(softOpposed || riskyHighLong)
   const checklist = [
-    { label: '1. Sweep (draw HTF)', complete: (sweepOk && !blockOpposed) || riskyHighLong, note: sweepNote },
+    {
+      label: '1. Sweep (draw HTF)',
+      complete: sweepClassicOk || sweepPartial,
+      partial: sweepPartial,
+      note: sweepNote,
+    },
     { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk
       ? (cfdPractical && !(confirmExec && confirmHtf)
         ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
@@ -650,7 +663,13 @@ function evaluate(
 
   return finalize({
     action,
-    confidence: positionGuidance === 'SAIR' ? 'Alta' : tradeReady ? (resolvedTiming === 'AGORA' && riskReward >= minRr + 0.3 ? 'Alta' : 'Média') : 'Baixa',
+    confidence: positionGuidance === 'SAIR'
+      ? 'Alta'
+      : tradeReady
+        ? (riskyHighLong || softOpposed
+          ? 'Média'
+          : resolvedTiming === 'AGORA' && riskReward >= minRr + 0.3 ? 'Alta' : 'Média')
+        : 'Baixa',
     reasons,
     entry,
     stop,
@@ -712,7 +731,8 @@ export function computeTjrScore(decision: TjrDecision, minRr = 1.5): number {
   for (const item of decision.checklist) {
     const w = checklistItemWeight(item.label)
     checklistMax += w
-    if (item.complete) checklistPts += w
+    if (item.complete && item.partial) checklistPts += w * 0.45
+    else if (item.complete) checklistPts += w
   }
   const checklistBand = checklistMax > 0 ? (checklistPts / checklistMax) * 70 : 0
 
@@ -733,10 +753,15 @@ export function computeTjrScore(decision: TjrDecision, minRr = 1.5): number {
 
   let penalty = 0
   if (decision.opposedSweep && !decision.softOpposed && !decision.riskyHighLong) penalty += 6
-  if (decision.riskyHighLong) penalty += 3
+  // Malha / Long após H: não podem parecer setup clássico ~100.
+  if (decision.softOpposed) penalty += 12
+  if (decision.riskyHighLong) penalty += 18
 
   const raw = checklistBand + actionBonus + setupBonus + confBonus + rrBonus - penalty
-  return Math.round(Math.min(100, Math.max(0, raw)))
+  let score = Math.round(Math.min(100, Math.max(0, raw)))
+  if (decision.riskyHighLong) score = Math.min(score, 72)
+  else if (decision.softOpposed) score = Math.min(score, 84)
+  return score
 }
 
 function finalize(decision: Omit<TjrDecision, 'score'>, minRr: number): TjrDecision {
@@ -875,10 +900,15 @@ export function listActionNowSetups(
       const sellNow = mode === 'both' && isEnterShortNow(decision)
       if (buyNow || sellNow) {
         const sideTag = decision.action === 'VENDER' ? ' · Sell' : ''
+        const relaxTag = decision.riskyHighLong
+          ? ' · H arriscado'
+          : decision.softOpposed
+            ? ' · só malha'
+            : ''
         hits.push({
           profile,
           tpMode: modeTp,
-          label: `${setupLabel(profile, modeTp)}${sideTag}`,
+          label: `${setupLabel(profile, modeTp)}${sideTag}${relaxTag}`,
           score: decision.score,
           action: decision.action,
         })
