@@ -2,7 +2,17 @@ import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'reac
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
+import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
+import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
+import {
+  matchT212Preset,
+  readT212PresetId,
+  T212_PRESETS,
+  tpIndexForT212,
+  writeT212PresetId,
+  type T212PresetId,
+} from '../../lib/t212-presets'
 import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import {
   evaluateTjrFull,
@@ -17,7 +27,7 @@ import {
   type TjrDecision,
 } from '../../lib/tjr-engine'
 import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
-import type { Interval } from '../../lib/types'
+import type { Direction, Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
   T212_BTC_INSTRUMENT,
@@ -35,12 +45,9 @@ import {
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
-const STAKE_KEY = 't212-stake-eur'
 const ALL_SETUPS_KEY = 't212-scan-all-setups'
 const WIDE_NET_KEY = 't212-wide-net'
 const CFD_PRACTICAL_KEY = 't212-cfd-practical'
-
-const STAKE_OPTIONS = [20, 50, 100, 200] as const
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -88,14 +95,6 @@ export default function T212Dashboard() {
       return 1
     }
   })
-  const [stakeIndex, setStakeIndex] = useState(() => {
-    try {
-      const raw = Number(localStorage.getItem(STAKE_KEY))
-      return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
-    } catch {
-      return 1
-    }
-  })
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [cfdPractical, setCfdPractical] = useState(() => readBool(CFD_PRACTICAL_KEY, true))
@@ -103,7 +102,6 @@ export default function T212Dashboard() {
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
-  const stakeEur = STAKE_OPTIONS[stakeIndex]
 
   /** Índices: SMT do perfil. Resto informativo. Crypto CFD: sessão 24/7 (não fecha fim de semana). */
   const optionsFor = (instrument: T212Instrument) => ({
@@ -126,13 +124,15 @@ export default function T212Dashboard() {
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [cfdMarket, setCfdMarket] = useState(() => getCfdMarketStatus())
+  const [regime, setRegime] = useState<MarketRegime>()
+  const [alertNow, setAlertNow] = useState(() => alertsEnabled())
+  const [presetId, setPresetId] = useState<T212PresetId>(() => readT212PresetId())
   const canScan = cfdMarket.open || hasCryptoWatch
 
   useEffect(() => {
     try {
       localStorage.setItem(RISK_KEY, String(riskIndex))
       localStorage.setItem(TP_KEY, tpMode)
-      localStorage.setItem(STAKE_KEY, String(stakeIndex))
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
       localStorage.setItem(CFD_PRACTICAL_KEY, cfdPractical ? '1' : '0')
@@ -140,7 +140,22 @@ export default function T212Dashboard() {
     } catch {
       /* ignore */
     }
-  }, [riskIndex, tpMode, stakeIndex, scanAllSetups, wideNet, cfdPractical, watchIds])
+    const matched = matchT212Preset({ riskIndex, tpMode, wideNet, cfdPractical, scanAllSetups })
+    setPresetId(matched)
+    writeT212PresetId(matched)
+  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, watchIds])
+
+  const applyPreset = (id: Exclude<T212PresetId, 'custom'>) => {
+    const { config } = T212_PRESETS[id]
+    setRiskIndex(config.riskIndex)
+    setTpIndex(tpIndexForT212(config.tpMode))
+    setWideNet(config.wideNet)
+    setCfdPractical(config.cfdPractical)
+    setScanAllSetups(config.scanAllSetups)
+    setPresetId(id)
+    writeT212PresetId(id)
+    setStatus(`Playbook «${T212_PRESETS[id].label}» — aplica + scan.`)
+  }
 
   useEffect(() => {
     const tick = () => {
@@ -297,9 +312,28 @@ export default function T212Dashboard() {
 
       const sorted = sortRows(results)
       setRows(sorted)
+      const btcRow = sorted.find((row) => row.instrument.id === 'btc' || row.instrument.short === 'BTC')
+      const us500 = sorted.find((row) => row.instrument.short === 'US500')
+      const biasRow = btcRow ?? us500
+      setRegime(computeMarketRegime(sorted, (biasRow?.bias ?? 'neutral') as Direction))
       const buyNow = sorted.filter(isBuyNow).length
       const sellNow = sorted.filter(isSellNow).length
       const aguardar = sorted.filter(isAguardar).length
+      for (const row of sorted) {
+        if (isBuyNow(row)) {
+          void notifyActionNow({
+            title: `LONG JÁ · ${row.instrument.short}`,
+            body: `Score ${row.score} · T212`,
+            symbol: `t212-L-${row.instrument.id}`,
+          })
+        } else if (isSellNow(row)) {
+          void notifyActionNow({
+            title: `SHORT JÁ · ${row.instrument.short}`,
+            body: `Score ${row.score} · T212`,
+            symbol: `t212-S-${row.instrument.id}`,
+          })
+        }
+      }
       const otherSetupHits = scanAllSetups
         ? sorted.filter((row) => (row.matchingSetups?.length ?? 0) > 0).length
         : 0
@@ -423,6 +457,14 @@ export default function T212Dashboard() {
             : cfdMarket.reason}
         </p>
       )}
+      {regime && rows.length > 0 && (
+        <p className={`agent-regime-banner tone-${regime.tone}`} role="status" title={regime.hint}>
+          <strong>{regime.label}</strong>
+          {' · '}Ref {biasLabel(regime.btcBias)}
+          {' · '}{regime.longCandidates} longs / {regime.highSweepHeavy} opposed / {regime.total}
+          <span className="desk-sub"> — {regime.hint}</span>
+        </p>
+      )}
 
       <section className="zella-kpis" aria-label="Resumo T212">
         <article>
@@ -458,6 +500,20 @@ export default function T212Dashboard() {
       </section>
 
       <section className="tv-setup-bar" aria-label="Setup T212">
+        <div className="preset-chip-row" role="group" aria-label="Playbooks">
+          {(Object.keys(T212_PRESETS) as Exclude<T212PresetId, 'custom'>[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`preset-chip${presetId === id ? ' active' : ''}`}
+              title={T212_PRESETS[id].title}
+              onClick={() => applyPreset(id)}
+            >
+              {T212_PRESETS[id].label}
+            </button>
+          ))}
+          {presetId === 'custom' && <span className="preset-chip muted">Custom</span>}
+        </div>
         <label className="tv-setup-field">
           <span>Risco</span>
           <select aria-label="Perfil de risco" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))}>
@@ -471,14 +527,6 @@ export default function T212Dashboard() {
           <select aria-label="Modo TP" value={tpIndex} onChange={(event) => setTpIndex(Number(event.target.value))}>
             {tpModes.map((mode, index) => (
               <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-field">
-          <span>Stake €</span>
-          <select aria-label="Stake euros" value={stakeIndex} onChange={(event) => setStakeIndex(Number(event.target.value))}>
-            {STAKE_OPTIONS.map((value, index) => (
-              <option key={value} value={index}>{value} €</option>
             ))}
           </select>
         </label>
@@ -505,6 +553,19 @@ export default function T212Dashboard() {
             onChange={(event) => setScanAllSetups(event.target.checked)}
           />
           <span>Todos setups</span>
+        </label>
+        <label className="tv-setup-toggle" title="Notificação do browser em LONG JÁ / SHORT JÁ">
+          <input
+            type="checkbox"
+            checked={alertNow}
+            onChange={(event) => {
+              const on = event.target.checked
+              setAlertNow(on)
+              setAlertsEnabled(on)
+              if (on) void ensureNotificationPermission()
+            }}
+          />
+          <span>Alertas</span>
         </label>
         <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}
@@ -633,7 +694,7 @@ export default function T212Dashboard() {
                                 </button>
                                 <span className="desk-sub">{selected.instrument.short} · {tjrActionLabel(selected, { cfd: true })}</span>
                               </div>
-                              <T212TradeGuide instrument={selected.instrument} decision={selected} stakeEur={stakeEur} />
+                              <T212TradeGuide instrument={selected.instrument} decision={selected} />
                               <div className="card-expanded-main">
                                 <article className="chart-panel">
                                   <header>

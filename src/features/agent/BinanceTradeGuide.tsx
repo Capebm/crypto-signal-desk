@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import {
   binancePriceCopy,
@@ -7,6 +7,7 @@ import {
 } from '../../lib/binance-prices'
 import { saveOpenPosition } from '../../lib/open-position-store'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
+import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
 import { tpModeMeta, type TpMode } from '../../lib/tp-mode'
 
@@ -14,17 +15,28 @@ type Row = TjrDecision & { symbol: string; price: number }
 
 export const STAKE_OPTIONS = [10, 20, 50, 100, 200, 250] as const
 export const DEFAULT_STAKE = 20
+export const STAKE_STORAGE_KEY = 'tjr-stake-index'
 
 type WizardStep = 'buy' | 'oco' | 'done'
 
 type GuideProps = {
   row: Row
-  stakeUsdc?: number
   analysisReady?: boolean
   refining?: boolean
   tpMode?: TpMode
+  /** Snapshot para pós-trade no Diário. */
+  signalMeta?: TradeSignalMeta
   onPositionSaved?: () => void
   onGoJournal?: () => void
+}
+
+const readStakeIndex = () => {
+  try {
+    const raw = Number(localStorage.getItem(STAKE_STORAGE_KEY))
+    return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
+  } catch {
+    return 1
+  }
 }
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
@@ -101,14 +113,23 @@ function CopyField({
 /** Valores exactos para colar na Binance — layout compacto, sem scroll. */
 export function BinanceOrderPanel({
   row,
-  stakeUsdc = DEFAULT_STAKE,
   analysisReady = true,
   refining = false,
   tpMode = '1_5r',
+  signalMeta,
   onPositionSaved,
   onGoJournal,
 }: GuideProps) {
   const [wizard, setWizard] = useState<WizardStep>('buy')
+  const [stakeIndex, setStakeIndex] = useState(readStakeIndex)
+  const stakeUsdc = STAKE_OPTIONS[stakeIndex]
+  useEffect(() => {
+    try {
+      localStorage.setItem(STAKE_STORAGE_KEY, String(stakeIndex))
+    } catch {
+      /* ignore */
+    }
+  }, [stakeIndex])
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const qty = suggestedQuantity(row.entry, stakeUsdc)
@@ -199,6 +220,7 @@ export function BinanceOrderPanel({
       userStop: stopCopy === '—' ? '' : stopCopy,
       userTarget: targetCopy === '—' ? '' : targetCopy,
       lockOco: true,
+      signal: signalMeta,
     })
     onPositionSaved?.()
     setWizard('done')
@@ -207,8 +229,19 @@ export function BinanceOrderPanel({
   return (
     <section className="binance-order-panel">
       <header className="binance-order-head">
-        <div><strong>{pair}</strong> · {label} · {stakeUsdc} {AGENT_QUOTE_ASSET}</div>
-        <span>Ecrã: vírgula · Copiar: ponto (Binance)</span>
+        <div><strong>{pair}</strong> · {label}</div>
+        <label className="binance-stake-field" title="Só para qty sugerida — não altera o scan TJR">
+          <span>Montante</span>
+          <select
+            aria-label="Montante por trade"
+            value={stakeIndex}
+            onChange={(event) => setStakeIndex(Number(event.target.value))}
+          >
+            {STAKE_OPTIONS.map((value, index) => (
+              <option key={value} value={index}>{value} {AGENT_QUOTE_ASSET}</option>
+            ))}
+          </select>
+        </label>
       </header>
       <nav className="binance-wizard-tabs" aria-label="Passos Binance">
         <button type="button" className={wizard === 'buy' ? 'active' : ''} onClick={() => setWizard('buy')}>1 · Comprar</button>
@@ -324,6 +357,6 @@ export function BinanceGuideTeaser({ row, tpMode = '1_5r' }: GuideProps) {
   )
 }
 
-export default function BinanceTradeGuide({ row, stakeUsdc = DEFAULT_STAKE }: GuideProps) {
-  return <BinanceOrderPanel row={row} stakeUsdc={stakeUsdc} />
+export default function BinanceTradeGuide({ row, ...rest }: GuideProps) {
+  return <BinanceOrderPanel row={row} {...rest} />
 }

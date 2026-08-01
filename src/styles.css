@@ -216,7 +216,7 @@ body.desk-mode { overflow: hidden; }
 
 .zella-kpis {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   margin: 0 0 10px;
 }
@@ -410,6 +410,55 @@ body.desk-mode { overflow: hidden; }
 .agent-ny-mid-banner.warn {
   border-color: var(--tv-red);
 }
+.agent-regime-banner {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+  background: var(--tv-bg-elevated);
+  color: var(--tv-text);
+  font-size: .8rem;
+  line-height: 1.4;
+}
+.agent-regime-banner.tone-ok { border-color: var(--tv-green); }
+.agent-regime-banner.tone-caution { border-color: #e8a838; }
+.agent-regime-banner.tone-hostile { border-color: var(--tv-red); }
+.preset-chip-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+.preset-chip {
+  padding: 5px 10px;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--tv-text-secondary);
+  background: var(--tv-toolbar);
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.preset-chip:hover { border-color: var(--tv-blue); color: var(--tv-text); }
+.preset-chip.active {
+  border-color: var(--tv-blue);
+  color: #fff;
+  background: var(--tv-blue);
+}
+.preset-chip.muted {
+  cursor: default;
+  opacity: .7;
+  font-weight: 600;
+}
+.journal-breakdown-head {
+  font-weight: 700;
+  color: var(--tv-text-muted);
+  font-size: .72rem;
+}
+.journal-signal-cell { font-variant-numeric: tabular-nums; }
+.signal-edge { margin-top: 10px; }
 .desk-table tr.sell-now { box-shadow: inset 3px 0 0 var(--tv-red); }
 .t212-guide-plan {
   margin: 0 0 12px;
@@ -1155,9 +1204,25 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .binance-teaser strong { color: var(--tv-text); }
 .binance-order-panel { padding: 14px 16px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-panel); }
 .binance-order-panel.muted { border-color: var(--tv-border); background: var(--tv-panel); }
-.binance-order-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.binance-order-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
 .binance-order-head strong { color: var(--tv-text); font-size: 1.05rem; }
 .binance-order-head span { color: var(--tv-text-secondary); font-size: .74rem; }
+.binance-stake-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .72rem;
+  color: var(--tv-text-secondary);
+}
+.binance-stake-field select {
+  padding: 4px 8px;
+  font: inherit;
+  font-size: .78rem;
+  color: var(--tv-text);
+  background: var(--tv-bg-elevated);
+  border: 1px solid var(--tv-border);
+  border-radius: 2px;
+}
 .binance-order-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .binance-order-groups.single { grid-template-columns: 1fr; max-width: 480px; }
 .binance-order-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; align-content: start; }

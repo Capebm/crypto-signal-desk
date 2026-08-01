@@ -1,8 +1,18 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
+import {
+  AGENT_PRESETS,
+  matchAgentPreset,
+  readActivePresetId,
+  tpIndexFor,
+  writeActivePresetId,
+  type AgentPresetId,
+} from '../../lib/agent-presets'
 import { goToCryptoTab } from '../../lib/crypto-tabs'
+import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
 import { dayId, pnlForDay } from '../../lib/journal/journal-stats'
 import { getClosedTrades } from '../../lib/journal/trade-store'
+import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { loadOpenPosition, parseOpenNumber } from '../../lib/open-position-store'
 import {
   evaluateTjrFull,
@@ -15,22 +25,21 @@ import {
   tjrScoreColor,
   type TjrDecision,
 } from '../../lib/tjr-engine'
+import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
 import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
-import { BinanceOrderPanel, STAKE_OPTIONS } from './BinanceTradeGuide'
+import { BinanceOrderPanel } from './BinanceTradeGuide'
 import OnboardingModal from './OnboardingModal'
 import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
-import type { Interval } from '../../lib/types'
+import type { Direction, Interval } from '../../lib/types'
 import TpModeModal from './TpModeModal'
 
 const TP_STORAGE_KEY = 'tjr-tp-mode'
-const ACCOUNT_KEY = 'tjr-account-usdc'
 const RISK_KEY = 'tjr-risk-index'
-const STAKE_KEY = 'tjr-stake-index'
 const HIGH_SWEEP_KEY = 'tjr-allow-high-sweep-long'
 const ALL_SETUPS_KEY = 'tjr-scan-all-setups'
 const WIDE_NET_KEY = 'tjr-wide-net'
@@ -65,17 +74,14 @@ type AgentRow = TjrDecision & {
 
 const price = (value?: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: value && value < 1 ? 5 : 2 }).format(value ?? 0)
 
-const moneyShort = (value: number) =>
-  new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
-
 const resolveBase = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
 
 const sortByScore = <T extends { score: number; riskReward?: number }>(list: T[]) =>
   [...list].sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
 
-const potentialUsdc = (row: AgentRow, stake: number) => {
+const potentialPct = (row: AgentRow) => {
   if (!row.entry || !row.target || row.entry <= 0 || row.action !== 'COMPRAR') return undefined
-  return stake * ((row.target - row.entry) / row.entry)
+  return ((row.target - row.entry) / row.entry) * 100
 }
 
 /** Top candidatos COMPRAR refinados automaticamente após scan (precisa 1m para COMPRAR JÁ). */
@@ -97,23 +103,6 @@ export default function AgentDashboard() {
       return 0
     }
   })
-  const [stakeIndex, setStakeIndex] = useState(() => {
-    try {
-      const raw = Number(localStorage.getItem(STAKE_KEY))
-      return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
-    } catch {
-      return 1
-    }
-  })
-  const stakeUsdc = STAKE_OPTIONS[stakeIndex]
-  const [accountUsdc, setAccountUsdc] = useState(() => {
-    try {
-      const raw = Number(localStorage.getItem(ACCOUNT_KEY))
-      return Number.isFinite(raw) && raw > 0 ? raw : 500
-    } catch {
-      return 500
-    }
-  })
   const [tpIndex, setTpIndex] = useState(() => Math.max(0, tpModes.indexOf(readStoredTpMode())))
   const [tpHelpOpen, setTpHelpOpen] = useState(false)
   const tpMode = tpModes[tpIndex]
@@ -125,7 +114,7 @@ export default function AgentDashboard() {
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedSymbols, setRefinedSymbols] = useState<Set<string>>(() => new Set())
-  const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode; stakeUsdc: number }>()
+  const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode }>()
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const evalOptions = useMemo(
@@ -142,16 +131,16 @@ export default function AgentDashboard() {
   const [pinKey, setPinKey] = useState(0)
   const [advisorOpen, setAdvisorOpen] = useState(false)
   const [todayPnl, setTodayPnl] = useState(() => pnlForDay(getClosedTrades(), dayId(Date.now())))
+  const [regime, setRegime] = useState<MarketRegime>()
+  const [alertBuyNow, setAlertBuyNow] = useState(() => alertsEnabled())
+  const [presetId, setPresetId] = useState<AgentPresetId>(() => readActivePresetId())
   const openFill = useMemo(() => loadOpenPosition(), [pinKey])
   const fillPrice = openFill ? parseOpenNumber(openFill.entryPrice) : undefined
-  const stakePct = accountUsdc > 0 ? (stakeUsdc / accountUsdc) * 100 : 0
 
   useEffect(() => {
     try {
       localStorage.setItem(TP_STORAGE_KEY, tpMode)
       localStorage.setItem(RISK_KEY, String(riskIndex))
-      localStorage.setItem(STAKE_KEY, String(stakeIndex))
-      localStorage.setItem(ACCOUNT_KEY, String(accountUsdc))
       localStorage.setItem(HIGH_SWEEP_KEY, allowHighSweepLong ? '1' : '0')
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
@@ -159,7 +148,43 @@ export default function AgentDashboard() {
     } catch {
       /* ignore */
     }
-  }, [tpMode, riskIndex, stakeIndex, accountUsdc, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
+    const matched = matchAgentPreset({
+      riskIndex,
+      tpMode,
+      avoidNyMid,
+      wideNet,
+      allowHighSweepLong,
+      scanAllSetups,
+    })
+    setPresetId(matched)
+    writeActivePresetId(matched)
+  }, [tpMode, riskIndex, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
+
+  const applyPreset = (id: Exclude<AgentPresetId, 'custom'>) => {
+    const { config } = AGENT_PRESETS[id]
+    setRiskIndex(config.riskIndex)
+    setTpIndex(tpIndexFor(config.tpMode))
+    setAvoidNyMid(config.avoidNyMid)
+    setWideNet(config.wideNet)
+    setAllowHighSweepLong(config.allowHighSweepLong)
+    setScanAllSetups(config.scanAllSetups)
+    setPresetId(id)
+    writeActivePresetId(id)
+    if (rows.length > 0) setStatus(`Playbook «${AGENT_PRESETS[id].label}» — aplica + scan para recalcular.`)
+  }
+
+  const buildSignalMeta = (row: Pick<TjrDecision, 'score' | 'softOpposed' | 'riskyHighLong' | 'opposedSweep'>): TradeSignalMeta => ({
+    score: row.score,
+    session: session.window,
+    sessionBadge: session.badge,
+    riskProfile,
+    tpMode,
+    softOpposed: row.softOpposed,
+    riskyHighLong: row.riskyHighLong,
+    opposedSweep: row.opposedSweep,
+    wideNet,
+    allowHighSweepLong,
+  })
 
   useEffect(() => {
     const tick = () => {
@@ -240,8 +265,14 @@ export default function AgentDashboard() {
         setStatus(`Refresh Aguardar · ${index + 1}/${targets.length} · ${formatTradingPair(row.symbol)}…`)
         try {
           const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
-          if (isEnterLongNow(refined)) buyNow += 1
-          else if (isAguardarCompra(refined)) stillWait += 1
+          if (isEnterLongNow(refined)) {
+            buyNow += 1
+            void notifyActionNow({
+              title: `COMPRAR JÁ · ${formatTradingPair(refined.symbol)}`,
+              body: `Score ${refined.score} · ${session.badge}`,
+              symbol: refined.symbol,
+            })
+          } else if (isAguardarCompra(refined)) stillWait += 1
           else toEsperar += 1
         } catch {
           failed += 1
@@ -313,6 +344,8 @@ export default function AgentDashboard() {
       }
       const sorted = sortByScore(results)
       setRows(sorted)
+      const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, quickProfile, quickTp, evalOptions, 'long')
+      setRegime(computeMarketRegime(sorted, (btcQuick.bias ?? 'neutral') as Direction))
 
       // MTF só para candidatos a LONG. Com "Todos setups", NÃO usar top score global —
       // senão o refine gasta-se em VENDER (sweeps de H / short), que Spot não compra.
@@ -348,7 +381,14 @@ export default function AgentDashboard() {
           setStatus(`MTF · ${index + 1}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}…`)
           try {
             const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
-            if (isEnterLongNow(refined)) buyNow += 1
+            if (isEnterLongNow(refined)) {
+              buyNow += 1
+              void notifyActionNow({
+                title: `COMPRAR JÁ · ${formatTradingPair(refined.symbol)}`,
+                body: `Score ${refined.score} · ${session.badge}`,
+                symbol: refined.symbol,
+              })
+            }
           } catch {
             /* mantém scan 1h deste par */
           }
@@ -366,7 +406,7 @@ export default function AgentDashboard() {
             : `${results.length} moedas analisadas. Nenhum candidato COMPRAR no scan 1h.`,
         )
       }
-      setScanMeta({ at: new Date(), profile: riskProfile, tpMode, stakeUsdc })
+      setScanMeta({ at: new Date(), profile: riskProfile, tpMode })
     } catch {
       setStatus('Não foi possível obter os dados da Binance. Tenta novamente.')
     } finally {
@@ -403,7 +443,7 @@ export default function AgentDashboard() {
   }
 
   const scanStale = Boolean(
-    scanMeta && (scanMeta.profile !== riskProfile || scanMeta.tpMode !== tpMode || scanMeta.stakeUsdc !== stakeUsdc),
+    scanMeta && (scanMeta.profile !== riskProfile || scanMeta.tpMode !== tpMode),
   )
   const scanTimeLabel = scanMeta
     ? new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(scanMeta.at)
@@ -422,10 +462,10 @@ export default function AgentDashboard() {
       </div>
       <BinanceOrderPanel
         row={row}
-        stakeUsdc={stakeUsdc}
         analysisReady={refinedSymbols.has(row.symbol)}
         refining={loadingFull === row.symbol}
         tpMode={tpMode}
+        signalMeta={buildSignalMeta(row)}
         onPositionSaved={() => setPinKey((k) => k + 1)}
         onGoJournal={() => goToCryptoTab('journal')}
       />
@@ -534,12 +574,12 @@ export default function AgentDashboard() {
               <th>Stop</th>
               <th>TP1</th>
               <th>R:R</th>
-              <th>Pot. @ {stakeUsdc}</th>
+              <th>Pot. %</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((row) => {
-              const gain = potentialUsdc(row, stakeUsdc)
+              const gainPct = potentialPct(row)
               const open = selected?.symbol === row.symbol
               const detail = open ? (visibleRows.find((r) => r.symbol === selected.symbol) ?? selected) : undefined
               return (
@@ -622,7 +662,7 @@ export default function AgentDashboard() {
                     <td className="num">{price(row.stop)}</td>
                     <td className="num">{price(row.target)}</td>
                     <td className="num">{row.riskReward?.toFixed(1) ?? '—'}×</td>
-                    <td className="num">{gain !== undefined ? <span className="positive">+{moneyShort(gain)}</span> : '—'}</td>
+                    <td className="num">{gainPct !== undefined ? <span className="positive">+{gainPct.toFixed(1)}%</span> : '—'}</td>
                   </tr>
                   {detail && (
                     <tr className="desk-expand-row" onClick={(event) => event.stopPropagation()}>
@@ -680,6 +720,14 @@ export default function AgentDashboard() {
           NY mid — atenção: no diário esta sessão teve WR baixo. Liga <strong>Evitar NY mid</strong> para bloquear COMPRAR JÁ.
         </p>
       )}
+      {regime && rows.length > 0 && (
+        <p className={`agent-regime-banner tone-${regime.tone}`} role="status" title={regime.hint}>
+          <strong>{regime.label}</strong>
+          {' · '}BTC {biasLabel(regime.btcBias)}
+          {' · '}{regime.longCandidates} longs / {regime.highSweepHeavy} HIGH sweep / {regime.total}
+          <span className="desk-sub"> — {regime.hint}</span>
+        </p>
+      )}
 
       <section className="zella-kpis" aria-label="Resumo do desk">
         <article>
@@ -693,11 +741,6 @@ export default function AgentDashboard() {
           <span>Trades</span>
           <strong>{todayPnl.trades}</strong>
           <small>hoje</small>
-        </article>
-        <article>
-          <span>Stake</span>
-          <strong>{stakeUsdc}</strong>
-          <small>{stakePct.toFixed(0)}% conta</small>
         </article>
         <article>
           <span>Risco</span>
@@ -716,7 +759,21 @@ export default function AgentDashboard() {
         </article>
       </section>
 
-      <section className="tv-setup-bar" aria-label="Setup de risco e montante">
+      <section className="tv-setup-bar" aria-label="Setup de risco">
+        <div className="preset-chip-row" role="group" aria-label="Playbooks">
+          {(Object.keys(AGENT_PRESETS) as Exclude<AgentPresetId, 'custom'>[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`preset-chip${presetId === id ? ' active' : ''}`}
+              title={AGENT_PRESETS[id].title}
+              onClick={() => applyPreset(id)}
+            >
+              {AGENT_PRESETS[id].label}
+            </button>
+          ))}
+          {presetId === 'custom' && <span className="preset-chip muted">Custom</span>}
+        </div>
         <label className="tv-setup-field">
           <span>Risco</span>
           <select
@@ -746,28 +803,6 @@ export default function AgentDashboard() {
               <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
             ))}
           </select>
-        </label>
-        <label className="tv-setup-field">
-          <span>Montante</span>
-          <select
-            aria-label="Montante por trade"
-            value={stakeIndex}
-            onChange={(event) => setStakeIndex(Number(event.target.value))}
-          >
-            {STAKE_OPTIONS.map((value, index) => (
-              <option key={value} value={index}>{value} {AGENT_QUOTE_ASSET}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-field account">
-          <span>Conta</span>
-          <input
-            type="number"
-            min={50}
-            step={10}
-            value={accountUsdc}
-            onChange={(event) => setAccountUsdc(Math.max(50, Number(event.target.value) || 50))}
-          />
         </label>
         <label className="tv-setup-toggle" title="Permite COMPRAR após sweep de HIGH (não é setup TJR clássico de long)">
           <input
@@ -813,6 +848,19 @@ export default function AgentDashboard() {
           />
           <span>Todos setups</span>
         </label>
+        <label className="tv-setup-toggle" title="Notificação do browser quando um Aguardar passa a COMPRAR JÁ (scan / refresh)">
+          <input
+            type="checkbox"
+            checked={alertBuyNow}
+            onChange={(event) => {
+              const on = event.target.checked
+              setAlertBuyNow(on)
+              setAlertsEnabled(on)
+              if (on) void ensureNotificationPermission()
+            }}
+          />
+          <span>Alertas COMPRAR JÁ</span>
+        </label>
         {rows.length > 0 && (
           <button type="button" className="setup-reapply" onClick={() => void scan()} disabled={running}>
             {running ? '…' : 'Aplicar + scan'}
@@ -844,7 +892,7 @@ export default function AgentDashboard() {
       {rows.length === 0 && !running && (
         <section className="scan-empty scan-welcome">
           <h2>Watchlist vazia</h2>
-          <p>Define risco · TP · montante na barra de setup e carrega <strong>Analisar mercado</strong>. Melhor na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
+          <p>Define risco · TP na barra de setup e carrega <strong>Analisar mercado</strong>. Melhor na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
           {nyClock && !session.inIdealWindow && (
             <p className="scan-empty-hint">Agora: <strong>{nyClock.status}</strong> · {session.badge}</p>
           )}
@@ -897,7 +945,7 @@ export default function AgentDashboard() {
         <div className="agent-panel-body setup-help">
           <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description}</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Montante:</strong> {stakeUsdc} {AGENT_QUOTE_ASSET} ≈ {stakePct.toFixed(1)}% da conta ({accountUsdc} {AGENT_QUOTE_ASSET}). Usado no painel Binance e no preview de lucro.</p>
+          <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade (qty sugerida). Não altera o scan TJR.</p>
         </div>
       </details>
       <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />

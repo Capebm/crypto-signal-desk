@@ -1,5 +1,7 @@
 /** Shared open-position form (Agent pin + Position Advisor). Does not touch TJR engine. */
 
+import type { TradeSignalMeta } from './trade-signal-meta'
+
 export const OPEN_POSITION_KEY = 'tjr-open-positions'
 
 export type SavedOpenPosition = {
@@ -11,6 +13,8 @@ export type SavedOpenPosition = {
   lockOco: boolean
   /** ISO when last analysed / registered from Binance wizard. */
   savedAt?: string
+  /** Snapshot TJR no momento da entrada (pós-trade no Diário). */
+  signal?: TradeSignalMeta
 }
 
 export function loadOpenPosition(): SavedOpenPosition | undefined {
@@ -27,6 +31,7 @@ export function loadOpenPosition(): SavedOpenPosition | undefined {
       userTarget: parsed.userTarget ?? '',
       lockOco: parsed.lockOco !== false,
       savedAt: parsed.savedAt,
+      signal: parsed.signal,
     }
   } catch {
     return undefined

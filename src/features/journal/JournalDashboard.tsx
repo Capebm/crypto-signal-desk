@@ -12,6 +12,7 @@ import {
 } from '../../lib/journal/trade-store'
 import { resolvePositionSymbol } from '../../lib/position-advisor'
 import type { ClosedTrade } from '../../lib/journal/types'
+import { signalMetaLabel } from '../../lib/trade-signal-meta'
 
 const money = (value: number) =>
   new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
@@ -278,6 +279,40 @@ export default function JournalDashboard() {
           </section>
 
           <section className="journal-panel">
+            <h2>O que funciona (meta do sinal)</h2>
+            <p className="journal-muted">
+              Só trades fechados via pin <strong>Fechou</strong> no Agente (com snapshot). CSV import sem meta.
+              {stats.signalTrades > 0 ? ` · ${stats.signalTrades} com meta.` : ' · Ainda nenhum — fecha uma posição pelo pin.'}
+            </p>
+            {stats.signalTrades > 0 && (
+              <div className="journal-grid signal-edge">
+                <ul className="journal-breakdown">
+                  <li className="journal-breakdown-head"><span>Perfil</span><span>n</span><span>PnL</span><span>WR</span></li>
+                  {Object.entries(stats.byProfile).map(([key, row]) => (
+                    <li key={key}>
+                      <span>{key}</span>
+                      <span>{row.trades}</span>
+                      <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl)}</span>
+                      <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}%` : '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+                <ul className="journal-breakdown">
+                  <li className="journal-breakdown-head"><span>Tipo setup</span><span>n</span><span>PnL</span><span>WR</span></li>
+                  {Object.entries(stats.byMesh).map(([key, row]) => (
+                    <li key={key}>
+                      <span>{key}</span>
+                      <span>{row.trades}</span>
+                      <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl)}</span>
+                      <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}%` : '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+
+          <section className="journal-panel">
             <h2>Trades fechados</h2>
             <div className="journal-trade-table-wrap">
               <table className="journal-trade-table">
@@ -292,6 +327,7 @@ export default function JournalDashboard() {
                     <th>%</th>
                     <th>Duração</th>
                     <th>Sessão ↓</th>
+                    <th>Sinal</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -320,6 +356,9 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
       <td className={trade.pnlPct >= 0 ? 'positive' : 'negative'}>{trade.pnlPct.toFixed(2)}%</td>
       <td>{formatDuration(trade.durationMs)}</td>
       <td title={trade.entrySessionBadge}>{sessionLabels[trade.entrySession] ?? trade.entrySession}</td>
+      <td className="journal-signal-cell" title={trade.signal ? signalMetaLabel(trade.signal) : 'Sem meta (CSV / manual sem pin)'}>
+        {trade.signal ? `${trade.signal.score}` : '—'}
+      </td>
     </tr>
   )
 }

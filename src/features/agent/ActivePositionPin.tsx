@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getPlaybookCandles } from '../../lib/binance'
+import { addManualClosedTrade } from '../../lib/journal/trade-store'
 import { clearOpenPosition, loadOpenPosition, parseOpenNumber, type SavedOpenPosition } from '../../lib/open-position-store'
 import { hoursSinceIso, isPastTimeStop, TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
 import { resolvePositionSymbol, runPositionAdvice, type PositionAdviceResult } from '../../lib/position-advisor'
@@ -76,6 +77,43 @@ export default function ActivePositionPin({ riskProfile, tpMode, refreshKey = 0,
         : result?.advice === 'COMPRAR_MAIS' ? 'pos-add'
           : 'pos-manter'
 
+  const closeToJournal = () => {
+    const entry = parseOpenNumber(saved.entryPrice)
+    const qty = parseOpenNumber(saved.quantity)
+    if (!entry || !qty) {
+      clearOpenPosition()
+      setSaved(undefined)
+      setResult(undefined)
+      onCleared?.()
+      return
+    }
+    const suggested = result?.currentPrice
+    const raw = window.prompt(
+      `Preço de saída (${AGENT_QUOTE_ASSET}) — regista no Diário com meta do sinal`,
+      suggested !== undefined ? String(suggested) : '',
+    )
+    if (raw === null) return
+    const exit = Number(raw.replace(',', '.'))
+    if (!Number.isFinite(exit) || exit <= 0) {
+      window.alert('Preço de saída inválido.')
+      return
+    }
+    const entryTime = saved.savedAt ? Date.parse(saved.savedAt) : Date.now() - 60_000
+    addManualClosedTrade({
+      symbol: resolvePositionSymbol(saved.base, AGENT_QUOTE_ASSET),
+      entryPrice: entry,
+      exitPrice: exit,
+      quantity: qty,
+      entryTime: Number.isFinite(entryTime) ? entryTime : Date.now() - 60_000,
+      exitTime: Date.now(),
+      signal: saved.signal,
+    })
+    clearOpenPosition()
+    setSaved(undefined)
+    setResult(undefined)
+    onCleared?.()
+  }
+
   return (
     <div className={`active-position-pin ${adviceClass}`}>
       <div className="active-position-pin-main">
@@ -92,21 +130,19 @@ export default function ActivePositionPin({ riskProfile, tpMode, refreshKey = 0,
             {heldHours.toFixed(1)}h{pastTimeStop ? ` · time-stop ${TIME_STOP_HOURS}h` : ''}
           </span>
         )}
+        {saved.signal && (
+          <span className="desk-sub" title="Meta do sinal na entrada">
+            score {saved.signal.score}
+            {saved.signal.softOpposed ? ' · malha' : ''}
+            {saved.signal.riskyHighLong ? ' · H' : ''}
+          </span>
+        )}
       </div>
       <div className="active-position-pin-actions">
         {onOpenAdvisor && (
           <button type="button" className="ghost-sm" onClick={onOpenAdvisor}>Detalhe</button>
         )}
-        <button
-          type="button"
-          className="ghost-sm"
-          onClick={() => {
-            clearOpenPosition()
-            setSaved(undefined)
-            setResult(undefined)
-            onCleared?.()
-          }}
-        >
+        <button type="button" className="ghost-sm" onClick={closeToJournal} title="Regista saída no Diário e limpa a pin">
           Fechou
         </button>
       </div>

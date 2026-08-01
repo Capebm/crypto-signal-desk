@@ -1,11 +1,14 @@
+import { useEffect, useState } from 'react'
 import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { T212Instrument } from '../../lib/yahoo-market'
 
+const STAKE_KEY = 't212-stake-eur'
+const STAKE_OPTIONS = [20, 50, 100, 200] as const
+
 type Props = {
   instrument: T212Instrument
   decision: TjrDecision
-  stakeEur: number
 }
 
 const fmt = (value?: number, digits = 2) => {
@@ -15,7 +18,26 @@ const fmt = (value?: number, digits = 2) => {
   return value.toPrecision(5)
 }
 
-export default function T212TradeGuide({ instrument, decision, stakeEur }: Props) {
+const readStakeIndex = () => {
+  try {
+    const raw = Number(localStorage.getItem(STAKE_KEY))
+    return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
+  } catch {
+    return 1
+  }
+}
+
+export default function T212TradeGuide({ instrument, decision }: Props) {
+  const [stakeIndex, setStakeIndex] = useState(readStakeIndex)
+  const stakeEur = STAKE_OPTIONS[stakeIndex]
+  useEffect(() => {
+    try {
+      localStorage.setItem(STAKE_KEY, String(stakeIndex))
+    } catch {
+      /* ignore */
+    }
+  }, [stakeIndex])
+
   const invalidated = decision.positionGuidance === 'SAIR' || decision.positionGuidance === 'REALIZAR_ALVO'
   const enterReady =
     !invalidated
@@ -39,7 +61,22 @@ export default function T212TradeGuide({ instrument, decision, stakeEur }: Props
           <p className="eyebrow">Trading 212 · CFD</p>
           <h3>{instrument.t212Label} · {tjrActionLabel(decision, { cfd: true })}</h3>
         </div>
-        <span className="desk-sub">Execução manual — sem API</span>
+        {(enterReady || awaitReady) && !invalidated ? (
+          <label className="binance-stake-field" title="Só sugestão de tamanho — não altera o scan">
+            <span>Stake €</span>
+            <select
+              aria-label="Stake euros"
+              value={stakeIndex}
+              onChange={(event) => setStakeIndex(Number(event.target.value))}
+            >
+              {STAKE_OPTIONS.map((value, index) => (
+                <option key={value} value={index}>{value} €</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="desk-sub">Execução manual — sem API</span>
+        )}
       </header>
 
       <p className="t212-guide-plan">

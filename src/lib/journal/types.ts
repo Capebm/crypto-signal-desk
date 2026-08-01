@@ -1,3 +1,4 @@
+import type { TradeSignalMeta } from '../trade-signal-meta'
 import type { SessionWindow } from '../trading-session'
 
 export type BinanceFill = {
@@ -29,11 +30,15 @@ export type ClosedTrade = {
   exitSession: SessionWindow
   exitSessionBadge: string
   durationMs: number
+  /** Snapshot do Agente na entrada (quando registado via Fechou / meta). */
+  signal?: TradeSignalMeta
 }
 
 export type JournalStore = {
   fills: BinanceFill[]
   dayNotes: Record<string, string>
+  /** Meta de sinal indexada por ClosedTrade.id */
+  signalByTradeId?: Record<string, TradeSignalMeta>
   lastImportAt?: string
   lastImportRows?: number
 }
@@ -41,6 +46,7 @@ export type JournalStore = {
 export type SymbolStats = { trades: number; pnl: number; wins: number }
 export type SessionStats = { trades: number; pnl: number; wins: number }
 export type DayStats = { pnl: number; trades: number; wins: number }
+export type BucketStats = { trades: number; pnl: number; wins: number }
 
 export type JournalStats = {
   totalTrades: number
@@ -57,4 +63,8 @@ export type JournalStats = {
   bySymbol: Record<string, SymbolStats>
   bySession: Partial<Record<SessionWindow, SessionStats>>
   byDay: Record<string, DayStats>
+  /** Só trades com signal meta. */
+  signalTrades: number
+  byProfile: Record<string, BucketStats>
+  byMesh: Record<string, BucketStats>
 }

@@ -1,3 +1,4 @@
+import type { TradeSignalMeta } from '../trade-signal-meta'
 import { buildClosedTrades } from './round-trips'
 import type { BinanceFill, ClosedTrade, JournalStore } from './types'
 
@@ -6,6 +7,7 @@ const STORAGE_KEY = 'tjr-journal-v1'
 const emptyStore = (): JournalStore => ({
   fills: [],
   dayNotes: {},
+  signalByTradeId: {},
 })
 
 export function loadJournalStore(): JournalStore {
@@ -16,6 +18,7 @@ export function loadJournalStore(): JournalStore {
     return {
       fills: parsed.fills ?? [],
       dayNotes: parsed.dayNotes ?? {},
+      signalByTradeId: parsed.signalByTradeId ?? {},
       lastImportAt: parsed.lastImportAt,
       lastImportRows: parsed.lastImportRows,
     }
@@ -45,6 +48,7 @@ export function importFills(incoming: BinanceFill[]): { store: JournalStore; tra
   const store: JournalStore = {
     ...current,
     fills: merged,
+    signalByTradeId: current.signalByTradeId ?? {},
     lastImportAt: new Date().toISOString(),
     lastImportRows: incoming.length,
   }
@@ -64,7 +68,11 @@ export function setDayNote(dayKey: string, note: string) {
 }
 
 export function getClosedTrades(): ClosedTrade[] {
-  return buildClosedTrades(loadJournalStore().fills)
+  const store = loadJournalStore()
+  return buildClosedTrades(store.fills).map((trade) => ({
+    ...trade,
+    signal: store.signalByTradeId?.[trade.id],
+  }))
 }
 
 export type ManualClosedTradeInput = {
@@ -75,6 +83,7 @@ export type ManualClosedTradeInput = {
   entryTime: number
   exitTime: number
   feesUsdc?: number
+  signal?: TradeSignalMeta
 }
 
 /** Regista um round-trip Spot long (BUY + SELL) sem CSV — não altera o motor TJR. */
@@ -82,7 +91,7 @@ export function addManualClosedTrade(input: ManualClosedTradeInput): { store: Jo
   const symbol = input.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (!symbol || input.quantity <= 0 || input.entryPrice <= 0 || input.exitPrice <= 0) {
     const store = loadJournalStore()
-    return { store, trades: buildClosedTrades(store.fills) }
+    return { store, trades: getClosedTrades() }
   }
   const entryTime = Math.min(input.entryTime, input.exitTime)
   const exitTime = Math.max(input.entryTime, input.exitTime)
@@ -111,6 +120,16 @@ export function addManualClosedTrade(input: ManualClosedTradeInput): { store: Jo
     feeAsset: fee !== undefined ? 'USDC' : undefined,
   }
   const result = importFills([buy, sell])
+  let store = result.store
   const trade = result.trades.find((t) => t.symbol === symbol && t.entryTime === entryTime && t.exitTime === exitTime)
-  return { ...result, trade }
+  if (trade && input.signal) {
+    store = {
+      ...store,
+      signalByTradeId: { ...(store.signalByTradeId ?? {}), [trade.id]: input.signal },
+    }
+    saveJournalStore(store)
+  }
+  const trades = getClosedTrades()
+  const withSignal = trades.find((t) => t.id === trade?.id)
+  return { store, trades, trade: withSignal ?? trade }
 }

@@ -1,4 +1,12 @@
-import type { ClosedTrade, DayStats, JournalStats, SessionStats, SymbolStats } from './types'
+import type { BucketStats, ClosedTrade, DayStats, JournalStats, SessionStats, SymbolStats } from './types'
+
+const bump = (map: Record<string, BucketStats>, key: string, trade: ClosedTrade) => {
+  const row = map[key] ?? { trades: 0, pnl: 0, wins: 0 }
+  row.trades += 1
+  row.pnl += trade.pnlUsdc
+  if (trade.pnlUsdc > 0) row.wins += 1
+  map[key] = row
+}
 
 export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   if (trades.length === 0) {
@@ -17,6 +25,9 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
       bySymbol: {},
       bySession: {},
       byDay: {},
+      signalTrades: 0,
+      byProfile: {},
+      byMesh: {},
     }
   }
 
@@ -26,11 +37,14 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   let grossWin = 0
   let grossLoss = 0
   let totalPnlUsdc = 0
+  let signalTrades = 0
   let bestTrade = trades[0]
   let worstTrade = trades[0]
   const bySymbol: Record<string, SymbolStats> = {}
   const bySession: JournalStats['bySession'] = {}
   const byDay: Record<string, DayStats> = {}
+  const byProfile: Record<string, BucketStats> = {}
+  const byMesh: Record<string, BucketStats> = {}
 
   for (const trade of trades) {
     totalPnlUsdc += trade.pnlUsdc
@@ -66,6 +80,17 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     dayStats.trades += 1
     if (trade.pnlUsdc > 0) dayStats.wins += 1
     byDay[dayKey] = dayStats
+
+    if (trade.signal) {
+      signalTrades += 1
+      bump(byProfile, trade.signal.riskProfile, trade)
+      const meshKey = trade.signal.softOpposed || trade.signal.wideNet
+        ? 'Com malha / aviso'
+        : trade.signal.riskyHighLong
+          ? 'Long após H'
+          : 'Setup clássico'
+      bump(byMesh, meshKey, trade)
+    }
   }
 
   return {
@@ -83,6 +108,9 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     bySymbol,
     bySession,
     byDay,
+    signalTrades,
+    byProfile,
+    byMesh,
   }
 }
 
