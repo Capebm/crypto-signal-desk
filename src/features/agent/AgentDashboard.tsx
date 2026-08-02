@@ -203,14 +203,11 @@ export default function AgentDashboard() {
     const opts = { ...evalOptions, openPosition: openHere }
     let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, 'long', opts)
     const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, opts, 'long') : undefined
+    // Todos setups ON: se algum dos 9 der COMPRAR JÁ → esse é o sinal (preferência ao teu Risco×TP se também der).
     if (scanAllSetups && matchingSetups && matchingSetups.length > 0) {
       const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
       if (userHit) {
-        decision = {
-          ...decision,
-          matchingSetups,
-          tradeSetup: userHit,
-        }
+        decision = { ...decision, matchingSetups, tradeSetup: userHit }
       } else {
         const best = matchingSetups[0]
         decision = {
@@ -324,8 +321,8 @@ export default function AgentDashboard() {
     try {
       const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
       const results: AgentRow[] = []
-      const quickProfile: RiskProfile = scanAllSetups ? 'agressivo' : riskProfile
-      const quickTp: TpMode = scanAllSetups ? '1r' : tpMode
+      /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar — o sinal da linha continua = Risco/TP da UI. */
+      const scoutSymbols = new Set<string>()
       for (let index = 0; index < markets.length; index += 5) {
         const done = Math.min(index + 5, markets.length)
         setScanProgress({ pct: Math.round((done / markets.length) * 70), label: `Scan 1h · ${done}/${markets.length}` })
@@ -333,7 +330,16 @@ export default function AgentDashboard() {
         const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
           try {
             const candles1h = await getCandles(market.symbol, '1h')
-            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, quickProfile, quickTp, evalOptions, 'long')
+            const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
+            if (scanAllSetups) {
+              const scout = evaluateTjrQuick(market.symbol, candles1h, btc1h, 'agressivo', '1r', evalOptions, 'long')
+              if (
+                scout.action === 'COMPRAR'
+                || (scout.bias === 'bullish' && !scout.opposedSweep && scout.action === 'ESPERAR')
+              ) {
+                scoutSymbols.add(market.symbol)
+              }
+            }
             const rowPrice = candles1h.at(-1)?.close ?? 0
             return { ...decision, symbol: market.symbol, price: rowPrice, change24h: market.priceChangePercent }
           } catch {
@@ -344,17 +350,15 @@ export default function AgentDashboard() {
       }
       const sorted = sortByScore(results)
       setRows(sorted)
-      const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, quickProfile, quickTp, evalOptions, 'long')
+      const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
       setRegime(computeMarketRegime(sorted, (btcQuick.bias ?? 'neutral') as Direction))
 
-      // MTF só para candidatos a LONG. Com "Todos setups", NÃO usar top score global —
-      // senão o refine gasta-se em VENDER (sweeps de H / short), que Spot não compra.
+      // MTF: perfil UI + (se Todos setups) scout para não perder combos Agressivo/outros TP.
       const comprarQuick = sorted.filter((row) => row.action === 'COMPRAR')
       const longWatch = sorted.filter(
         (row) => row.action === 'ESPERAR' && row.bias === 'bullish' && !row.opposedSweep,
       )
       const buyCandidates = (() => {
-        if (!scanAllSetups) return comprarQuick.slice(0, AUTO_REFINE_TOP)
         const pool: AgentRow[] = []
         const pushUnique = (row: AgentRow) => {
           if (pool.length >= AUTO_REFINE_TOP) return
@@ -362,16 +366,22 @@ export default function AgentDashboard() {
           pool.push(row)
         }
         for (const row of comprarQuick) pushUnique(row)
-        for (const row of longWatch) pushUnique(row)
-        return pool
+        if (scanAllSetups) {
+          for (const row of longWatch) pushUnique(row)
+          for (const row of sorted) {
+            if (scoutSymbols.has(row.symbol)) pushUnique(row)
+          }
+        }
+        return pool.slice(0, AUTO_REFINE_TOP)
       })()
       if (buyCandidates.length > 0) {
         setStatus(
           scanAllSetups
-            ? `Scan 1h ok · a testar setups no top ${buyCandidates.length} longs…`
+            ? `Scan 1h ok · MTF + 9 combos risco×TP no top ${buyCandidates.length}…`
             : `Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`,
         )
         let buyNow = 0
+        let stillAguardar = 0
         for (let index = 0; index < buyCandidates.length; index += 1) {
           const row = buyCandidates[index]
           setScanProgress({
@@ -388,15 +398,20 @@ export default function AgentDashboard() {
                 body: `Score ${refined.score} · ${session.badge}`,
                 symbol: refined.symbol,
               })
+            } else if (isAguardarCompra(refined)) {
+              stillAguardar += 1
             }
           } catch {
             /* mantém scan 1h deste par */
           }
         }
+        const dropped = buyCandidates.length - buyNow - stillAguardar
         setStatus(
           buyNow > 0
-            ? `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ. Expande o cartão para valores Binance.`
-            : `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ (falta BOS 1m ou setup incompleto). Vê Aguardar.`,
+            ? `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ${scanAllSetups ? ' (melhor dos 9 setups)' : ''}. Expande o cartão.`
+            : stillAguardar > 0
+              ? `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ · ${stillAguardar} Aguardar (falta BOS 1m).`
+              : `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ · 0 Aguardar${dropped > 0 ? ` · ${dropped} sem COMPRAR JÁ nas 9 combos` : ''}.`,
         )
       } else {
         const highSweepHeavy = sorted.filter((row) => row.opposedSweep || row.action === 'VENDER').length
@@ -837,7 +852,10 @@ export default function AgentDashboard() {
           />
           <span>Evitar NY mid</span>
         </label>
-        <label className="tv-setup-toggle" title="No refine MTF testa as 9 combinações risco×TP e mostra no cartão quais deram COMPRAR JÁ">
+        <label
+          className="tv-setup-toggle"
+          title="ON: testa 9 combos (3 riscos × 3 TPs). Se algum der COMPRAR JÁ → esse fica o sinal + setup no card (preferência ao teu Risco×TP se também der). OFF: só o Risco/TP escolhido."
+        >
           <input
             type="checkbox"
             checked={scanAllSetups}
@@ -943,9 +961,11 @@ export default function AgentDashboard() {
       <details className="agent-panel">
         <summary>Ajuda setup · o que muda cada controlo</summary>
         <div className="agent-panel-body setup-help">
-          <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description}</p>
+          <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description} — com Todos setups OFF, define o sinal da linha.</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade (qty sugerida). Não altera o scan TJR.</p>
+          <p><strong>Todos setups:</strong> 3×3=9 combos. Se algum der COMPRAR JÁ → esse é o sinal e o setup aparece no card (preferência ao teu Risco×TP).</p>
+          <p><strong>Malha / Long após H / Evitar NY mid:</strong> aplicam-se a todos os combos (incl. as 9).</p>
+          <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade. Não altera o scan TJR.</p>
         </div>
       </details>
       <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />

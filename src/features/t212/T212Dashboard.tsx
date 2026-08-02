@@ -334,16 +334,11 @@ export default function T212Dashboard() {
           })
         }
       }
-      const otherSetupHits = scanAllSetups
-        ? sorted.filter((row) => (row.matchingSetups?.length ?? 0) > 0).length
-        : 0
       const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT.${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-          : otherSetupHits > 0
-            ? `${sorted.length} ok · 0 no teu perfil · ${otherSetupHits} com setup noutro combo (badges).${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-            : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -546,7 +541,10 @@ export default function T212Dashboard() {
           />
           <span>CFD prático</span>
         </label>
-        <label className="tv-setup-toggle" title="Corre as 9 combinações (3 riscos × 3 TPs). Inclui Agressivo — pode dar COMPRAR/VENDER mesmo em NY mid quando o teu perfil Conservador só AGUARDA.">
+        <label
+          className="tv-setup-toggle"
+          title="ON: testa 9 combos (3 riscos × 3 TPs). Se algum der LONG/SHORT JÁ → esse fica o sinal + setup no card (preferência ao teu Risco×TP). OFF: só o Risco/TP escolhido."
+        >
           <input
             type="checkbox"
             checked={scanAllSetups}
