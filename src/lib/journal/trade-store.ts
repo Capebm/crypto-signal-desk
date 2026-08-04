@@ -1,13 +1,16 @@
 import type { TradeSignalMeta } from '../trade-signal-meta'
 import { buildClosedTrades } from './round-trips'
-import type { BinanceFill, ClosedTrade, JournalStore } from './types'
+import type { ClosedTrade, JournalBackup, JournalStore, TradeVenue } from './types'
+import type { BinanceFill } from './types'
 
 const STORAGE_KEY = 'tjr-journal-v1'
+const BACKUP_VERSION = 1 as const
 
 const emptyStore = (): JournalStore => ({
   fills: [],
   dayNotes: {},
   signalByTradeId: {},
+  venueByTradeId: {},
 })
 
 export function loadJournalStore(): JournalStore {
@@ -19,6 +22,7 @@ export function loadJournalStore(): JournalStore {
       fills: parsed.fills ?? [],
       dayNotes: parsed.dayNotes ?? {},
       signalByTradeId: parsed.signalByTradeId ?? {},
+      venueByTradeId: parsed.venueByTradeId ?? {},
       lastImportAt: parsed.lastImportAt,
       lastImportRows: parsed.lastImportRows,
     }
@@ -49,11 +53,12 @@ export function importFills(incoming: BinanceFill[]): { store: JournalStore; tra
     ...current,
     fills: merged,
     signalByTradeId: current.signalByTradeId ?? {},
+    venueByTradeId: current.venueByTradeId ?? {},
     lastImportAt: new Date().toISOString(),
     lastImportRows: incoming.length,
   }
   saveJournalStore(store)
-  return { store, trades: buildClosedTrades(merged), added }
+  return { store, trades: getClosedTradesFromStore(store), added }
 }
 
 export function clearJournal() {
@@ -67,12 +72,114 @@ export function setDayNote(dayKey: string, note: string) {
   return store
 }
 
-export function getClosedTrades(): ClosedTrade[] {
-  const store = loadJournalStore()
+function getClosedTradesFromStore(store: JournalStore): ClosedTrade[] {
   return buildClosedTrades(store.fills).map((trade) => ({
     ...trade,
+    venue: store.venueByTradeId?.[trade.id] ?? trade.venue ?? 'spot',
     signal: store.signalByTradeId?.[trade.id],
   }))
+}
+
+export function getClosedTrades(): ClosedTrade[] {
+  return getClosedTradesFromStore(loadJournalStore())
+}
+
+/** Download JSON — sobrevive a limpar cache / mudar de browser. */
+export function exportJournalBackup(): JournalBackup {
+  return {
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    store: loadJournalStore(),
+  }
+}
+
+export function downloadJournalBackup() {
+  const backup = exportJournalBackup()
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const day = backup.exportedAt.slice(0, 10)
+  a.href = url
+  a.download = `tjr-diario-${day}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export type ImportBackupMode = 'replace' | 'merge'
+
+/** Importa backup JSON. `replace` apaga o local; `merge` une fills/notas/meta. */
+export function importJournalBackup(
+  raw: string,
+  mode: ImportBackupMode = 'replace',
+): { store: JournalStore; trades: ClosedTrade[]; ok: true } | { ok: false; error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ok: false, error: 'JSON inválido.' }
+  }
+
+  const backup = normalizeBackup(parsed)
+  if (!backup) {
+    return { ok: false, error: 'Ficheiro não é um backup do Diário TJR (falta store / fills).' }
+  }
+
+  let store: JournalStore
+  if (mode === 'replace') {
+    store = {
+      fills: backup.store.fills ?? [],
+      dayNotes: backup.store.dayNotes ?? {},
+      signalByTradeId: backup.store.signalByTradeId ?? {},
+      venueByTradeId: backup.store.venueByTradeId ?? {},
+      lastImportAt: new Date().toISOString(),
+      lastImportRows: backup.store.fills?.length ?? 0,
+    }
+  } else {
+    const current = loadJournalStore()
+    const fillIds = new Set(current.fills.map((f) => f.id))
+    const fills = [...current.fills]
+    for (const fill of backup.store.fills ?? []) {
+      if (fillIds.has(fill.id)) continue
+      fills.push(fill)
+      fillIds.add(fill.id)
+    }
+    fills.sort((a, b) => a.time - b.time)
+    store = {
+      fills,
+      dayNotes: { ...current.dayNotes, ...(backup.store.dayNotes ?? {}) },
+      signalByTradeId: { ...(current.signalByTradeId ?? {}), ...(backup.store.signalByTradeId ?? {}) },
+      venueByTradeId: { ...(current.venueByTradeId ?? {}), ...(backup.store.venueByTradeId ?? {}) },
+      lastImportAt: new Date().toISOString(),
+      lastImportRows: backup.store.fills?.length ?? 0,
+    }
+  }
+
+  saveJournalStore(store)
+  return { ok: true, store, trades: getClosedTradesFromStore(store) }
+}
+
+function normalizeBackup(parsed: unknown): JournalBackup | null {
+  if (!parsed || typeof parsed !== 'object') return null
+  const obj = parsed as Record<string, unknown>
+  // Formato versionado
+  if (obj.store && typeof obj.store === 'object') {
+    const store = obj.store as JournalStore
+    if (!Array.isArray(store.fills)) return null
+    return {
+      version: 1,
+      exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : new Date().toISOString(),
+      store,
+    }
+  }
+  // Store cru (compat)
+  if (Array.isArray(obj.fills)) {
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      store: obj as unknown as JournalStore,
+    }
+  }
+  return null
 }
 
 export type ManualClosedTradeInput = {
@@ -84,6 +191,7 @@ export type ManualClosedTradeInput = {
   exitTime: number
   feesUsdc?: number
   signal?: TradeSignalMeta
+  venue?: TradeVenue
 }
 
 /** Regista um round-trip Spot long (BUY + SELL) sem CSV — não altera o motor TJR. */
@@ -122,14 +230,19 @@ export function addManualClosedTrade(input: ManualClosedTradeInput): { store: Jo
   const result = importFills([buy, sell])
   let store = result.store
   const trade = result.trades.find((t) => t.symbol === symbol && t.entryTime === entryTime && t.exitTime === exitTime)
-  if (trade && input.signal) {
+  if (trade && (input.signal || input.venue)) {
     store = {
       ...store,
-      signalByTradeId: { ...(store.signalByTradeId ?? {}), [trade.id]: input.signal },
+      signalByTradeId: input.signal
+        ? { ...(store.signalByTradeId ?? {}), [trade.id]: input.signal }
+        : store.signalByTradeId,
+      venueByTradeId: input.venue
+        ? { ...(store.venueByTradeId ?? {}), [trade.id]: input.venue }
+        : store.venueByTradeId,
     }
     saveJournalStore(store)
   }
   const trades = getClosedTrades()
-  const withSignal = trades.find((t) => t.id === trade?.id)
-  return { store, trades, trade: withSignal ?? trade }
+  const withMeta = trades.find((t) => t.id === trade?.id)
+  return { store, trades, trade: withMeta ?? trade }
 }

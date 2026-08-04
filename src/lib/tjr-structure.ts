@@ -150,6 +150,13 @@ export function isReactiveSweep(source: SweepSource | undefined, side: 'long' | 
   return direction === 'bearish'
 }
 
+export type LtfEntryResult = {
+  ready: boolean
+  entryPrice?: number
+  /** Houve BOS 1m contrário (retrace 5m) na janela. */
+  retraceSeen: boolean
+}
+
 /**
  * TJR step 4: retrace (1m BOS contrário) → BOS 1m na direção.
  * Devolve o close do candle de entrada (preço a copiar).
@@ -158,8 +165,8 @@ export function ltfEntryConfirmation(
   candles1m: Candle[],
   side: 'long' | 'short',
   lookback = 45,
-): { ready: boolean; entryPrice?: number } {
-  if (candles1m.length < 12) return { ready: false }
+): LtfEntryResult {
+  if (candles1m.length < 12) return { ready: false, retraceSeen: false }
   const window = candles1m.slice(-lookback)
   let sawRetrace = false
   let entryAt: number | undefined
@@ -176,8 +183,8 @@ export function ltfEntryConfirmation(
     if (aligned && sawRetrace) entryAt = end
   }
   const ready = entryAt !== undefined && entryAt >= window.length - 5
-  if (!ready || entryAt === undefined) return { ready: false }
-  return { ready: true, entryPrice: window[entryAt - 1]?.close }
+  if (!ready || entryAt === undefined) return { ready: false, retraceSeen: sawRetrace }
+  return { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true }
 }
 
 /** Candle de confirmação com corpo ≥ 1.2× média = displacement (mudança de order flow). */

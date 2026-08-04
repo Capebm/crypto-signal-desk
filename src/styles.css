@@ -734,7 +734,17 @@ body.desk-mode { overflow: hidden; }
 .journal-import-help strong { color: var(--tv-text); }
 .journal-status { margin: 0 0 16px; color: var(--tv-blue); font-size: .9rem; }
 .journal-empty { padding: 28px; border: 1px dashed var(--tv-border); border-radius: 4px; color: var(--tv-text-secondary); text-align: center; }
+.journal-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.journal-filters button { padding: 7px 12px; font-size: .78rem; }
 .journal-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.journal-equity { margin-bottom: 14px; }
+.journal-equity-wrap { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.journal-equity-svg { width: 100%; height: 120px; display: block; }
+.journal-equity-zero { stroke: var(--tv-border); stroke-width: 1; stroke-dasharray: 4 4; }
+.journal-equity-line { fill: none; stroke-width: 2; }
+.journal-equity-line.up { stroke: var(--tv-green); }
+.journal-equity-line.down { stroke: var(--tv-red); }
+.journal-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .journal-manual-form { margin: 0 0 16px; padding: 16px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-panel); }
 .journal-manual-form h3 { margin: 0 0 6px; font-size: 1rem; }
 .journal-manual-form > p { margin: 0 0 12px; color: var(--tv-text-secondary); font-size: .84rem; }
@@ -1040,12 +1050,17 @@ button:disabled { cursor: wait; opacity: .65; }
 .session-badge.blocked, .session-badge.session-ny_close, .session-badge.session-quiet, .session-badge.session-off { color: var(--tv-text-muted); }
 .session-window-body { margin-top: 12px; display: grid; gap: 8px; }
 .session-window-body p { margin: 0; color: var(--tv-text-secondary); font-size: .84rem; line-height: 1.5; }
+.position-advisor-details { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-panel); }
+.position-advisor-details > summary { cursor: pointer; font-weight: 700; color: var(--tv-text); font-size: .9rem; }
+.position-advisor-details .position-advisor { margin: 12px 0 0; padding: 0; border: 0; background: transparent; }
 .position-advisor { margin: 0 0 20px; padding: 18px; border: 1px solid var(--tv-border); border-radius: 6px; background: var(--tv-panel); }
+.position-advisor-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .position-advisor-head h2 { margin: 4px 0 6px; font-size: 1.25rem; }
 .position-advisor-head p { margin: 0; color: var(--tv-text-secondary); font-size: .88rem; line-height: 1.45; }
 .position-form label { display: grid; gap: 5px; color: var(--tv-text-secondary); font-size: .74rem; font-weight: 600; }
 .position-form .optional { color: var(--tv-text-muted); font-weight: 500; }
-.position-form input { width: 100%; padding: 10px 11px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); color: var(--tv-text); font: inherit; }
+.position-form input,
+.position-form select { width: 100%; padding: 10px 11px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); color: var(--tv-text); font: inherit; }
 .coin-search { position: relative; }
 .coin-search input { width: 100%; padding: 10px 11px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); color: var(--tv-text); font: inherit; }
 .coin-search-menu { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 6px; list-style: none; max-height: 220px; overflow: auto; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-panel); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
@@ -1302,7 +1317,9 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
   .journal-manual-grid { grid-template-columns: 1fr 1fr; }
   .journal-manual-grid button { grid-column: 1 / -1; }
   .journal-grid { grid-template-columns: 1fr; }
+  .journal-grid-3 { grid-template-columns: 1fr; }
   .journal-breakdown li { grid-template-columns: 1fr 1fr; }
+  .journal-header-actions { flex-wrap: wrap; }
 }
 
 /* Vinted arbitrage desk */

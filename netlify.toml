@@ -30,6 +30,11 @@
   to = "/.netlify/functions/yahoo-pack"
   status = 200
 
+[[redirects]]
+  from = "/api/twelve-pack"
+  to = "/.netlify/functions/twelve-pack"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

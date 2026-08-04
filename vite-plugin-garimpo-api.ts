@@ -26,6 +26,46 @@ function getApiKey(env: Record<string, string>) {
   return env.ANTHROPIC_API_KEY || ''
 }
 
+function getTwelveKey(env: Record<string, string>) {
+  return env.TWELVE_DATA_API_KEY?.trim() || ''
+}
+
+type TwelveValue = {
+  datetime?: string
+  open?: string
+  high?: string
+  low?: string
+  close?: string
+  volume?: string
+}
+
+type TwelveSeries = {
+  status?: string
+  code?: number
+  message?: string
+  values?: TwelveValue[]
+}
+
+function parseTwelveSeries(body: TwelveSeries) {
+  if (!body.values?.length) throw new Error(body.message || 'Twelve sem candles')
+  const candles = body.values
+    .map((row) => {
+      if (!row.datetime || row.open == null || row.high == null || row.low == null || row.close == null) return null
+      const openTime = Date.parse(row.datetime.includes('T') ? row.datetime : row.datetime.replace(' ', 'T'))
+      if (!Number.isFinite(openTime)) return null
+      const open = Number(row.open)
+      const high = Number(row.high)
+      const low = Number(row.low)
+      const close = Number(row.close)
+      if (![open, high, low, close].every(Number.isFinite)) return null
+      return { openTime, open, high, low, close, volume: Number(row.volume) || 0 }
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .sort((a, b) => a.openTime - b.openTime)
+  if (!candles.length) throw new Error('Twelve sem candles válidas')
+  return candles
+}
+
 export function garimpoApiPlugin(): Plugin {
   return {
     name: 'garimpo-api',
@@ -183,6 +223,67 @@ export function garimpoApiPlugin(): Plugin {
             sendJson(res, 200, { symbol, charts, warnings: errors.length ? errors : undefined })
           } catch (error) {
             sendJson(res, 500, { error: error instanceof Error ? error.message : 'Yahoo pack failed' })
+          }
+          return
+        }
+
+        if (url.pathname === '/api/twelve-pack' && req.method === 'GET') {
+          const apiKey = getTwelveKey(env)
+          if (!apiKey) {
+            sendJson(res, 503, { error: 'TWELVE_DATA_API_KEY em falta', skip: true })
+            return
+          }
+          const symbol = url.searchParams.get('symbol')?.trim()
+          if (!symbol) {
+            sendJson(res, 400, { error: 'symbol inválido' })
+            return
+          }
+          const specs = [
+            { key: '1h', interval: '1h', outputsize: 300 },
+            { key: '15m', interval: '15min', outputsize: 300 },
+            { key: '5m', interval: '5min', outputsize: 300 },
+            { key: '1m', interval: '1min', outputsize: 250 },
+          ] as const
+          try {
+            const candles: Record<string, unknown> = {}
+            const errors: string[] = []
+            for (const spec of specs) {
+              const params = new URLSearchParams({
+                symbol,
+                interval: spec.interval,
+                outputsize: String(spec.outputsize),
+                apikey: apiKey,
+                timezone: 'UTC',
+              })
+              const response = await fetch(`https://api.twelvedata.com/time_series?${params}`)
+              const body = (await response.json().catch(() => ({}))) as TwelveSeries
+              const quota = response.status === 429
+                || body.code === 429
+                || /credit|quota|limit|rate/i.test(body.message ?? '')
+              if (quota) {
+                sendJson(res, 429, { error: body.message || 'Twelve créditos/rate limit', quota: true, symbol })
+                return
+              }
+              if (body.status === 'error' || !response.ok) {
+                errors.push(`${spec.key}: ${body.message || `HTTP ${response.status}`}`)
+                continue
+              }
+              try {
+                candles[spec.key] = parseTwelveSeries(body)
+              } catch (error) {
+                errors.push(`${spec.key}: ${error instanceof Error ? error.message : 'parse'}`)
+              }
+            }
+            if (!Array.isArray(candles['1h']) || !Array.isArray(candles['15m']) || !Array.isArray(candles['5m'])) {
+              sendJson(res, 502, { error: errors[0] || `Twelve pack incompleto (${symbol})`, symbol, errors })
+              return
+            }
+            if (!Array.isArray(candles['1m']) || !(candles['1m'] as unknown[]).length) {
+              candles['1m'] = candles['5m']
+            }
+            sendJson(res, 200, { source: 'twelve', symbol, candles, warnings: errors.length ? errors : undefined })
+          } catch (error) {
+            sendJson(res, 500, { error: error instanceof Error ? error.message : 'Twelve pack failed' })
           }
           return
         }

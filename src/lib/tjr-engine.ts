@@ -17,7 +17,7 @@ import {
   type DrawLevel,
   type SweepSource,
 } from './tjr-structure'
-import { getTradingSessionStatus } from './trading-session'
+import { getTradingSessionStatus, usIndexPrimeWindow } from './trading-session'
 import { tpModeMeta, tpModes, type TpMode } from './tp-mode'
 import type { Candle, Direction, PriceZone } from './types'
 
@@ -60,7 +60,7 @@ export type TjrDecision = Decision & {
   softOpposed?: boolean
   /** Long permitido apesar de sweep de high (arriscado). */
   riskyHighLong?: boolean
-  /** Combinações risco×TP que também dão COMPRAR JÁ. */
+  /** Combinações risco×TP com sinal acionável (JÁ ou Aguardar). */
   matchingSetups?: SetupHit[]
   /** Setup cujos níveis (entry/stop/TP) estão no cartão. */
   tradeSetup?: SetupHit
@@ -74,6 +74,7 @@ export type SetupHit = {
   label: string
   score: number
   action?: Action
+  entryTiming?: EntryTiming
 }
 
 export type EvaluateOptions = {
@@ -105,6 +106,18 @@ export type EvaluateOptions = {
    * mesmo com Agressivo / Malha larga. Default false no motor; Agente liga por defeito.
    */
   avoidNyMidEnter?: boolean
+  /**
+   * T212 índices US: ES e NQ alinhados no 5m (ambos bullish ou ambos bearish).
+   * `false` bloqueia setup; `undefined` = não aplica (forex/crypto/etc.).
+   */
+  esNqAligned?: boolean
+  /** Nota do gate ES↔NQ para checklist. */
+  esNqNote?: string
+  /**
+   * T212 índices US (ES/NQ/US500…): retrace→BOS só no 1m (sem atalho 5m),
+   * entradas AGORA só 09:30–10:30 ET.
+   */
+  usIndexPlaybook?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -444,13 +457,17 @@ function evaluate(
   const entryZone = continuationEntryZone(exec, side) ?? continuationEntryZone(h1, side)
   const continuationOk = !gates.requireContinuationTouch || Boolean(entryZone)
 
-  const ltf1m = candles1m && candles1m.length >= 12 ? ltfEntryConfirmation(candles1m, side) : { ready: false as const }
-  const ltf5m = cfdPractical && candles5m && candles5m.length >= 12
+  const usIndexPlaybook = Boolean(options.usIndexPlaybook)
+  const ltf1m = candles1m && candles1m.length >= 12
+    ? ltfEntryConfirmation(candles1m, side)
+    : { ready: false as const, retraceSeen: false }
+  // Índices US TJR: sem atalho 5m — exige retrace→BOS no 1m.
+  const ltf5m = !usIndexPlaybook && cfdPractical && candles5m && candles5m.length >= 12
     ? ltfEntryConfirmation(candles5m, side, 36)
-    : { ready: false as const }
-  const ltfReady = ltf1m.ready || Boolean(ltf5m.ready)
+    : { ready: false as const, retraceSeen: false }
+  const ltfReady = usIndexPlaybook ? ltf1m.ready : (ltf1m.ready || Boolean(ltf5m.ready))
   const ltfEntryPrice = ltf1m.entryPrice ?? ltf5m.entryPrice
-  const ltfVia5m = Boolean(cfdPractical && !ltf1m.ready && ltf5m.ready)
+  const ltfVia5m = Boolean(!usIndexPlaybook && cfdPractical && !ltf1m.ready && ltf5m.ready)
 
   const eq = exec.eq ?? h1.eq ?? h4.eq
   const locationPrice = continueTouch ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
@@ -474,8 +491,11 @@ function evaluate(
     || smt === undefined
     || isAligned(smt, side)
 
+  const esNqBlocked = options.esNqAligned === false
+  const esNqOk = options.esNqAligned !== false
+
   const sweepGate = !gates.requireSweep || sweepOk
-  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !blockOpposed
+  const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !blockOpposed && esNqOk
 
   const entryTiming: EntryTiming = !setupReady
     ? 'NENHUM'
@@ -506,6 +526,8 @@ function evaluate(
   let sessionBlocked = false
   let sessionDowngrade = false
   let nyMidAvoided = false
+  let usIndexPreRth = false
+  let usIndexCutoff = false
   if (setupReadyWithRr) {
     if (session.blockEntries) {
       sessionBlocked = true
@@ -517,6 +539,18 @@ function evaluate(
       // Reactivo (sweep Ásia/Londres/dia ant.): permite COMPRAR JÁ também no NY mid.
       const reactiveNy = reactive && (session.window === 'ny' || session.window === 'ny_open')
       if (!reactiveNy) sessionDowngrade = true
+    }
+    // T212 índices US: só 09:30–10:30 ET (ignora malha/agressivo).
+    if (usIndexPlaybook && entryTiming === 'AGORA' && !sessionBlocked) {
+      const prime = usIndexPrimeWindow()
+      if (prime.beforeOpen) {
+        sessionDowngrade = true
+        usIndexPreRth = true
+      } else if (prime.afterCutoff) {
+        sessionBlocked = true
+        sessionDowngrade = false
+        usIndexCutoff = true
+      }
     }
   }
 
@@ -605,16 +639,47 @@ function evaluate(
       : ltfReady
         ? (ltfVia5m
           ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
-          : `Preço BOS 1m: ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
-        : 'À espera do BOS 1m (ou 5m em CFD prático).' },
+          : `Retrace→BOS 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
+        : usIndexPlaybook
+          ? (ltf1m.retraceSeen
+            ? 'Retrace 1m ok — à espera BOS 1m a favor.'
+            : 'À espera retrace 1m (BOS oposto) → depois BOS a favor.')
+          : 'À espera do BOS 1m (ou 5m em CFD prático).' },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? (nearEqLong && !inDiscount ? 'Perto do EQ (CFD prático).' : 'Discount.') : (nearEqShort && !inPremium ? 'Perto do EQ (CFD prático).' : 'Premium.')) : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
     { label: `Alinhamento vs ${referenceLabel}`, complete: indexAligned || !gates.requireSmtAlign, note: !gates.requireSmtAlign
       ? (smtAligned ? `SMT ${smt ?? 'n/d'} (informativo).` : smt ? `SMT ${smt} (informativo — não bloqueia).` : 'SMT opcional neste instrumento.')
       : symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
+    ...(options.esNqAligned !== undefined
+      ? [{
+          label: 'ES↔NQ 5m (TJR)',
+          complete: !esNqBlocked,
+          note: options.esNqNote
+            ?? (esNqBlocked ? 'ES e NQ desalinhados no 5m — sem trade.' : 'ES+NQ alinhados no 5m.'),
+        }]
+      : []),
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
-    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${nyMidAvoided ? ' · Evitar NY mid → AGUARDAR' : sessionDowngrade ? ' · AGORA→AGUARDAR' : wideNet && !session.allowEnterNow ? ' · malha larga' : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
+    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${
+      usIndexCutoff ? ' · US índice: após 10:30 ET — sem entradas'
+        : usIndexPreRth ? ' · US índice: só após 09:30 ET'
+          : nyMidAvoided ? ' · Evitar NY mid → AGUARDAR'
+            : sessionDowngrade ? ' · AGORA→AGUARDAR'
+              : wideNet && !session.allowEnterNow ? ' · malha larga'
+                : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
+    ...(usIndexPlaybook
+      ? [{
+          label: 'Janela US 09:30–10:30 ET',
+          complete: !usIndexPreRth && !usIndexCutoff,
+          note: usIndexCutoff
+            ? 'Cutoff 10:30 ET — sem novas entradas índices US.'
+            : usIndexPreRth
+              ? 'Pré-market / pré-RTH — espera 09:30 ET.'
+              : usIndexPrimeWindow().inPrime
+                ? 'Dentro da janela prime TJR.'
+                : 'Fora da janela prime — sem COMPRAR/SHORT JÁ em índices US.',
+        }]
+      : []),
   ]
 
   const setupStatus = positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO'
@@ -647,9 +712,12 @@ function evaluate(
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
     if (!indexAligned && gates.requireSmtAlign) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
-    if (sessionBlocked) reasons.push(`${session.badge}: sem entradas.`)
+    if (esNqBlocked) reasons.push(options.esNqNote ?? 'ES↔NQ 5m desalinhados — sem trade.')
+    if (usIndexCutoff) reasons.push('Índices US: após 10:30 ET — sem novas entradas (TJR).')
+    else if (usIndexPreRth) reasons.push('Índices US: só RTH após 09:30 ET.')
+    if (sessionBlocked && !usIndexCutoff) reasons.push(`${session.badge}: sem entradas.`)
     else if (nyMidAvoided) reasons.push('NY mid: COMPRAR JÁ desactivado (Evitar NY mid) — só AGUARDAR.')
-    else if (sessionDowngrade) reasons.push(`${session.badge}: só AGUARDAR.`)
+    else if (sessionDowngrade && !usIndexPreRth) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
     if (!tradeReady && !sessionBlocked && !blockOpposed) {
       reasons.push(setupReady && !rrOk ? 'R:R fora de 1–3×.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto.')
@@ -871,7 +939,7 @@ const setupLabel = (profile: RiskProfile, tpMode: TpMode) =>
 
 export { setupLabel as formatSetupHitLabel }
 
-/** Testa risco × TP e devolve os que dão COMPRAR JÁ (mesmo candle pack). */
+/** Testa risco × TP e devolve os acionáveis: COMPRAR JÁ ou AGUARDAR (Spot). */
 export function listBuyNowSetups(
   symbol: string,
   data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
@@ -882,7 +950,23 @@ export function listBuyNowSetups(
   return listActionNowSetups(symbol, data, btc, options, forcedSide, 'buy')
 }
 
-/** COMPRAR e/ou VENDER com timing AGORA (CFD T212). */
+/**
+ * Preferência com Todos setups: AGORA > Aguardar; no mesmo tier,
+ * o Risco×TP da UI se também der, senão o de maior score.
+ */
+export function pickPreferredSetupHit(
+  hits: SetupHit[],
+  preferredProfile: RiskProfile,
+  preferredTp: TpMode,
+): SetupHit | undefined {
+  if (hits.length === 0) return undefined
+  const now = hits.filter((h) => h.entryTiming === 'AGORA')
+  const wait = hits.filter((h) => h.entryTiming === 'RETRACE')
+  const pool = now.length > 0 ? now : wait.length > 0 ? wait : hits
+  return pool.find((h) => h.profile === preferredProfile && h.tpMode === preferredTp) ?? pool[0]
+}
+
+/** COMPRAR/VENDER com timing AGORA ou RETRACE (Aguardar) — 9 combos risco×TP. */
 export function listActionNowSetups(
   symbol: string,
   data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
@@ -898,8 +982,11 @@ export function listActionNowSetups(
       const decision = evaluateTjrFull(symbol, data, btc, profile, modeTp, forcedSide, options)
       const buyNow = isEnterLongNow(decision)
       const sellNow = mode === 'both' && isEnterShortNow(decision)
-      if (buyNow || sellNow) {
+      const awaitLong = isAwaitingEntry(decision) && decision.action === 'COMPRAR'
+      const awaitShort = mode === 'both' && isAwaitingEntry(decision) && decision.action === 'VENDER'
+      if (buyNow || sellNow || awaitLong || awaitShort) {
         const sideTag = decision.action === 'VENDER' ? ' · Sell' : ''
+        const waitTag = buyNow || sellNow ? '' : ' · Aguardar'
         const relaxTag = decision.riskyHighLong
           ? ' · H arriscado'
           : decision.softOpposed
@@ -908,12 +995,16 @@ export function listActionNowSetups(
         hits.push({
           profile,
           tpMode: modeTp,
-          label: `${setupLabel(profile, modeTp)}${sideTag}${relaxTag}`,
+          label: `${setupLabel(profile, modeTp)}${sideTag}${waitTag}${relaxTag}`,
           score: decision.score,
           action: decision.action,
+          entryTiming: decision.entryTiming,
         })
       }
     }
   }
-  return hits.sort((a, b) => b.score - a.score)
+  return hits.sort((a, b) => {
+    const tier = (h: SetupHit) => (h.entryTiming === 'AGORA' ? 0 : 1)
+    return tier(a) - tier(b) || b.score - a.score
+  })
 }

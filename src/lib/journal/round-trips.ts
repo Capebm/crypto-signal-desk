@@ -85,6 +85,7 @@ export function buildClosedTrades(fills: BinanceFill[]): ClosedTrade[] {
           exitSession: exitSession.window,
           exitSessionBadge: exitSession.badge,
           durationMs: fill.time - lot.time,
+          venue: 'spot',
         })
 
         remaining -= matchedQty

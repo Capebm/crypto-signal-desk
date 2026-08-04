@@ -54,4 +54,29 @@ describe('adviseOpenPosition (OCO lock)', () => {
     expect(result.levels.stop).toBe(0.49)
     expect(result.levels.target).toBe(0.54)
   })
+
+  it('computes short PnL and stop above entry', () => {
+    const result = adviseOpenPosition(
+      {
+        symbol: 'GER40',
+        entryPrice: 18_500,
+        quantity: 1,
+        side: 'short',
+        userStop: 18_700,
+        userTarget: 18_200,
+      },
+      18_400,
+      decision({
+        action: 'VENDER',
+        bias: 'bearish',
+        stop: 18_650,
+        target: 18_100,
+        positionGuidance: 'AGUARDAR_ENTRADA',
+      }),
+    )
+    expect(result.pnlPct).toBeCloseTo((100 / 18_500) * 100, 2)
+    expect(result.usingEntryOco).toBe(true)
+    expect(result.levels.stop).toBe(18_700)
+    expect(result.advice).toBe('MANTER')
+  })
 })

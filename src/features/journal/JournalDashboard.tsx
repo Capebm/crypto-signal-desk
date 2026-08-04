@@ -5,14 +5,18 @@ import { computeJournalStats, dayId, formatDayLabel, formatDuration, pnlForDay }
 import {
   addManualClosedTrade,
   clearJournal,
+  downloadJournalBackup,
   getClosedTrades,
   importFills,
+  importJournalBackup,
   loadJournalStore,
   setDayNote,
 } from '../../lib/journal/trade-store'
 import { resolvePositionSymbol } from '../../lib/position-advisor'
-import type { ClosedTrade } from '../../lib/journal/types'
+import type { ClosedTrade, TradeVenue } from '../../lib/journal/types'
 import { signalMetaLabel } from '../../lib/trade-signal-meta'
+
+type VenueFilter = 'all' | TradeVenue
 
 const money = (value: number) =>
   new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
@@ -31,10 +35,12 @@ const sessionLabels: Record<string, string> = {
 
 export default function JournalDashboard() {
   const fileRef = useRef<HTMLInputElement>(null)
+  const backupRef = useRef<HTMLInputElement>(null)
   const [store, setStore] = useState(loadJournalStore)
   const [selectedDay, setSelectedDay] = useState<string>()
   const [importMsg, setImportMsg] = useState('')
   const [monthOffset, setMonthOffset] = useState(0)
+  const [venueFilter, setVenueFilter] = useState<VenueFilter>('all')
   const [manualOpen, setManualOpen] = useState(false)
   const [manualBase, setManualBase] = useState('RE')
   const [manualEntry, setManualEntry] = useState('')
@@ -42,7 +48,11 @@ export default function JournalDashboard() {
   const [manualQty, setManualQty] = useState('')
   const [manualFees, setManualFees] = useState('')
 
-  const trades = useMemo(() => getClosedTrades(), [store])
+  const allTrades = useMemo(() => getClosedTrades(), [store])
+  const trades = useMemo(
+    () => (venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)),
+    [allTrades, venueFilter],
+  )
   const stats = useMemo(() => computeJournalStats(trades), [trades])
   const today = useMemo(() => pnlForDay(trades, dayId(Date.now())), [trades])
 
@@ -58,6 +68,20 @@ export default function JournalDashboard() {
     setImportMsg(`${result.added} fills novos · ${result.trades.length} round-trips fechados no total.`)
   }
 
+  const onBackupImport = async (file: File) => {
+    const text = await file.text()
+    const merge = window.confirm(
+      'OK = juntar ao diário actual (merge).\nCancelar = substituir tudo pelo backup.',
+    )
+    const result = importJournalBackup(text, merge ? 'merge' : 'replace')
+    if (!result.ok) {
+      setImportMsg(result.error)
+      return
+    }
+    setStore(result.store)
+    setImportMsg(`Backup restaurado · ${result.trades.length} trades · modo ${merge ? 'merge' : 'replace'}.`)
+  }
+
   const calendar = useMemo(() => buildCalendar(monthOffset, stats.byDay), [monthOffset, stats.byDay])
 
   const dayTrades = selectedDay ? trades.filter((trade) => dayId(trade.exitTime) === selectedDay) : []
@@ -67,9 +91,11 @@ export default function JournalDashboard() {
     <main className="journal-shell">
       <header className="journal-header">
         <div>
-          <p className="eyebrow">DIÁRIO TJR · BINANCE SPOT</p>
+          <p className="eyebrow">DIÁRIO TJR</p>
           <h1>O teu histórico de trades</h1>
-          <p>Importa CSV da Binance. Calcula PnL, win rate e performance por killzone — tudo local no browser.</p>
+          <p>
+            Dados no browser (localStorage). Faz backup JSON para não perderes nada ao mudar de PC ou limpar cache.
+          </p>
         </div>
         <div className="journal-header-actions">
           <input
@@ -83,7 +109,24 @@ export default function JournalDashboard() {
               event.target.value = ''
             }}
           />
+          <input
+            ref={backupRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) void onBackupImport(file)
+              event.target.value = ''
+            }}
+          />
           <button type="button" onClick={() => fileRef.current?.click()}>Importar CSV</button>
+          <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>
+            Backup JSON
+          </button>
+          <button type="button" className="ghost" onClick={() => backupRef.current?.click()}>
+            Restaurar
+          </button>
           <button type="button" className="ghost" onClick={() => setManualOpen((v) => !v)}>
             {manualOpen ? 'Fechar manual' : 'Trade manual'}
           </button>
@@ -106,11 +149,31 @@ export default function JournalDashboard() {
       </header>
 
       <section className="journal-import-help">
-        <strong>Como exportar:</strong> Binance → <em>Orders</em> → <em>Data Download Center</em> → Spot Order History → Download → <strong>descompacta o ZIP</strong> → importa o <strong>.csv</strong> aqui.
+        <strong>Persistência:</strong> o diário fica neste browser. Usa <strong>Backup JSON</strong> regularmente e{' '}
+        <strong>Restaurar</strong> noutro PC. CSV Binance: Orders → Data Download Center → Spot Order History → ZIP → .csv.
         {store.lastImportAt && (
           <span> · Último import: {new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(store.lastImportAt))}</span>
         )}
       </section>
+
+      <div className="journal-filters" role="group" aria-label="Filtrar por venue">
+        {(
+          [
+            ['all', 'Todos'],
+            ['spot', 'Spot'],
+            ['t212', 'T212'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={venueFilter === value ? '' : 'ghost'}
+            onClick={() => setVenueFilter(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {importMsg && <p className="journal-status">{importMsg}</p>}
 
       {manualOpen && (
@@ -164,9 +227,13 @@ export default function JournalDashboard() {
         </form>
       )}
 
-      {trades.length === 0 ? (
+      {allTrades.length === 0 ? (
         <section className="journal-empty">
-          <p>Ainda sem trades. Importa o CSV da Binance ou usa <strong>Trade manual</strong> (ex. RE +0,68 USDC).</p>
+          <p>Ainda sem trades. Importa o CSV da Binance, restaura um <strong>Backup JSON</strong>, ou usa <strong>Trade manual</strong>.</p>
+        </section>
+      ) : trades.length === 0 ? (
+        <section className="journal-empty">
+          <p>Nenhum trade neste filtro ({venueFilter === 't212' ? 'T212' : 'Spot'}).</p>
         </section>
       ) : (
         <>
@@ -174,11 +241,18 @@ export default function JournalDashboard() {
             <article><span>PnL hoje</span><strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl)}</strong><small>{today.trades} trades</small></article>
             <article><span>PnL total</span><strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc)}</strong></article>
             <article><span>Win rate</span><strong>{stats.winRate.toFixed(0)}%</strong><small>{stats.wins}W / {stats.losses}L</small></article>
-            <article><span>Trades fechados</span><strong>{stats.totalTrades}</strong></article>
+            <article><span>Day win %</span><strong>{stats.dayWinRate.toFixed(0)}%</strong><small>{stats.greenDays}/{stats.tradingDays} dias</small></article>
             <article><span>Profit factor</span><strong>{Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'}</strong></article>
-            <article><span>Avg win</span><strong className="positive">{money(stats.avgWin)}</strong></article>
-            <article><span>Avg loss</span><strong className="negative">{money(-stats.avgLoss)}</strong></article>
+            <article><span>Avg W / L</span><strong>{Number.isFinite(stats.avgWinLossRatio) ? stats.avgWinLossRatio.toFixed(2) : '∞'}</strong><small>{money(stats.avgWin)} / {money(stats.avgLoss)}</small></article>
+            <article><span>Trades</span><strong>{stats.totalTrades}</strong></article>
           </section>
+
+          {stats.equityCurve.length > 1 && (
+            <section className="journal-panel journal-equity">
+              <h2>Equity curve (PnL acumulado)</h2>
+              <EquitySpark points={stats.equityCurve} />
+            </section>
+          )}
 
           <section className="journal-grid">
             <article className="journal-panel">
@@ -285,10 +359,21 @@ export default function JournalDashboard() {
               {stats.signalTrades > 0 ? ` · ${stats.signalTrades} com meta.` : ' · Ainda nenhum — fecha uma posição pelo pin.'}
             </p>
             {stats.signalTrades > 0 && (
-              <div className="journal-grid signal-edge">
+              <div className="journal-grid signal-edge journal-grid-3">
                 <ul className="journal-breakdown">
                   <li className="journal-breakdown-head"><span>Perfil</span><span>n</span><span>PnL</span><span>WR</span></li>
                   {Object.entries(stats.byProfile).map(([key, row]) => (
+                    <li key={key}>
+                      <span>{key}</span>
+                      <span>{row.trades}</span>
+                      <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl)}</span>
+                      <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}%` : '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+                <ul className="journal-breakdown">
+                  <li className="journal-breakdown-head"><span>TP mode</span><span>n</span><span>PnL</span><span>WR</span></li>
+                  {Object.entries(stats.byTpMode).map(([key, row]) => (
                     <li key={key}>
                       <span>{key}</span>
                       <span>{row.trades}</span>
@@ -319,6 +404,7 @@ export default function JournalDashboard() {
                 <thead>
                   <tr>
                     <th>Saída</th>
+                    <th>Venue</th>
                     <th>Par</th>
                     <th>Entrada</th>
                     <th>Saída $</th>
@@ -348,6 +434,7 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
   return (
     <tr>
       <td>{new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(trade.exitTime)}</td>
+      <td>{trade.venue === 't212' ? 'T212' : 'Spot'}</td>
       <td>{formatTradingPair(trade.symbol)}</td>
       <td>{price(trade.entryPrice)}</td>
       <td>{price(trade.exitPrice)}</td>
@@ -360,6 +447,31 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
         {trade.signal ? `${trade.signal.score}` : '—'}
       </td>
     </tr>
+  )
+}
+
+function EquitySpark({ points }: { points: { t: number; equity: number }[] }) {
+  const w = 640
+  const h = 120
+  const pad = 8
+  const xs = points.map((_, i) => i)
+  const ys = points.map((p) => p.equity)
+  const minY = Math.min(0, ...ys)
+  const maxY = Math.max(0, ...ys)
+  const spanY = maxY - minY || 1
+  const toX = (i: number) => pad + (i / Math.max(1, points.length - 1)) * (w - pad * 2)
+  const toY = (v: number) => h - pad - ((v - minY) / spanY) * (h - pad * 2)
+  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(xs[i]).toFixed(1)},${toY(p.equity).toFixed(1)}`).join(' ')
+  const zeroY = toY(0)
+  const last = points[points.length - 1]?.equity ?? 0
+  return (
+    <div className="journal-equity-wrap">
+      <svg viewBox={`0 0 ${w} ${h}`} className="journal-equity-svg" role="img" aria-label="Equity curve">
+        <line x1={pad} y1={zeroY} x2={w - pad} y2={zeroY} className="journal-equity-zero" />
+        <path d={d} className={last >= 0 ? 'journal-equity-line up' : 'journal-equity-line down'} />
+      </svg>
+      <strong className={last >= 0 ? 'positive' : 'negative'}>{money(last)}</strong>
+    </div>
   )
 }
 

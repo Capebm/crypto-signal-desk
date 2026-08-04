@@ -85,7 +85,9 @@ export default function T212TradeGuide({ instrument, decision }: Props) {
           : instrument.kind === 'metal' ? ' (metal).'
             : instrument.kind === 'energy' ? ' (energia / crude).'
               : instrument.kind === 'crypto' ? ' (crypto CFD).'
-                : ' (índice).'}
+                : instrument.kind === 'stock' ? ' (acção US CFD).'
+                  : instrument.kind === 'future' ? ' (futuro · executar no CFD índice).'
+                    : ' (índice CFD).'}
         {' '}Long = <strong>Buy</strong> · Short = <strong>Sell</strong>.
       </p>
 

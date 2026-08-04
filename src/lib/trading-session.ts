@@ -64,6 +64,30 @@ const zoneParts = (timeZone: string, date = new Date()) => {
   }
 }
 
+/** Minutos desde meia-noite em America/New_York. */
+export function getNyMinutes(date = new Date()): number {
+  return zoneParts('America/New_York', date).mins
+}
+
+/** Janela TJR índices US: 09:30–10:30 ET (RTH prime + cutoff). */
+export const US_INDEX_PRIME_START_MINS = 9 * 60 + 30
+export const US_INDEX_PRIME_END_MINS = 10 * 60 + 30
+
+export function usIndexPrimeWindow(date = new Date()): {
+  beforeOpen: boolean
+  inPrime: boolean
+  afterCutoff: boolean
+  nyMins: number
+} {
+  const nyMins = getNyMinutes(date)
+  return {
+    nyMins,
+    beforeOpen: nyMins < US_INDEX_PRIME_START_MINS,
+    inPrime: nyMins >= US_INDEX_PRIME_START_MINS && nyMins < US_INDEX_PRIME_END_MINS,
+    afterCutoff: nyMins >= US_INDEX_PRIME_END_MINS,
+  }
+}
+
 /**
  * Killzones estilo TJR (futures US), em America/New_York:
  * - 09:30–11:00 open → COMPRAR JÁ

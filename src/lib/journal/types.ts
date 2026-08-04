@@ -13,6 +13,8 @@ export type BinanceFill = {
   feeAsset?: string
 }
 
+export type TradeVenue = 'spot' | 't212'
+
 export type ClosedTrade = {
   id: string
   symbol: string
@@ -30,7 +32,9 @@ export type ClosedTrade = {
   exitSession: SessionWindow
   exitSessionBadge: string
   durationMs: number
-  /** Snapshot do Agente na entrada (quando registado via Fechou / meta). */
+  /** Spot Binance vs CFD T212. */
+  venue: TradeVenue
+  /** Snapshot do Agente/T212 na entrada (quando registado via Fechou / meta). */
   signal?: TradeSignalMeta
 }
 
@@ -39,8 +43,17 @@ export type JournalStore = {
   dayNotes: Record<string, string>
   /** Meta de sinal indexada por ClosedTrade.id */
   signalByTradeId?: Record<string, TradeSignalMeta>
+  /** Venue por trade (default spot se ausente). */
+  venueByTradeId?: Record<string, TradeVenue>
   lastImportAt?: string
   lastImportRows?: number
+}
+
+/** Backup JSON versionado — export/import entre browsers. */
+export type JournalBackup = {
+  version: 1
+  exportedAt: string
+  store: JournalStore
 }
 
 export type SymbolStats = { trades: number; pnl: number; wins: number }
@@ -48,23 +61,34 @@ export type SessionStats = { trades: number; pnl: number; wins: number }
 export type DayStats = { pnl: number; trades: number; wins: number }
 export type BucketStats = { trades: number; pnl: number; wins: number }
 
+export type EquityPoint = { t: number; equity: number; dayKey: string }
+
 export type JournalStats = {
   totalTrades: number
   wins: number
   losses: number
   breakeven: number
   winRate: number
+  /** % de dias com PnL > 0 (entre dias com pelo menos 1 trade). */
+  dayWinRate: number
+  tradingDays: number
+  greenDays: number
   totalPnlUsdc: number
   profitFactor: number
   avgWin: number
   avgLoss: number
+  /** avgWin / avgLoss (0 se sem losses). */
+  avgWinLossRatio: number
   bestTrade: ClosedTrade | null
   worstTrade: ClosedTrade | null
   bySymbol: Record<string, SymbolStats>
   bySession: Partial<Record<SessionWindow, SessionStats>>
   byDay: Record<string, DayStats>
+  byVenue: Record<string, BucketStats>
+  equityCurve: EquityPoint[]
   /** Só trades com signal meta. */
   signalTrades: number
   byProfile: Record<string, BucketStats>
+  byTpMode: Record<string, BucketStats>
   byMesh: Record<string, BucketStats>
 }

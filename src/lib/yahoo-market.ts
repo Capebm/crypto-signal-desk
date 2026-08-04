@@ -8,8 +8,73 @@ export type T212Instrument = {
   /** Pesquisa T212. */
   t212Search: string
   yahooSymbol: string
-  kind: 'index' | 'forex' | 'metal' | 'energy' | 'crypto'
+  kind: 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'
   short: string
+}
+
+/** Símbolos Twelve Data (free → Yahoo se falhar/créditos). */
+export const T212_TWELVE_SYMBOL: Record<string, string> = {
+  tech100: 'NDX',
+  us500: 'SPX',
+  us30: 'DJI',
+  ger40: 'GDAXI',
+  uk100: 'FTSE',
+  eurusd: 'EUR/USD',
+  gbpusd: 'GBP/USD',
+  usdjpy: 'USD/JPY',
+  xauusd: 'XAU/USD',
+  xagusd: 'XAG/USD',
+  oil: 'WTICO/USD',
+  fra40: 'FCHI',
+  eu50: 'SX5E',
+  jp225: 'NI225',
+  audusd: 'AUD/USD',
+  usdchf: 'USD/CHF',
+  eurjpy: 'EUR/JPY',
+  copper: 'HG',
+  ngas: 'NG',
+  btc: 'BTC/USD',
+  eth: 'ETH/USD',
+  sol: 'SOL/USD',
+  xrp: 'XRP/USD',
+  doge: 'DOGE/USD',
+  /** Futuros CME (análise; executar no CFD T212 indicado em t212Search). */
+  es: 'ES',
+  nq: 'NQ',
+  ym: 'YM',
+  /** Acções US + macro (Yahoo; Twelve se Grow). */
+  nvda: 'NVDA',
+  meta: 'META',
+  aapl: 'AAPL',
+  tsla: 'TSLA',
+  amzn: 'AMZN',
+  msft: 'MSFT',
+  amd: 'AMD',
+  googl: 'GOOGL',
+  dxy: 'DXY',
+  us2000: 'RUT',
+  eurgbp: 'EUR/GBP',
+  nzdusd: 'NZD/USD',
+}
+
+export function twelveSymbolFor(instrument: T212Instrument): string | undefined {
+  return T212_TWELVE_SYMBOL[instrument.id]
+}
+
+export type T212FeedSource = 'twelve' | 'yahoo'
+/** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). */
+export type T212FeedPreference = 'yahoo' | 'twelve'
+
+let feedStats = { twelve: 0, yahoo: 0, twelveExhausted: false }
+let twelveCooldownUntil = 0
+let twelveQueue: Promise<unknown> = Promise.resolve()
+
+export function resetT212FeedStats() {
+  feedStats = { twelve: 0, yahoo: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
+}
+
+export function getT212FeedStats() {
+  return { ...feedStats, twelveCooldownUntil }
 }
 
 export const T212_INSTRUMENTS: T212Instrument[] = [
@@ -209,10 +274,136 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
     kind: 'crypto',
     short: 'DOGE',
   },
+  {
+    id: 'es',
+    t212Label: 'E-mini S&P 500 (ES)',
+    t212Search: 'Executar: US500 (CFD) · gráfico ES',
+    yahooSymbol: 'ES=F',
+    kind: 'future',
+    short: 'ES',
+  },
+  {
+    id: 'nq',
+    t212Label: 'E-mini Nasdaq (NQ)',
+    t212Search: 'Executar: US100 / TECH100 · gráfico NQ',
+    yahooSymbol: 'NQ=F',
+    kind: 'future',
+    short: 'NQ',
+  },
+  {
+    id: 'ym',
+    t212Label: 'E-mini Dow (YM)',
+    t212Search: 'Executar: US30 · gráfico YM',
+    yahooSymbol: 'YM=F',
+    kind: 'future',
+    short: 'YM',
+  },
+  {
+    id: 'nvda',
+    t212Label: 'NVIDIA',
+    t212Search: 'NVDA',
+    yahooSymbol: 'NVDA',
+    kind: 'stock',
+    short: 'NVDA',
+  },
+  {
+    id: 'meta',
+    t212Label: 'Meta',
+    t212Search: 'META',
+    yahooSymbol: 'META',
+    kind: 'stock',
+    short: 'META',
+  },
+  {
+    id: 'aapl',
+    t212Label: 'Apple',
+    t212Search: 'AAPL',
+    yahooSymbol: 'AAPL',
+    kind: 'stock',
+    short: 'AAPL',
+  },
+  {
+    id: 'tsla',
+    t212Label: 'Tesla',
+    t212Search: 'TSLA',
+    yahooSymbol: 'TSLA',
+    kind: 'stock',
+    short: 'TSLA',
+  },
+  {
+    id: 'amzn',
+    t212Label: 'Amazon',
+    t212Search: 'AMZN',
+    yahooSymbol: 'AMZN',
+    kind: 'stock',
+    short: 'AMZN',
+  },
+  {
+    id: 'msft',
+    t212Label: 'Microsoft',
+    t212Search: 'MSFT',
+    yahooSymbol: 'MSFT',
+    kind: 'stock',
+    short: 'MSFT',
+  },
+  {
+    id: 'amd',
+    t212Label: 'AMD',
+    t212Search: 'AMD',
+    yahooSymbol: 'AMD',
+    kind: 'stock',
+    short: 'AMD',
+  },
+  {
+    id: 'googl',
+    t212Label: 'Alphabet',
+    t212Search: 'GOOGL / GOOG',
+    yahooSymbol: 'GOOGL',
+    kind: 'stock',
+    short: 'GOOGL',
+  },
+  {
+    id: 'dxy',
+    t212Label: 'US Dollar Index',
+    t212Search: 'DXY / Dollar Index',
+    yahooSymbol: 'DX-Y.NYB',
+    kind: 'index',
+    short: 'DXY',
+  },
+  {
+    id: 'us2000',
+    t212Label: 'USA 2000',
+    t212Search: 'US2000 / RUSSELL / RTY',
+    yahooSymbol: '^RUT',
+    kind: 'index',
+    short: 'US2000',
+  },
+  {
+    id: 'eurgbp',
+    t212Label: 'EUR/GBP',
+    t212Search: 'EURGBP',
+    yahooSymbol: 'EURGBP=X',
+    kind: 'forex',
+    short: 'EURGBP',
+  },
+  {
+    id: 'nzdusd',
+    t212Label: 'NZD/USD',
+    t212Search: 'NZDUSD',
+    yahooSymbol: 'NZDUSD=X',
+    kind: 'forex',
+    short: 'NZDUSD',
+  },
 ]
 
 /** Crypto CFD extras ligados por defeito na 1.ª visita / migração. */
 export const T212_DEFAULT_CRYPTO_IDS = ['btc', 'eth', 'sol'] as const
+
+/** Futuros CME úteis (TJR) — análise; execução no CFD T212. */
+export const T212_DEFAULT_FUTURE_IDS = ['es', 'nq'] as const
+
+/** Acções US líquidas — seed opcional na watchlist. */
+export const T212_DEFAULT_STOCK_IDS = ['nvda', 'meta', 'aapl', 'tsla'] as const
 
 export const T212_BTC_INSTRUMENT = T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'btc')!
 
@@ -230,42 +421,53 @@ export function instrumentById(id: string): T212Instrument | undefined {
 }
 
 const CRYPTO_SEED_KEY = 't212-crypto-seeded-v1'
+const FUTURE_SEED_KEY = 't212-future-seeded-v1'
+const STOCK_SEED_KEY = 't212-stock-seeded-v1'
+
+const markSeed = (key: string) => {
+  try {
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, '1')
+      return true
+    }
+  } catch {
+    /* ignore */
+  }
+  return false
+}
 
 /** Core sempre activo; extras = ids guardados que existem no catálogo. */
 export function readT212WatchlistIds(): string[] {
   const core = [...T212_CORE_IDS]
+  const defaults = [...T212_DEFAULT_CRYPTO_IDS, ...T212_DEFAULT_FUTURE_IDS, ...T212_DEFAULT_STOCK_IDS]
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY)
-    const seedCrypto = () => {
-      try {
-        if (!localStorage.getItem(CRYPTO_SEED_KEY)) {
-          localStorage.setItem(CRYPTO_SEED_KEY, '1')
-          return true
-        }
-      } catch {
-        /* ignore */
-      }
-      return false
-    }
+    const seedCrypto = () => markSeed(CRYPTO_SEED_KEY)
+    const seedFutures = () => markSeed(FUTURE_SEED_KEY)
+    const seedStocks = () => markSeed(STOCK_SEED_KEY)
 
     if (!raw) {
       seedCrypto()
-      return [...core, ...T212_DEFAULT_CRYPTO_IDS]
+      seedFutures()
+      seedStocks()
+      return [...core, ...defaults]
     }
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) {
       seedCrypto()
-      return [...core, ...T212_DEFAULT_CRYPTO_IDS]
+      seedFutures()
+      seedStocks()
+      return [...core, ...defaults]
     }
     let extras = parsed
       .filter((id): id is string => typeof id === 'string')
       .filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
-    if (seedCrypto()) {
-      extras = [...extras, ...T212_DEFAULT_CRYPTO_IDS]
-    }
+    if (seedCrypto()) extras = [...extras, ...T212_DEFAULT_CRYPTO_IDS]
+    if (seedFutures()) extras = [...extras, ...T212_DEFAULT_FUTURE_IDS]
+    if (seedStocks()) extras = [...extras, ...T212_DEFAULT_STOCK_IDS]
     return [...core, ...extras.filter((id, index, all) => all.indexOf(id) === index)]
   } catch {
-    return [...core, ...T212_DEFAULT_CRYPTO_IDS]
+    return [...core, ...defaults]
   }
 }
 
@@ -285,17 +487,19 @@ export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
     .filter((item): item is T212Instrument => Boolean(item))
 }
 
-/** SMT obrigatório só em índices (Conservador/Equilibrado); forex/metal/energia/crypto = informativo. */
+/** SMT obrigatório em índices/futuros (Conservador/Equilibrado); resto informativo. */
 export function t212RequireSmtAlign(instrument: T212Instrument, profileRequires: boolean): boolean {
   if (!profileRequires) return false
-  return instrument.kind === 'index'
+  return instrument.kind === 'index' || instrument.kind === 'future'
 }
 
 export function t212KindLabel(kind: T212Instrument['kind']): string {
   if (kind === 'index') return 'Índice'
+  if (kind === 'future') return 'Futuro'
   if (kind === 'forex') return 'Forex'
   if (kind === 'metal') return 'Metal'
   if (kind === 'energy') return 'Energia'
+  if (kind === 'stock') return 'Acção'
   return 'Crypto'
 }
 
@@ -454,17 +658,91 @@ async function fetchPlaybookLegacy(yahooSymbol: string): Promise<PlaybookPack> {
   }
 }
 
-/** Candles MTF: 1 pedido pack (fallback 4 pedidos) + cache 90s. */
-export async function getT212PlaybookCandles(instrument: T212Instrument = DEFAULT_T212_INSTRUMENT): Promise<PlaybookPack> {
-  const cached = playbookCache.get(instrument.yahooSymbol)
+type TwelvePackResponse = {
+  source?: string
+  symbol?: string
+  candles?: Partial<Record<'1h' | '15m' | '5m' | '1m', Candle[]>>
+  error?: string
+  quota?: boolean
+  skip?: boolean
+}
+
+async function fetchPlaybookViaTwelve(twelveSymbol: string): Promise<PlaybookPack> {
+  const response = await fetch(`/api/twelve-pack?symbol=${encodeURIComponent(twelveSymbol)}`, {
+    signal: AbortSignal.timeout(45_000),
+  })
+  const payload = (await response.json().catch(() => ({}))) as TwelvePackResponse
+  if (response.status === 503 && payload.skip) {
+    throw Object.assign(new Error('twelve-skip'), { twelveSkip: true })
+  }
+  if (response.status === 429 || payload.quota) {
+    throw Object.assign(new Error(payload.error || 'Twelve quota'), { twelveQuota: true })
+  }
+  if (!response.ok) throw new Error(payload.error || `Twelve pack ${response.status}`)
+  const c = payload.candles
+  if (!c?.['1h']?.length || !c['15m']?.length || !c['5m']?.length) {
+    throw new Error(payload.error || `Twelve pack incompleto (${twelveSymbol})`)
+  }
+  return {
+    '4h': aggregateTo4h(c['1h']),
+    '1h': c['1h'],
+    '15m': c['15m'],
+    '5m': c['5m'],
+    '1m': c['1m']?.length ? c['1m'] : c['5m'],
+  }
+}
+
+function enqueueTwelve<T>(fn: () => Promise<T>): Promise<T> {
+  const run = twelveQueue.then(fn, fn)
+  twelveQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function fetchYahooPlaybook(yahooSymbol: string): Promise<PlaybookPack> {
+  try {
+    return await fetchPlaybookViaPack(yahooSymbol)
+  } catch {
+    return fetchPlaybookLegacy(yahooSymbol)
+  }
+}
+
+/** Candles MTF. `feed: yahoo` (defeito) ou `twelve` (fallback Yahoo se créditos/erro). Cache 90s. */
+export async function getT212PlaybookCandles(
+  instrument: T212Instrument = DEFAULT_T212_INSTRUMENT,
+  options: { feed?: T212FeedPreference } = {},
+): Promise<PlaybookPack> {
+  const feed: T212FeedPreference = options.feed === 'twelve' ? 'twelve' : 'yahoo'
+  const cacheKey = `${instrument.id}:${feed}`
+  const cached = playbookCache.get(cacheKey)
   if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
 
-  let data: PlaybookPack
-  try {
-    data = await fetchPlaybookViaPack(instrument.yahooSymbol)
-  } catch {
-    data = await fetchPlaybookLegacy(instrument.yahooSymbol)
+  let data: PlaybookPack | undefined
+  let source: T212FeedSource = 'yahoo'
+
+  if (feed === 'twelve') {
+    const twelveSymbol = twelveSymbolFor(instrument)
+    if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
+      try {
+        data = await enqueueTwelve(() => fetchPlaybookViaTwelve(twelveSymbol))
+        source = 'twelve'
+      } catch (error) {
+        const err = error as { twelveQuota?: boolean; twelveSkip?: boolean }
+        if (err.twelveQuota) {
+          twelveCooldownUntil = Date.now() + 60 * 60_000
+          feedStats.twelveExhausted = true
+        }
+      }
+    }
   }
-  playbookCache.set(instrument.yahooSymbol, { at: Date.now(), data })
+
+  if (!data) {
+    data = await fetchYahooPlaybook(instrument.yahooSymbol)
+    source = 'yahoo'
+  }
+
+  if (source === 'twelve') feedStats.twelve += 1
+  else feedStats.yahoo += 1
+
+  playbookCache.set(cacheKey, { at: Date.now(), data })
   return data
 }

@@ -80,5 +80,8 @@ describe('computeJournalStats', () => {
     expect(stats.losses).toBe(1)
     expect(stats.winRate).toBe(0)
     expect(Object.keys(stats.byDay).length).toBeGreaterThan(0)
+    expect(stats.dayWinRate).toBe(0)
+    expect(stats.equityCurve.length).toBe(1)
+    expect(trades[0].venue).toBe('spot')
   })
 })

@@ -19,6 +19,7 @@ import {
   evaluateTjrQuick,
   formatSetupHitLabel,
   listBuyNowSetups,
+  pickPreferredSetupHit,
   tjrActionLabel,
   tjrTimingLabel,
   isEnterLongNow,
@@ -85,7 +86,7 @@ const potentialPct = (row: AgentRow) => {
 }
 
 /** Top candidatos COMPRAR refinados automaticamente após scan (precisa 1m para COMPRAR JÁ). */
-const AUTO_REFINE_TOP = 15
+const AUTO_REFINE_TOP = 30
 
 export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
@@ -202,21 +203,17 @@ export default function AgentDashboard() {
     const openHere = Boolean(openFill && resolveBase(symbol) === openFill.base.toUpperCase())
     const opts = { ...evalOptions, openPosition: openHere }
     let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, 'long', opts)
+    // Todos setups ON: qualquer dos 9 com COMPRAR JÁ ou AGUARDAR → esse sinal (preferência ao teu Risco×TP no mesmo tier).
     const matchingSetups = scanAllSetups ? listBuyNowSetups(symbol, data, btc, opts, 'long') : undefined
-    // Todos setups ON: se algum dos 9 der COMPRAR JÁ → esse é o sinal (preferência ao teu Risco×TP se também der).
     if (scanAllSetups && matchingSetups && matchingSetups.length > 0) {
-      const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
-      if (userHit) {
-        decision = { ...decision, matchingSetups, tradeSetup: userHit }
-      } else {
-        const best = matchingSetups[0]
-        decision = {
-          ...evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, 'long', opts),
-          matchingSetups,
-          tradeSetup: best,
-        }
+      const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
+      const sameAsUi = best.profile === riskProfile && best.tpMode === tpMode
+      decision = {
+        ...(sameAsUi ? decision : evaluateTjrFull(symbol, data, btc, best.profile, best.tpMode, 'long', opts)),
+        matchingSetups,
+        tradeSetup: best,
       }
-    } else if (isEnterLongNow(decision)) {
+    } else if (isEnterLongNow(decision) || (decision.action === 'COMPRAR' && decision.entryTiming === 'RETRACE')) {
       decision = {
         ...decision,
         tradeSetup: {
@@ -224,6 +221,8 @@ export default function AgentDashboard() {
           tpMode,
           label: formatSetupHitLabel(riskProfile, tpMode),
           score: decision.score,
+          action: decision.action,
+          entryTiming: decision.entryTiming,
         },
       }
     }
@@ -321,7 +320,7 @@ export default function AgentDashboard() {
     try {
       const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
       const results: AgentRow[] = []
-      /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar — o sinal da linha continua = Risco/TP da UI. */
+      /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar; o sinal MTF vem do melhor dos 9. */
       const scoutSymbols = new Set<string>()
       for (let index = 0; index < markets.length; index += 5) {
         const done = Math.min(index + 5, markets.length)
@@ -621,12 +620,12 @@ export default function AgentDashboard() {
                       <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
                       <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
                       {row.matchingSetups && row.matchingSetups.length > 0 && (
-                        <div className="setup-hit-row" title="Setups que deram COMPRAR JÁ">
+                        <div className="setup-hit-row" title="Setups com COMPRAR JÁ ou AGUARDAR nos 9 combos">
                           {row.matchingSetups.map((hit) => {
                             const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
                             return (
                               <span
-                                key={`${hit.profile}-${hit.tpMode}`}
+                                key={`${hit.profile}-${hit.tpMode}-${hit.entryTiming ?? ''}`}
                                 className={`setup-hit${isTrade ? ' current' : ''}`}
                               >
                                 {hit.label}
@@ -963,7 +962,7 @@ export default function AgentDashboard() {
         <div className="agent-panel-body setup-help">
           <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description} — com Todos setups OFF, define o sinal da linha.</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Todos setups:</strong> 3×3=9 combos. Se algum der COMPRAR JÁ → esse é o sinal e o setup aparece no card (preferência ao teu Risco×TP).</p>
+          <p><strong>Todos setups:</strong> 3×3=9 combos. Qualquer COMPRAR JÁ ou AGUARDAR conta — o sinal da linha é o melhor (JÁ &gt; Aguardar); o teu Risco×TP só escolhe preferência e mostra em que combo(s) cai.</p>
           <p><strong>Malha / Long após H / Evitar NY mid:</strong> aplicam-se a todos os combos (incl. as 9).</p>
           <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade. Não altera o scan TJR.</p>
         </div>

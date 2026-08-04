@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'reac
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
+import T212PositionAdvisor from './T212PositionAdvisor'
 import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
 import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -21,6 +22,7 @@ import {
   isEnterLongNow,
   isEnterShortNow,
   listActionNowSetups,
+  pickPreferredSetupHit,
   tjrActionLabel,
   tjrTimingLabel,
   tjrScoreColor,
@@ -35,19 +37,30 @@ import {
   T212_CORE_IDS,
   T212_EXTRA_INSTRUMENTS,
   fetchYahooCandlesRaw,
+  getT212FeedStats,
   getT212PlaybookCandles,
   readT212WatchlistIds,
+  resetT212FeedStats,
   resolveT212Watchlist,
+  type T212FeedPreference,
   t212KindLabel,
   writeT212WatchlistIds,
   type T212Instrument,
 } from '../../lib/yahoo-market'
+import {
+  computeEsNqAlignment,
+  t212EsInstrument,
+  t212NeedsEsNqGate,
+  t212NqInstrument,
+  type EsNqAlignment,
+} from '../../lib/t212-es-nq'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
 const ALL_SETUPS_KEY = 't212-scan-all-setups'
 const WIDE_NET_KEY = 't212-wide-net'
 const CFD_PRACTICAL_KEY = 't212-cfd-practical'
+const FEED_KEY = 't212-data-feed'
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -98,26 +111,40 @@ export default function T212Dashboard() {
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [cfdPractical, setCfdPractical] = useState(() => readBool(CFD_PRACTICAL_KEY, true))
+  const [dataFeed, setDataFeed] = useState<T212FeedPreference>(() => {
+    try {
+      return localStorage.getItem(FEED_KEY) === 'twelve' ? 'twelve' : 'yahoo'
+    } catch {
+      return 'yahoo'
+    }
+  })
   const [watchIds, setWatchIds] = useState(() => readT212WatchlistIds())
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
 
-  /** Índices: SMT do perfil. Resto informativo. Crypto CFD: sessão 24/7 (não fecha fim de semana). */
-  const optionsFor = (instrument: T212Instrument) => ({
-    referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
-    wideNet,
-    cfdPractical,
-    sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
-    ...(instrument.kind === 'index' ? {} : { requireSmtAlign: false as const }),
-  })
+  /** Índices: SMT do perfil. US indices: gate ES↔NQ 5m. Crypto CFD: sessão 24/7. */
+  const optionsFor = (instrument: T212Instrument, esNq?: EsNqAlignment) => {
+    const usIndex = t212NeedsEsNqGate(instrument)
+    return {
+      referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
+      wideNet,
+      cfdPractical,
+      sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
+      ...(instrument.kind === 'index' || instrument.kind === 'future' ? {} : { requireSmtAlign: false as const }),
+      ...(usIndex ? { usIndexPlaybook: true as const } : {}),
+      ...(usIndex && esNq
+        ? { esNqAligned: esNq.aligned, esNqNote: esNq.note }
+        : {}),
+    }
+  }
 
   const hasCryptoWatch = useMemo(() => watchlist.some((item) => item.kind === 'crypto'), [watchlist])
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
-  const [status, setStatus] = useState('Carrega Analisar — índices, forex, metais, energia e crypto CFD (long + short).')
+  const [status, setStatus] = useState('Clica «Aplicar + scan» para analisar — índices, forex, metais, energia e crypto CFD.')
   const [running, setRunning] = useState(false)
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
@@ -136,6 +163,7 @@ export default function T212Dashboard() {
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
       localStorage.setItem(CFD_PRACTICAL_KEY, cfdPractical ? '1' : '0')
+      localStorage.setItem(FEED_KEY, dataFeed)
       writeT212WatchlistIds(watchIds)
     } catch {
       /* ignore */
@@ -143,7 +171,7 @@ export default function T212Dashboard() {
     const matched = matchT212Preset({ riskIndex, tpMode, wideNet, cfdPractical, scanAllSetups })
     setPresetId(matched)
     writeT212PresetId(matched)
-  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, watchIds])
+  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, dataFeed, watchIds])
 
   const applyPreset = (id: Exclude<T212PresetId, 'custom'>) => {
     const { config } = T212_PRESETS[id]
@@ -196,25 +224,24 @@ export default function T212Dashboard() {
       instrument: T212Instrument,
       data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
       reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
+      esNq?: EsNqAlignment,
     ): T212Row => {
-      const evalOptions = optionsFor(instrument)
+      const evalOptions = optionsFor(instrument, esNq)
       let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
       if (scanAllSetups) {
         const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
         if (matchingSetups.length > 0) {
-          const userHit = matchingSetups.find((hit) => hit.profile === riskProfile && hit.tpMode === tpMode)
-          if (userHit) {
-            decision = { ...decision, matchingSetups, tradeSetup: userHit }
-          } else {
-            const best = matchingSetups[0]
-            decision = {
-              ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions),
-              matchingSetups,
-              tradeSetup: best,
-            }
+          const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
+          const sameAsUi = best.profile === riskProfile && best.tpMode === tpMode
+          decision = {
+            ...(sameAsUi
+              ? decision
+              : evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions)),
+            matchingSetups,
+            tradeSetup: best,
           }
         }
-      } else if (isBuyNow(decision) || isSellNow(decision)) {
+      } else if (isBuyNow(decision) || isSellNow(decision) || isAwaitingEntry(decision)) {
         decision = {
           ...decision,
           tradeSetup: {
@@ -223,6 +250,7 @@ export default function T212Dashboard() {
             label: formatSetupHitLabel(riskProfile, tpMode),
             score: decision.score,
             action: decision.action,
+            entryTiming: decision.entryTiming,
           },
         }
       }
@@ -254,18 +282,41 @@ export default function T212Dashboard() {
     }
 
     try {
+      resetT212FeedStats()
       const results: T212Row[] = []
       const failed: string[] = []
       let done = 0
 
-      const indexRef = scanList.find((item) => item.id === 'us500') ?? scanList.find((item) => item.kind === 'index')
+      const needsEsNq = scanList.some(t212NeedsEsNqGate)
+      let esNq: EsNqAlignment | undefined
+      if (needsEsNq) {
+        setScanProgress({ pct: 3, label: 'Gate ES↔NQ 5m…' })
+        try {
+          const [esPack, nqPack] = await Promise.all([
+            getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed }),
+            getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed }),
+          ])
+          esNq = computeEsNqAlignment(esPack['5m'], nqPack['5m'])
+        } catch {
+          esNq = {
+            aligned: false,
+            esTrend: 'neutral',
+            nqTrend: 'neutral',
+            note: 'ES/NQ sem dados — gate bloqueia índices US',
+          }
+        }
+      }
+
+      const indexRef = scanList.find((item) => item.id === 'us500')
+        ?? scanList.find((item) => item.kind === 'index')
+        ?? scanList.find((item) => item.kind === 'future')
       const needsCryptoRef = scanList.some((item) => item.kind === 'crypto')
       let indexRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
       let cryptoRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
 
       if (needsCryptoRef) {
         try {
-          cryptoRefPack = await getT212PlaybookCandles(T212_BTC_INSTRUMENT)
+          cryptoRefPack = await getT212PlaybookCandles(T212_BTC_INSTRUMENT, { feed: dataFeed })
         } catch {
           /* BTC ref opcional */
         }
@@ -273,15 +324,17 @@ export default function T212Dashboard() {
 
       const refInstrument = indexRef ?? scanList[0]
       try {
-        const data = await getT212PlaybookCandles(refInstrument)
-        if (refInstrument.kind === 'index' || refInstrument.id === 'us500') indexRefPack = data
+        const data = await getT212PlaybookCandles(refInstrument, { feed: dataFeed })
+        if (refInstrument.kind === 'index' || refInstrument.kind === 'future' || refInstrument.id === 'us500') {
+          indexRefPack = data
+        }
         if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
         const refPack = refInstrument.kind === 'crypto'
           ? (cryptoRefPack ?? data)
           : (indexRefPack ?? data)
-        results.push(buildRow(refInstrument, data, refPack))
+        results.push(buildRow(refInstrument, data, refPack, esNq))
         done += 1
-        publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}`)
+        publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
       } catch (error) {
         failed.push(refInstrument.short)
         done += 1
@@ -291,13 +344,13 @@ export default function T212Dashboard() {
       const rest = scanList.filter((item) => item.id !== refInstrument.id)
       await mapPool(rest, 4, async (instrument) => {
         try {
-          const data = await getT212PlaybookCandles(instrument)
+          const data = await getT212PlaybookCandles(instrument, { feed: dataFeed })
           if (instrument.kind !== 'crypto' && !indexRefPack) indexRefPack = data
           if (instrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
           const refPack = instrument.kind === 'crypto'
             ? (cryptoRefPack ?? data)
             : (indexRefPack ?? cryptoRefPack ?? data)
-          results.push(buildRow(instrument, data, refPack))
+          results.push(buildRow(instrument, data, refPack, esNq))
         } catch {
           failed.push(instrument.short)
         } finally {
@@ -307,7 +360,7 @@ export default function T212Dashboard() {
       })
 
       if (results.length === 0) {
-        throw new Error(failed.length ? `Yahoo falhou: ${failed.join(', ')}` : 'Sem candles Yahoo.')
+        throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Twelve/Yahoo).')
       }
 
       const sorted = sortRows(results)
@@ -335,10 +388,17 @@ export default function T212Dashboard() {
         }
       }
       const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
+      const feed = getT212FeedStats()
+      const feedNote = feed.twelve + feed.yahoo > 0
+        ? ` Feed: Twelve×${feed.twelve}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
+        : ''
+      const esNqNote = esNq
+        ? (esNq.aligned ? ` ES↔NQ 5m: ${esNq.esTrend}.` : ` ES↔NQ 5m: BLOQUEADO (${esNq.esTrend}≠${esNq.nqTrend}).`)
+        : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${scanAllSetups ? ' Todos setups: nenhum dos 9 deu LONG/SHORT JÁ.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${scanAllSetups && aguardar === 0 ? ' Todos setups: nenhum dos 9 deu JÁ/Aguardar.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -357,9 +417,8 @@ export default function T212Dashboard() {
     setCfdMarket(market)
     if (!market.open && !watchlist.some((item) => item.kind === 'crypto')) {
       setStatus(market.reason)
-      return
     }
-    void analyzeAll()
+    // Só ao abrir o separador — scan só com «Aplicar + scan».
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -525,6 +584,17 @@ export default function T212Dashboard() {
             ))}
           </select>
         </label>
+        <label className="tv-setup-field" title="Yahoo por defeito. Twelve Data usa a key Netlify; se créditos esgotarem, volta a Yahoo.">
+          <span>Dados</span>
+          <select
+            aria-label="Fonte de dados"
+            value={dataFeed}
+            onChange={(event) => setDataFeed(event.target.value === 'twelve' ? 'twelve' : 'yahoo')}
+          >
+            <option value="yahoo">Yahoo</option>
+            <option value="twelve">Twelve Data</option>
+          </select>
+        </label>
         <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade.">
           <input
             type="checkbox"
@@ -572,7 +642,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT obrigatório só em <strong>índices</strong>; forex/metal/energia/crypto = informativo. Crypto CFD = long + short (Buy/Sell).</p>
+        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT em <strong>índices/futuros</strong>; forex/metal/energia/crypto = informativo. Futuros CME (ES/NQ/YM) = análise → executar no CFD T212. Crypto CFD = long + short.</p>
         <div className="t212-extra-grid">
           {T212_EXTRA_INSTRUMENTS.map((item) => {
             const on = watchIds.includes(item.id)
@@ -598,6 +668,18 @@ export default function T212Dashboard() {
       <p className="t212-disclaimer">
         CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
       </p>
+
+      <details className="position-advisor-details" open>
+        <summary>Posição aberta · manter / sair (GER40, forex, …)</summary>
+        <T212PositionAdvisor
+          riskProfile={riskProfile}
+          tpMode={tpMode}
+          wideNet={wideNet}
+          cfdPractical={cfdPractical}
+          dataFeed={dataFeed}
+          defaultInstrumentId={selectedId ?? 'ger40'}
+        />
+      </details>
 
       {rows.length > 0 && (
         <section className="agent-summary desk-filters">
