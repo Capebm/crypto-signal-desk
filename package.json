@@ -1,6 +1,6 @@
 {
   "name": "crypto-signal-desk",
-  "version": "2.0.31",
+  "version": "2.0.32",
   "description": "Transparent technical-analysis dashboard for Binance Spot markets.",
   "private": true,
   "scripts": {
@@ -17,7 +17,6 @@
     "@netlify/functions": "^3.1.10",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.24.0",
-    "pdfjs-dist": "^4.10.38",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

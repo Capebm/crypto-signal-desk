@@ -1,5 +1,6 @@
 import type { TradeSignalMeta } from '../trade-signal-meta'
 import type { SessionWindow } from '../trading-session'
+import type { T212ClosedPosition } from './t212-csv'
 import type { T212Execution } from './t212-statement'
 
 export type BinanceFill = {
@@ -46,14 +47,13 @@ export type JournalStore = {
   signalByTradeId?: Record<string, TradeSignalMeta>
   /** Venue por trade (default spot se ausente). */
   venueByTradeId?: Record<string, TradeVenue>
-  /**
-   * Ledger T212: todas as execuções importadas de Activity Statements.
-   * Os trades fechados (externalTrades) são reconstruídos a partir daqui.
-   */
+  /** Ledger T212: Order EXECUTED (OPEN/CLOSE) dos CSVs. */
   t212Executions?: T212Execution[]
-  /** Trades fechados T212 (derivados do ledger) + outros externos. */
+  /** Closed position rows (fonte de PnL T212). */
+  t212ClosedPositions?: T212ClosedPosition[]
+  /** Trades fechados T212 (derivados) + outros externos. */
   externalTrades?: ClosedTrade[]
-  /** Snapshot das pernas ainda abertas após o último rebuild T212. */
+  /** Posições ainda abertas após o último import T212. */
   t212OpenExecutions?: T212Execution[]
   lastImportAt?: string
   lastImportRows?: number

@@ -1,8 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import { parseBinanceCsv } from '../../lib/journal/binance-csv'
-import { extractPdfText } from '../../lib/journal/pdf-text'
-import { parseT212StatementText } from '../../lib/journal/t212-statement'
+import { parseT212Csv } from '../../lib/journal/t212-csv'
 import { computeJournalStats, dayId, formatDayLabel, formatDuration, pnlForDay } from '../../lib/journal/journal-stats'
 import {
   addManualClosedTrade,
@@ -11,7 +10,7 @@ import {
   getClosedTrades,
   importFills,
   importJournalBackup,
-  importT212Statement,
+  importT212Csv,
   loadJournalStore,
   setDayNote,
 } from '../../lib/journal/trade-store'
@@ -42,7 +41,7 @@ const sessionLabels: Record<string, string> = {
 
 export default function JournalDashboard() {
   const fileRef = useRef<HTMLInputElement>(null)
-  const t212PdfRef = useRef<HTMLInputElement>(null)
+  const t212CsvRef = useRef<HTMLInputElement>(null)
   const backupRef = useRef<HTMLInputElement>(null)
   const [store, setStore] = useState(loadJournalStore)
   const [selectedDay, setSelectedDay] = useState<string>()
@@ -77,32 +76,30 @@ export default function JournalDashboard() {
     setImportMsg(`${result.added} fills novos · ${result.trades.length} round-trips fechados no total.`)
   }
 
-  const onT212Pdf = async (file: File) => {
-    setImportMsg('A ler PDF T212…')
+  const onT212Csv = async (file: File) => {
+    setImportMsg('A ler CSV T212…')
     try {
-      const text = await extractPdfText(file)
-      if (!/Trading 212|Activity statement|CFD account/i.test(text)) {
-        setImportMsg('PDF não parece um Activity Statement da Trading 212.')
+      const text = await file.text()
+      if (!/Record Type/.test(text) || !/Position ID/.test(text)) {
+        setImportMsg('CSV não parece o export History da Trading 212.')
         return
       }
-      const parsed = parseT212StatementText(text)
-      if (parsed.executions.length === 0) {
-        setImportMsg('Nenhuma execução CFD/Invest encontrada no PDF.')
+      const parsed = parseT212Csv(text)
+      if (parsed.executions.length === 0 && parsed.closedPositions.length === 0) {
+        setImportMsg('Nenhuma ordem EXECUTED nem Closed position no CSV.')
         return
       }
-      const result = importT212Statement(parsed.executions)
+      const result = importT212Csv({
+        executions: parsed.executions,
+        closedPositions: parsed.closedPositions,
+      })
       setStore(result.store)
-      const period =
-        parsed.meta.periodFrom && parsed.meta.periodTo
-          ? ` · período ${parsed.meta.periodFrom} → ${parsed.meta.periodTo}`
-          : ''
       setImportMsg(
-        `T212: +${result.addedExecutions} execuções · ${result.newlyClosed} fechados novos · ` +
-          `${result.closedCount} fechados no ledger · ${result.openCount} abertas` +
-          period,
+        `T212: +${result.addedClosed} fechados · +${result.addedExecutions} execuções · ` +
+          `${result.closedCount} no histórico · ${result.openCount} abertas`,
       )
     } catch (err) {
-      setImportMsg(err instanceof Error ? err.message : 'Falha ao ler o PDF T212.')
+      setImportMsg(err instanceof Error ? err.message : 'Falha ao ler o CSV T212.')
     }
   }
 
@@ -148,13 +145,13 @@ export default function JournalDashboard() {
             }}
           />
           <input
-            ref={t212PdfRef}
+            ref={t212CsvRef}
             type="file"
-            accept=".pdf,application/pdf"
+            accept=".csv,text/csv"
             hidden
             onChange={(event) => {
               const file = event.target.files?.[0]
-              if (file) void onT212Pdf(file)
+              if (file) void onT212Csv(file)
               event.target.value = ''
             }}
           />
@@ -170,8 +167,8 @@ export default function JournalDashboard() {
             }}
           />
           <button type="button" onClick={() => fileRef.current?.click()}>Importar CSV</button>
-          <button type="button" className="ghost" onClick={() => t212PdfRef.current?.click()}>
-            T212 PDF
+          <button type="button" className="ghost" onClick={() => t212CsvRef.current?.click()}>
+            T212 CSV
           </button>
           <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>
             Backup JSON
@@ -184,7 +181,8 @@ export default function JournalDashboard() {
           </button>
           {(store.fills.length > 0 ||
             (store.externalTrades?.length ?? 0) > 0 ||
-            (store.t212Executions?.length ?? 0) > 0) && (
+            (store.t212Executions?.length ?? 0) > 0 ||
+            (store.t212ClosedPositions?.length ?? 0) > 0) && (
             <button
               type="button"
               className="ghost"
@@ -204,12 +202,13 @@ export default function JournalDashboard() {
 
       <section className="journal-import-help">
         <strong>Persistência:</strong> localStorage + <strong>Backup JSON</strong>. Spot: CSV Binance.
-        T212: <strong>T212 PDF</strong> (Activity Statement — History → Export). Cada PDF faz merge do ledger;
-        reimporta statements posteriores para fechar posições abertas e crescer o histórico.
-        {(store.t212Executions?.length ?? 0) > 0 && (
+        T212: <strong>T212 CSV</strong> (History → Export CSV). Cada ficheiro faz merge por Position ID;
+        reimporta exports posteriores para fechar abertas e crescer o histórico.
+        {(store.t212ClosedPositions?.length ?? store.t212Executions?.length ?? 0) > 0 && (
           <span>
             {' '}
-            · Ledger T212: {store.t212Executions!.length} exec · {store.t212OpenExecutions?.length ?? 0} abertas
+            · Ledger T212: {store.t212ClosedPositions?.length ?? 0} fechados · {store.t212OpenExecutions?.length ?? 0}{' '}
+            abertas
           </span>
         )}
         {store.lastImportAt && (
