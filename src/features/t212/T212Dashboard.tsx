@@ -669,7 +669,7 @@ export default function T212Dashboard() {
         CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
       </p>
 
-      <details className="position-advisor-details" open>
+      <details className="position-advisor-details">
         <summary>Posição aberta · manter / sair (GER40, forex, …)</summary>
         <T212PositionAdvisor
           riskProfile={riskProfile}
