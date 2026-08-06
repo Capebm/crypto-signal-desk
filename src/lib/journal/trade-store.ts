@@ -1,4 +1,5 @@
 import type { TradeSignalMeta } from '../trade-signal-meta'
+import { dedupeFillsByFingerprint, fillFingerprint } from './binance-csv'
 import { buildClosedTrades } from './round-trips'
 import { rebuildT212FromCsv, type T212ClosedPosition } from './t212-csv'
 import { dedupeExecutions, type T212Execution } from './t212-statement'
@@ -48,21 +49,13 @@ export function saveJournalStore(store: JournalStore) {
 
 export function importFills(incoming: BinanceFill[]): { store: JournalStore; trades: ClosedTrade[]; added: number } {
   const current = loadJournalStore()
-  const before = new Set(current.fills.map((fill) => fill.id))
-  const merged = [...current.fills]
-  let added = 0
-
-  for (const fill of incoming) {
-    if (before.has(fill.id)) continue
-    merged.push(fill)
-    before.add(fill.id)
-    added += 1
-  }
-
-  merged.sort((a, b) => a.time - b.time)
+  const beforeFps = new Set(current.fills.map((fill) => fillFingerprint(fill)))
+  const added = incoming.filter((fill) => !beforeFps.has(fillFingerprint(fill))).length
+  // Colapsa duplicados já no localStorage (imports antigos com id por índice de linha)
+  const fills = dedupeFillsByFingerprint([...current.fills, ...incoming]).sort((a, b) => a.time - b.time)
   const store: JournalStore = {
     ...current,
-    fills: merged,
+    fills,
     signalByTradeId: current.signalByTradeId ?? {},
     venueByTradeId: current.venueByTradeId ?? {},
     externalTrades: current.externalTrades ?? [],
@@ -159,14 +152,10 @@ export function importJournalBackup(
     }
   } else {
     const current = loadJournalStore()
-    const fillIds = new Set(current.fills.map((f) => f.id))
-    const fills = [...current.fills]
-    for (const fill of backup.store.fills ?? []) {
-      if (fillIds.has(fill.id)) continue
-      fills.push(fill)
-      fillIds.add(fill.id)
-    }
-    fills.sort((a, b) => a.time - b.time)
+    const fills = dedupeFillsByFingerprint([
+      ...current.fills,
+      ...(backup.store.fills ?? []),
+    ]).sort((a, b) => a.time - b.time)
     const rebuilt = rebuildT212FromCsv(
       [...(current.t212ClosedPositions ?? []), ...(backup.store.t212ClosedPositions ?? [])],
       dedupeExecutions([...(current.t212Executions ?? []), ...(backup.store.t212Executions ?? [])]),

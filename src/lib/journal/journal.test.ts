@@ -57,6 +57,18 @@ describe('parseBinanceCsv', () => {
     const townsSell = fills.find((fill) => fill.symbol === 'TOWNSUSDC' && fill.side === 'SELL')
     expect(townsSell?.side).toBe('SELL')
   })
+
+  it('uses stable ids so reimport does not create twin fills', () => {
+    const spotTradeHistory = `Time,Pair,Side,Price,Executed,Amount,Fee
+2026-07-22 23:35:50,CVXUSDC,SELL,1.238,83.193CVX,102.992934USDC,0.00012867BNB
+2026-07-22 16:02:51,CVXUSDC,BUY,1.284,83.193CVX,106.819812USDC,0.00013311BNB
+`
+    const a = parseBinanceCsv(spotTradeHistory)
+    const b = parseBinanceCsv(spotTradeHistory)
+    expect(a).toHaveLength(2)
+    expect(a.map((f) => f.id).sort()).toEqual(b.map((f) => f.id).sort())
+    expect(a[0].feeAsset).toBe('BNB')
+  })
 })
 
 describe('buildClosedTrades', () => {

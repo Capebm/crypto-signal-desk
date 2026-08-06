@@ -22,7 +22,7 @@ const detectDelimiter = (line: string) => {
 const parseNumber = (raw: string) => {
   let cleaned = raw.replace(/"/g, '').trim()
   if (!cleaned) return NaN
-  const numeric = cleaned.match(/^[\d.,]+/)
+  const numeric = cleaned.match(/^[\d.,+-]+/)
   if (!numeric) return NaN
   cleaned = numeric[0]
   if (/^\d{1,3}(\.\d{3})+,\d+$/.test(cleaned)) {
@@ -31,6 +31,13 @@ const parseNumber = (raw: string) => {
     cleaned = cleaned.replace(/,/g, '')
   }
   return Number(cleaned)
+}
+
+/** Extrai asset do sufixo: 0.00012BNB → BNB */
+const parseFeeAsset = (raw: string): string | undefined => {
+  const cleaned = raw.replace(/"/g, '').trim()
+  const m = cleaned.match(/[A-Za-z][A-Za-z0-9]{1,14}$/)
+  return m ? m[0].toUpperCase() : undefined
 }
 
 const parseSide = (raw: string): 'BUY' | 'SELL' | undefined => {
@@ -49,6 +56,12 @@ const parseTime = (raw: string): number | undefined => {
   if (eu) {
     const [, d, m, y, h, min, s] = eu
     ms = Date.parse(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min}:${s}Z`)
+    if (Number.isFinite(ms)) return ms
+  }
+  // Spot Trade History: "2026-07-22 23:35:50" (UTC sem Z)
+  const space = cleaned.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})$/)
+  if (space) {
+    ms = Date.parse(`${space[1]}T${space[2]}Z`)
     if (Number.isFinite(ms)) return ms
   }
   return undefined
@@ -140,11 +153,21 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
     )
     if (!Number.isFinite(quoteAmount) || quoteAmount <= 0) quoteAmount = price * quantity
 
-    const fee = parseNumber(pick(row, ['fee', 'commission']) ?? '')
-    const feeAsset = pick(row, ['feecoin', 'commissionasset', 'feeasset', 'feecurrency'])?.replace(/"/g, '').toUpperCase()
-    const orderNo = pick(row, ['orderno', 'ordernumber', 'orderid']) ?? String(index)
+    const feeRaw = pick(row, ['fee', 'commission']) ?? ''
+    const fee = parseNumber(feeRaw)
+    const feeAsset =
+      pick(row, ['feecoin', 'commissionasset', 'feeasset', 'feecurrency'])?.replace(/"/g, '').toUpperCase() ||
+      parseFeeAsset(feeRaw)
 
-    const id = `${orderNo}-${pair}-${side}-${time}`
+    // Id estável por conteúdo — reimportar o mesmo CSV / outro export não duplica
+    const id = fillFingerprint({
+      time,
+      symbol: pair,
+      side,
+      price,
+      quantity,
+      quoteAmount,
+    })
     fills.push({
       id,
       time,
@@ -153,12 +176,37 @@ export function parseBinanceCsv(text: string): BinanceFill[] {
       price,
       quantity,
       quoteAmount,
-      fee: Number.isFinite(fee) ? fee : undefined,
+      fee: Number.isFinite(fee) ? Math.abs(fee) : undefined,
       feeAsset,
     })
   }
 
-  return fills.sort((a, b) => a.time - b.time)
+  return dedupeFillsByFingerprint(fills).sort((a, b) => a.time - b.time)
+}
+
+/** Chave estável para merge entre imports (ignora order id / índice da linha). */
+export function fillFingerprint(
+  fill: Pick<BinanceFill, 'time' | 'symbol' | 'side' | 'price' | 'quantity' | 'quoteAmount'>,
+): string {
+  const q = Number(fill.quoteAmount.toFixed(8))
+  const p = Number(fill.price.toFixed(10))
+  const qty = Number(fill.quantity.toFixed(8))
+  return `${fill.time}|${fill.symbol}|${fill.side}|${p}|${qty}|${q}`
+}
+
+export function dedupeFillsByFingerprint(fills: BinanceFill[]): BinanceFill[] {
+  const map = new Map<string, BinanceFill>()
+  for (const fill of fills) {
+    const id = fillFingerprint(fill)
+    const prev = map.get(id)
+    if (!prev) {
+      map.set(id, { ...fill, id })
+      continue
+    }
+    // Preferir linha com fee preenchida
+    if ((prev.fee === undefined || prev.fee === 0) && fill.fee) map.set(id, { ...fill, id })
+  }
+  return [...map.values()]
 }
 
 function splitCsvLine(line: string, delimiter = ','): string[] {
