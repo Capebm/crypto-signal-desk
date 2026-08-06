@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import { parseBinanceCsv } from '../../lib/journal/binance-csv'
+import { extractPdfText } from '../../lib/journal/pdf-text'
+import { parseT212StatementText } from '../../lib/journal/t212-statement'
 import { computeJournalStats, dayId, formatDayLabel, formatDuration, pnlForDay } from '../../lib/journal/journal-stats'
 import {
   addManualClosedTrade,
@@ -9,6 +11,7 @@ import {
   getClosedTrades,
   importFills,
   importJournalBackup,
+  importT212Statement,
   loadJournalStore,
   setDayNote,
 } from '../../lib/journal/trade-store'
@@ -18,8 +21,12 @@ import { signalMetaLabel } from '../../lib/trade-signal-meta'
 
 type VenueFilter = 'all' | TradeVenue
 
-const money = (value: number) =>
-  new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
+const money = (value: number, venue?: TradeVenue) =>
+  new Intl.NumberFormat('pt-PT', {
+    style: 'currency',
+    currency: venue === 't212' ? 'EUR' : 'USD',
+    maximumFractionDigits: 2,
+  }).format(value)
 
 const price = (value: number) =>
   new Intl.NumberFormat('pt-PT', { maximumFractionDigits: value < 1 ? 5 : 2 }).format(value)
@@ -35,6 +42,7 @@ const sessionLabels: Record<string, string> = {
 
 export default function JournalDashboard() {
   const fileRef = useRef<HTMLInputElement>(null)
+  const t212PdfRef = useRef<HTMLInputElement>(null)
   const backupRef = useRef<HTMLInputElement>(null)
   const [store, setStore] = useState(loadJournalStore)
   const [selectedDay, setSelectedDay] = useState<string>()
@@ -53,6 +61,7 @@ export default function JournalDashboard() {
     () => (venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)),
     [allTrades, venueFilter],
   )
+  const moneyOpts = venueFilter === 't212' ? 't212' as const : venueFilter === 'spot' ? 'spot' as const : undefined
   const stats = useMemo(() => computeJournalStats(trades), [trades])
   const today = useMemo(() => pnlForDay(trades, dayId(Date.now())), [trades])
 
@@ -66,6 +75,35 @@ export default function JournalDashboard() {
     const result = importFills(fills)
     setStore(result.store)
     setImportMsg(`${result.added} fills novos · ${result.trades.length} round-trips fechados no total.`)
+  }
+
+  const onT212Pdf = async (file: File) => {
+    setImportMsg('A ler PDF T212…')
+    try {
+      const text = await extractPdfText(file)
+      if (!/Trading 212|Activity statement|CFD account/i.test(text)) {
+        setImportMsg('PDF não parece um Activity Statement da Trading 212.')
+        return
+      }
+      const parsed = parseT212StatementText(text)
+      if (parsed.executions.length === 0) {
+        setImportMsg('Nenhuma execução CFD/Invest encontrada no PDF.')
+        return
+      }
+      const result = importT212Statement(parsed.executions)
+      setStore(result.store)
+      const period =
+        parsed.meta.periodFrom && parsed.meta.periodTo
+          ? ` · período ${parsed.meta.periodFrom} → ${parsed.meta.periodTo}`
+          : ''
+      setImportMsg(
+        `T212: +${result.addedExecutions} execuções · ${result.newlyClosed} fechados novos · ` +
+          `${result.closedCount} fechados no ledger · ${result.openCount} abertas` +
+          period,
+      )
+    } catch (err) {
+      setImportMsg(err instanceof Error ? err.message : 'Falha ao ler o PDF T212.')
+    }
   }
 
   const onBackupImport = async (file: File) => {
@@ -110,6 +148,17 @@ export default function JournalDashboard() {
             }}
           />
           <input
+            ref={t212PdfRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) void onT212Pdf(file)
+              event.target.value = ''
+            }}
+          />
+          <input
             ref={backupRef}
             type="file"
             accept=".json,application/json"
@@ -121,6 +170,9 @@ export default function JournalDashboard() {
             }}
           />
           <button type="button" onClick={() => fileRef.current?.click()}>Importar CSV</button>
+          <button type="button" className="ghost" onClick={() => t212PdfRef.current?.click()}>
+            T212 PDF
+          </button>
           <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>
             Backup JSON
           </button>
@@ -130,7 +182,9 @@ export default function JournalDashboard() {
           <button type="button" className="ghost" onClick={() => setManualOpen((v) => !v)}>
             {manualOpen ? 'Fechar manual' : 'Trade manual'}
           </button>
-          {store.fills.length > 0 && (
+          {(store.fills.length > 0 ||
+            (store.externalTrades?.length ?? 0) > 0 ||
+            (store.t212Executions?.length ?? 0) > 0) && (
             <button
               type="button"
               className="ghost"
@@ -149,8 +203,15 @@ export default function JournalDashboard() {
       </header>
 
       <section className="journal-import-help">
-        <strong>Persistência:</strong> o diário fica neste browser. Usa <strong>Backup JSON</strong> regularmente e{' '}
-        <strong>Restaurar</strong> noutro PC. CSV Binance: Orders → Data Download Center → Spot Order History → ZIP → .csv.
+        <strong>Persistência:</strong> localStorage + <strong>Backup JSON</strong>. Spot: CSV Binance.
+        T212: <strong>T212 PDF</strong> (Activity Statement — History → Export). Cada PDF faz merge do ledger;
+        reimporta statements posteriores para fechar posições abertas e crescer o histórico.
+        {(store.t212Executions?.length ?? 0) > 0 && (
+          <span>
+            {' '}
+            · Ledger T212: {store.t212Executions!.length} exec · {store.t212OpenExecutions?.length ?? 0} abertas
+          </span>
+        )}
         {store.lastImportAt && (
           <span> · Último import: {new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(store.lastImportAt))}</span>
         )}
@@ -175,6 +236,18 @@ export default function JournalDashboard() {
         ))}
       </div>
       {importMsg && <p className="journal-status">{importMsg}</p>}
+
+      {venueFilter === 't212' && (store.t212OpenExecutions?.length ?? 0) > 0 && (
+        <section className="journal-import-help" aria-label="Posições T212 abertas">
+          <strong>Abertas no ledger:</strong>{' '}
+          {store.t212OpenExecutions!.map((e) => (
+            <span key={e.id}>
+              {e.instrument} {e.direction} {e.size} @ {price(e.price)} ·{' '}
+            </span>
+          ))}
+          Importa um PDF mais recente com o fecho para entrarem no histórico.
+        </section>
+      )}
 
       {manualOpen && (
         <form
@@ -238,8 +311,8 @@ export default function JournalDashboard() {
       ) : (
         <>
           <section className="journal-kpis">
-            <article><span>PnL hoje</span><strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl)}</strong><small>{today.trades} trades</small></article>
-            <article><span>PnL total</span><strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc)}</strong></article>
+            <article><span>PnL hoje</span><strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl, moneyOpts)}</strong><small>{today.trades} trades</small></article>
+            <article><span>PnL total</span><strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc, moneyOpts)}</strong></article>
             <article><span>Win rate</span><strong>{stats.winRate.toFixed(0)}%</strong><small>{stats.wins}W / {stats.losses}L</small></article>
             <article><span>Day win %</span><strong>{stats.dayWinRate.toFixed(0)}%</strong><small>{stats.greenDays}/{stats.tradingDays} dias</small></article>
             <article><span>Profit factor</span><strong>{Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'}</strong></article>
@@ -306,7 +379,7 @@ export default function JournalDashboard() {
                       {dayTrades.map((trade) => (
                         <li key={trade.id}>
                           <strong>{trade.base}</strong>
-                          <span className={trade.pnlUsdc >= 0 ? 'positive' : 'negative'}>{money(trade.pnlUsdc)}</span>
+                          <span className={trade.pnlUsdc >= 0 ? 'positive' : 'negative'}>{money(trade.pnlUsdc, trade.venue)}</span>
                           <small>{sessionLabels[trade.entrySession] ?? trade.entrySession}</small>
                         </li>
                       ))}
@@ -439,7 +512,7 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
       <td>{price(trade.entryPrice)}</td>
       <td>{price(trade.exitPrice)}</td>
       <td>{trade.quantity.toFixed(trade.quantity < 1 ? 4 : 2)}</td>
-      <td className={trade.pnlUsdc >= 0 ? 'positive' : 'negative'}>{money(trade.pnlUsdc)}</td>
+      <td className={trade.pnlUsdc >= 0 ? 'positive' : 'negative'}>{money(trade.pnlUsdc, trade.venue)}</td>
       <td className={trade.pnlPct >= 0 ? 'positive' : 'negative'}>{trade.pnlPct.toFixed(2)}%</td>
       <td>{formatDuration(trade.durationMs)}</td>
       <td title={trade.entrySessionBadge}>{sessionLabels[trade.entrySession] ?? trade.entrySession}</td>

@@ -1,5 +1,6 @@
 import type { TradeSignalMeta } from '../trade-signal-meta'
 import { buildClosedTrades } from './round-trips'
+import { dedupeExecutions, rebuildT212History, type T212Execution } from './t212-statement'
 import type { ClosedTrade, JournalBackup, JournalStore, TradeVenue } from './types'
 import type { BinanceFill } from './types'
 
@@ -11,6 +12,9 @@ const emptyStore = (): JournalStore => ({
   dayNotes: {},
   signalByTradeId: {},
   venueByTradeId: {},
+  externalTrades: [],
+  t212Executions: [],
+  t212OpenExecutions: [],
 })
 
 export function loadJournalStore(): JournalStore {
@@ -23,8 +27,12 @@ export function loadJournalStore(): JournalStore {
       dayNotes: parsed.dayNotes ?? {},
       signalByTradeId: parsed.signalByTradeId ?? {},
       venueByTradeId: parsed.venueByTradeId ?? {},
+      externalTrades: parsed.externalTrades ?? [],
+      t212Executions: parsed.t212Executions ?? [],
+      t212OpenExecutions: parsed.t212OpenExecutions ?? [],
       lastImportAt: parsed.lastImportAt,
       lastImportRows: parsed.lastImportRows,
+      lastT212ImportAt: parsed.lastT212ImportAt,
     }
   } catch {
     return emptyStore()
@@ -54,6 +62,7 @@ export function importFills(incoming: BinanceFill[]): { store: JournalStore; tra
     fills: merged,
     signalByTradeId: current.signalByTradeId ?? {},
     venueByTradeId: current.venueByTradeId ?? {},
+    externalTrades: current.externalTrades ?? [],
     lastImportAt: new Date().toISOString(),
     lastImportRows: incoming.length,
   }
@@ -73,11 +82,17 @@ export function setDayNote(dayKey: string, note: string) {
 }
 
 function getClosedTradesFromStore(store: JournalStore): ClosedTrade[] {
-  return buildClosedTrades(store.fills).map((trade) => ({
+  const fromFills = buildClosedTrades(store.fills).map((trade) => ({
     ...trade,
     venue: store.venueByTradeId?.[trade.id] ?? trade.venue ?? 'spot',
     signal: store.signalByTradeId?.[trade.id],
   }))
+  const external = (store.externalTrades ?? []).map((trade) => ({
+    ...trade,
+    venue: trade.venue ?? 't212',
+    signal: store.signalByTradeId?.[trade.id] ?? trade.signal,
+  }))
+  return [...fromFills, ...external].sort((a, b) => b.exitTime - a.exitTime)
 }
 
 export function getClosedTrades(): ClosedTrade[] {
@@ -131,8 +146,12 @@ export function importJournalBackup(
       dayNotes: backup.store.dayNotes ?? {},
       signalByTradeId: backup.store.signalByTradeId ?? {},
       venueByTradeId: backup.store.venueByTradeId ?? {},
+      externalTrades: backup.store.externalTrades ?? [],
+      t212Executions: backup.store.t212Executions ?? [],
+      t212OpenExecutions: backup.store.t212OpenExecutions ?? [],
       lastImportAt: new Date().toISOString(),
       lastImportRows: backup.store.fills?.length ?? 0,
+      lastT212ImportAt: backup.store.lastT212ImportAt,
     }
   } else {
     const current = loadJournalStore()
@@ -144,13 +163,29 @@ export function importJournalBackup(
       fillIds.add(fill.id)
     }
     fills.sort((a, b) => a.time - b.time)
+    const t212Executions = dedupeExecutions([
+      ...(current.t212Executions ?? []),
+      ...(backup.store.t212Executions ?? []),
+    ])
+    const rebuilt = rebuildT212History(t212Executions)
+    const seenExt = new Set<string>()
+    const nonT212External: ClosedTrade[] = []
+    for (const trade of [...(current.externalTrades ?? []), ...(backup.store.externalTrades ?? [])]) {
+      if (trade.venue === 't212' || seenExt.has(trade.id)) continue
+      seenExt.add(trade.id)
+      nonT212External.push(trade)
+    }
     store = {
       fills,
       dayNotes: { ...current.dayNotes, ...(backup.store.dayNotes ?? {}) },
       signalByTradeId: { ...(current.signalByTradeId ?? {}), ...(backup.store.signalByTradeId ?? {}) },
       venueByTradeId: { ...(current.venueByTradeId ?? {}), ...(backup.store.venueByTradeId ?? {}) },
+      t212Executions: rebuilt.executions,
+      t212OpenExecutions: rebuilt.openExecutions,
+      externalTrades: [...nonT212External, ...rebuilt.closedTrades],
       lastImportAt: new Date().toISOString(),
       lastImportRows: backup.store.fills?.length ?? 0,
+      lastT212ImportAt: backup.store.lastT212ImportAt ?? current.lastT212ImportAt,
     }
   }
 
@@ -245,4 +280,71 @@ export function addManualClosedTrade(input: ManualClosedTradeInput): { store: Jo
   const trades = getClosedTrades()
   const withMeta = trades.find((t) => t.id === trade?.id)
   return { store, trades, trade: withMeta ?? trade }
+}
+
+/** Importa Activity Statement T212: faz merge do ledger de execuções e reconstrói o histórico fechado. */
+export function importT212Statement(incoming: T212Execution[]): {
+  store: JournalStore
+  trades: ClosedTrade[]
+  addedExecutions: number
+  closedCount: number
+  openCount: number
+  newlyClosed: number
+} {
+  const current = loadJournalStore()
+  const beforeIds = new Set((current.t212Executions ?? []).map((e) => e.id))
+  const beforeClosed = new Set(
+    (current.externalTrades ?? []).filter((t) => t.venue === 't212').map((t) => t.id),
+  )
+  const mergedExecs = dedupeExecutions([...(current.t212Executions ?? []), ...incoming])
+  const addedExecutions = mergedExecs.filter((e) => !beforeIds.has(e.id)).length
+  const rebuilt = rebuildT212History(mergedExecs)
+  const newlyClosed = rebuilt.closedTrades.filter((t) => !beforeClosed.has(t.id)).length
+  const nonT212 = (current.externalTrades ?? []).filter((t) => t.venue !== 't212')
+  const store: JournalStore = {
+    ...current,
+    t212Executions: rebuilt.executions,
+    t212OpenExecutions: rebuilt.openExecutions,
+    externalTrades: [...nonT212, ...rebuilt.closedTrades],
+    lastImportAt: new Date().toISOString(),
+    lastImportRows: incoming.length,
+    lastT212ImportAt: new Date().toISOString(),
+  }
+  saveJournalStore(store)
+  return {
+    store,
+    trades: getClosedTradesFromStore(store),
+    addedExecutions,
+    closedCount: rebuilt.closedTrades.length,
+    openCount: rebuilt.openExecutions.length,
+    newlyClosed,
+  }
+}
+
+/** @deprecated Prefer importT212Statement — mantido para compat. */
+export function importT212ClosedTrades(incoming: ClosedTrade[]): {
+  store: JournalStore
+  trades: ClosedTrade[]
+  added: number
+} {
+  const current = loadJournalStore()
+  const before = new Set((current.externalTrades ?? []).map((t) => t.id))
+  const nonT212 = (current.externalTrades ?? []).filter((t) => t.venue !== 't212')
+  const t212Prev = (current.externalTrades ?? []).filter((t) => t.venue === 't212')
+  const merged = [...t212Prev]
+  let added = 0
+  for (const trade of incoming) {
+    if (before.has(trade.id)) continue
+    merged.push({ ...trade, venue: 't212' })
+    before.add(trade.id)
+    added += 1
+  }
+  const store: JournalStore = {
+    ...current,
+    externalTrades: [...nonT212, ...merged],
+    lastImportAt: new Date().toISOString(),
+    lastImportRows: incoming.length,
+  }
+  saveJournalStore(store)
+  return { store, trades: getClosedTradesFromStore(store), added }
 }
