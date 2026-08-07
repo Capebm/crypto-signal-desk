@@ -709,13 +709,16 @@ async function fetchYahooPlaybook(yahooSymbol: string): Promise<PlaybookPack> {
 /** Candles MTF. `feed: yahoo` (defeito) ou `twelve` (fallback Yahoo se créditos/erro). Cache 90s. */
 export async function getT212PlaybookCandles(
   instrument: T212Instrument = DEFAULT_T212_INSTRUMENT,
-  options: { feed?: T212FeedPreference } = {},
+  options: { feed?: T212FeedPreference; bypassCache?: boolean } = {},
 ): Promise<PlaybookPack> {
   const feed: T212FeedPreference = options.feed === 'twelve' ? 'twelve' : 'yahoo'
   const cacheKey = `${instrument.id}:${feed}`
-  const cached = playbookCache.get(cacheKey)
-  if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
-
+  if (!options.bypassCache) {
+    const cached = playbookCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
+  } else {
+    playbookCache.delete(cacheKey)
+  }
   let data: PlaybookPack | undefined
   let source: T212FeedSource = 'yahoo'
 

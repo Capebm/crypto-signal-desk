@@ -145,6 +145,9 @@ export default function T212Dashboard() {
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
   const [status, setStatus] = useState('Clica «Aplicar + scan» para analisar — índices, forex, metais, energia e crypto CFD.')
   const [running, setRunning] = useState(false)
+  const [refreshingAguardar, setRefreshingAguardar] = useState(false)
+  const [loadingFull, setLoadingFull] = useState<string>()
+  const [refinedIds, setRefinedIds] = useState<Set<string>>(() => new Set())
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [session, setSession] = useState(() => getTradingSessionStatus())
@@ -154,6 +157,166 @@ export default function T212Dashboard() {
   const [alertNow, setAlertNow] = useState(() => alertsEnabled())
   const [presetId, setPresetId] = useState<T212PresetId>(() => readT212PresetId())
   const canScan = cfdMarket.open || hasCryptoWatch
+
+  const buildRow = (
+    instrument: T212Instrument,
+    data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
+    reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
+    esNq?: EsNqAlignment,
+  ): T212Row => {
+    const evalOptions = optionsFor(instrument, esNq)
+    let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
+    if (scanAllSetups) {
+      const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
+      if (matchingSetups.length > 0) {
+        const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
+        const sameAsUi = best.profile === riskProfile && best.tpMode === tpMode
+        decision = {
+          ...(sameAsUi
+            ? decision
+            : evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions)),
+          matchingSetups,
+          tradeSetup: best,
+        }
+      }
+    } else if (isBuyNow(decision) || isSellNow(decision) || isAwaitingEntry(decision)) {
+      decision = {
+        ...decision,
+        tradeSetup: {
+          profile: riskProfile,
+          tpMode,
+          label: formatSetupHitLabel(riskProfile, tpMode),
+          score: decision.score,
+          action: decision.action,
+          entryTiming: decision.entryTiming,
+        },
+      }
+    }
+    const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
+    return { ...decision, instrument, price }
+  }
+
+  const instrumentByIdSafe = (): T212Instrument =>
+    T212_CATALOG.find((item) => item.id === 'us500') ?? T212_BTC_INSTRUMENT
+
+  const refineRow = async (instrument: T212Instrument, bypassCache = true) => {
+    let esNq: EsNqAlignment | undefined
+    if (t212NeedsEsNqGate(instrument)) {
+      try {
+        const [esPack, nqPack] = await Promise.all([
+          getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed, bypassCache }),
+          getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed, bypassCache }),
+        ])
+        esNq = computeEsNqAlignment(esPack['5m'], nqPack['5m'])
+      } catch {
+        esNq = {
+          aligned: false,
+          esTrend: 'neutral',
+          nqTrend: 'neutral',
+          note: 'ES/NQ sem dados — gate bloqueia índices US',
+        }
+      }
+    }
+    const refInstrument = instrument.kind === 'crypto'
+      ? T212_BTC_INSTRUMENT
+      : instrumentByIdSafe()
+    const [data, reference] = await Promise.all([
+      getT212PlaybookCandles(instrument, { feed: dataFeed, bypassCache }),
+      getT212PlaybookCandles(refInstrument, { feed: dataFeed, bypassCache }),
+    ])
+    const next = buildRow(instrument, data, reference, esNq)
+    const patch = (row: T212Row): T212Row =>
+      row.instrument.id === instrument.id ? next : row
+    setRows((prev) => [...prev.map(patch)].sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0)))
+    setRefinedIds((prev) => new Set(prev).add(instrument.id))
+    return next
+  }
+
+  /** Re-avalia MTF todas as AGUARDAR — vê quais passam a Long/Short JÁ ou ESPERAR. */
+  const refreshAguardar = async () => {
+    const targets = rows.filter(isAguardar)
+    if (targets.length === 0 || running) return
+    setRunning(true)
+    setRefreshingAguardar(true)
+    setFilter('AGUARDAR')
+    setScanProgress({ pct: 0, label: `Refresh Aguardar · 0/${targets.length}` })
+    setStatus(`Refresh MTF · ${targets.length} em Aguardar…`)
+    let buyNow = 0
+    let sellNow = 0
+    let stillWait = 0
+    let toEsperar = 0
+    let failed = 0
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const row = targets[index]
+        setScanProgress({
+          pct: Math.round(((index + 1) / targets.length) * 100),
+          label: `Refresh Aguardar · ${index + 1}/${targets.length} · ${row.instrument.short}`,
+        })
+        setStatus(`Refresh Aguardar · ${index + 1}/${targets.length} · ${row.instrument.short}…`)
+        try {
+          const refined = await refineRow(row.instrument, true)
+          if (isBuyNow(refined)) {
+            buyNow += 1
+            void notifyActionNow({
+              title: `LONG JÁ · ${refined.instrument.short}`,
+              body: `Score ${refined.score} · ${session.badge}`,
+              symbol: refined.instrument.short,
+            })
+          } else if (isSellNow(refined)) {
+            sellNow += 1
+            void notifyActionNow({
+              title: `SHORT JÁ · ${refined.instrument.short}`,
+              body: `Score ${refined.score} · ${session.badge}`,
+              symbol: refined.instrument.short,
+            })
+          } else if (isAguardar(refined)) stillWait += 1
+          else toEsperar += 1
+        } catch {
+          failed += 1
+        }
+      }
+      setStatus(
+        `Refresh Aguardar (${targets.length}): ${buyNow} → Long JÁ · ${sellNow} → Short JÁ · ${stillWait} ainda AGUARDAR · ${toEsperar} → ESPERAR/outro${failed ? ` · ${failed} falhou` : ''}.`,
+      )
+      if (buyNow > 0) setFilter('COMPRAR_JA')
+      else if (sellNow > 0) setFilter('VENDER')
+      else if (stillWait > 0) setFilter('AGUARDAR')
+      else setFilter('TODAS')
+    } finally {
+      setRunning(false)
+      setRefreshingAguardar(false)
+      setScanProgress(undefined)
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedId) return
+    const instrument =
+      T212_CATALOG.find((item) => item.id === selectedId)
+      ?? T212_EXTRA_INSTRUMENTS.find((item) => item.id === selectedId)
+    if (!instrument) return
+    setLoadingFull(instrument.id)
+    setRefinedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(instrument.id)
+      return next
+    })
+    void (async () => {
+      const started = Date.now()
+      try {
+        await refineRow(instrument, true)
+      } catch {
+        /* mantém linha do scan */
+      } finally {
+        const minMs = 1000
+        const elapsed = Date.now() - started
+        if (elapsed < minMs) await new Promise((resolve) => setTimeout(resolve, minMs - elapsed))
+        setLoadingFull(undefined)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refine ao abrir asset / mudar setup
+  }, [selectedId, riskProfile, tpMode, scanAllSetups, wideNet, cfdPractical, dataFeed])
 
   useEffect(() => {
     try {
@@ -218,44 +381,7 @@ export default function T212Dashboard() {
         ? 'Fim de semana CFD — a analisar só crypto CFD…'
         : 'Scan rápido — resultados aparecem à medida que chegam…',
     )
-
-    const buildRow = (
-      instrument: T212Instrument,
-      data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
-      reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
-      esNq?: EsNqAlignment,
-    ): T212Row => {
-      const evalOptions = optionsFor(instrument, esNq)
-      let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
-      if (scanAllSetups) {
-        const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
-        if (matchingSetups.length > 0) {
-          const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
-          const sameAsUi = best.profile === riskProfile && best.tpMode === tpMode
-          decision = {
-            ...(sameAsUi
-              ? decision
-              : evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions)),
-            matchingSetups,
-            tradeSetup: best,
-          }
-        }
-      } else if (isBuyNow(decision) || isSellNow(decision) || isAwaitingEntry(decision)) {
-        decision = {
-          ...decision,
-          tradeSetup: {
-            profile: riskProfile,
-            tpMode,
-            label: formatSetupHitLabel(riskProfile, tpMode),
-            score: decision.score,
-            action: decision.action,
-            entryTiming: decision.entryTiming,
-          },
-        }
-      }
-      const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
-      return { ...decision, instrument, price }
-    }
+    setRefinedIds(new Set())
 
     const sortRows = (list: T212Row[]) =>
       [...list].sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
@@ -676,6 +802,17 @@ export default function T212Dashboard() {
           <button type="button" className={filter === 'VENDER' ? 'active sell' : 'sell'} onClick={() => setFilter('VENDER')}>Short <span>{counts.VENDER}</span></button>
           <button type="button" className={filter === 'AGUARDAR' ? 'active watch' : 'watch'} onClick={() => setFilter('AGUARDAR')}>Aguardar <span>{counts.AGUARDAR}</span></button>
           <button type="button" className={filter === 'ESPERAR' ? 'active wait' : 'wait'} onClick={() => setFilter('ESPERAR')}>Esperar <span>{counts.ESPERAR}</span></button>
+          {counts.AGUARDAR > 0 && (
+            <button
+              type="button"
+              className="setup-reapply refresh-aguardar"
+              onClick={() => void refreshAguardar()}
+              disabled={running}
+              title="Re-avalia MTF só as AGUARDAR — vê quais passam a Long/Short JÁ ou caem para ESPERAR"
+            >
+              {refreshingAguardar ? 'A refrescar…' : `Refresh Aguardar (${counts.AGUARDAR})`}
+            </button>
+          )}
         </section>
       )}
 
@@ -712,7 +849,7 @@ export default function T212Dashboard() {
                         </td>
                         <td>
                           <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row, { cfd: true })}</strong>
-                          <small className="desk-sub">{row.setupStatus}</small>
+                          <small className="desk-sub">{row.setupStatus}{refinedIds.has(row.instrument.id) ? ' · MTF' : ''}{loadingFull === row.instrument.id ? ' · a refinar…' : ''}</small>
                           {row.matchingSetups && row.matchingSetups.length > 0 && (
                             <div className="setup-hit-row">
                               {row.matchingSetups.map((hit) => {
@@ -770,7 +907,11 @@ export default function T212Dashboard() {
                                       <p className="eyebrow">{selected.instrument.t212Label}</p>
                                       <h2>{tjrActionLabel(selected, { cfd: true })} · {selected.score}/100</h2>
                                     </div>
-                                    <span>Yahoo · chart {chartInterval}</span>
+                                    <span>
+                                      {loadingFull === selected.instrument.id
+                                        ? 'A refinar MTF…'
+                                        : `Yahoo · chart ${chartInterval}${refinedIds.has(selected.instrument.id) ? ' · MTF' : ''}`}
+                                    </span>
                                   </header>
                                   <PriceChart
                                     symbol={selected.instrument.short}
