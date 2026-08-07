@@ -1,4 +1,4 @@
-export type CryptoTab = 'agent' | 't212' | 'journal'
+export type CryptoTab = 'agent' | 't212' | 'positions' | 'journal'
 
 export const CRYPTO_TAB_EVENT = 'crypto-desk-tab'
 

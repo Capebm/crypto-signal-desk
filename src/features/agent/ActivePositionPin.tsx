@@ -140,7 +140,7 @@ export default function ActivePositionPin({ riskProfile, tpMode, refreshKey = 0,
       </div>
       <div className="active-position-pin-actions">
         {onOpenAdvisor && (
-          <button type="button" className="ghost-sm" onClick={onOpenAdvisor}>Detalhe</button>
+          <button type="button" className="ghost-sm" onClick={onOpenAdvisor}>Posições</button>
         )}
         <button type="button" className="ghost-sm" onClick={closeToJournal} title="Regista saída no Diário e limpa a pin">
           Fechou

@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'reac
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
-import T212PositionAdvisor from './T212PositionAdvisor'
 import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
 import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -667,19 +666,8 @@ export default function T212Dashboard() {
       <p className="agent-status">{status}</p>
       <p className="t212-disclaimer">
         CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
+        Gestão de posição aberta → tab <strong>Posições</strong>.
       </p>
-
-      <details className="position-advisor-details">
-        <summary>Posição aberta · manter / sair (GER40, forex, …)</summary>
-        <T212PositionAdvisor
-          riskProfile={riskProfile}
-          tpMode={tpMode}
-          wideNet={wideNet}
-          cfdPractical={cfdPractical}
-          dataFeed={dataFeed}
-          defaultInstrumentId={selectedId ?? 'ger40'}
-        />
-      </details>
 
       {rows.length > 0 && (
         <section className="agent-summary desk-filters">

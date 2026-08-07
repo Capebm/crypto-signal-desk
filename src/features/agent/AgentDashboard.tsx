@@ -32,7 +32,6 @@ import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
 import { BinanceOrderPanel } from './BinanceTradeGuide'
 import OnboardingModal from './OnboardingModal'
-import PositionAdvisor from './PositionAdvisor'
 import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
@@ -130,7 +129,6 @@ export default function AgentDashboard() {
   const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [pinKey, setPinKey] = useState(0)
-  const [advisorOpen, setAdvisorOpen] = useState(false)
   const [todayPnl, setTodayPnl] = useState(() => pnlForDay(getClosedTrades(), dayId(Date.now())))
   const [regime, setRegime] = useState<MarketRegime>()
   const [alertBuyNow, setAlertBuyNow] = useState(() => alertsEnabled())
@@ -893,7 +891,7 @@ export default function AgentDashboard() {
         tpMode={tpMode}
         refreshKey={pinKey}
         onCleared={() => setPinKey((k) => k + 1)}
-        onOpenAdvisor={() => setAdvisorOpen(true)}
+        onOpenAdvisor={() => goToCryptoTab('positions')}
       />
       <OnboardingModal />
 
@@ -968,13 +966,6 @@ export default function AgentDashboard() {
         </div>
       </details>
       <TpModeModal open={tpHelpOpen} onClose={() => setTpHelpOpen(false)} active={tpMode} />
-
-      <details className="agent-panel" open={advisorOpen} onToggle={(event) => setAdvisorOpen((event.target as HTMLDetailsElement).open)}>
-        <summary>Posição aberta</summary>
-        <div className="agent-panel-body">
-          <PositionAdvisor riskProfile={riskProfile} tpMode={tpMode} onSaved={() => setPinKey((k) => k + 1)} />
-        </div>
-      </details>
 
       <details className="agent-panel">
         <summary>Killzone · horários · regras TJR</summary>
