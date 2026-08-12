@@ -171,10 +171,12 @@ export default function T212Dashboard() {
     data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
     reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
     esNq?: EsNqAlignment,
+    opts?: { allSetups?: boolean },
   ): T212Row => {
     const evalOptions = optionsFor(instrument, esNq)
     let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
-    if (scanAllSetups) {
+    const useAllSetups = opts?.allSetups ?? scanAllSetups
+    if (useAllSetups) {
       const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
       if (matchingSetups.length > 0) {
         const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
@@ -416,22 +418,13 @@ export default function T212Dashboard() {
       setStatus(label)
     }
 
-    let lastUiAt = 0
-    let uiTimer: number | undefined
-    const publishProgress = (list: T212Row[], done: number, label: string, force = false) => {
-      const flush = () => {
-        lastUiAt = Date.now()
-        uiTimer = undefined
-        publish(list, done, label)
-      }
-      if (force || done >= total || Date.now() - lastUiAt >= 200) {
-        if (uiTimer !== undefined) window.clearTimeout(uiTimer)
-        flush()
-        return
-      }
-      if (uiTimer === undefined) {
-        uiTimer = window.setTimeout(flush, 200)
-      }
+    type Pack = Awaited<ReturnType<typeof getT212PlaybookCandles>>
+    const packById = new Map<string, Pack>()
+    let indexRefPack: Pack | undefined
+    let cryptoRefPack: Pack | undefined
+    const refFor = (instrument: T212Instrument, data: Pack): Pack => {
+      if (instrument.kind === 'crypto') return cryptoRefPack ?? data
+      return indexRefPack ?? cryptoRefPack ?? data
     }
 
     try {
@@ -464,31 +457,31 @@ export default function T212Dashboard() {
         ?? scanList.find((item) => item.kind === 'index')
         ?? scanList.find((item) => item.kind === 'future')
       const needsCryptoRef = scanList.some((item) => item.kind === 'crypto')
-      let indexRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
-      let cryptoRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
 
       const refInstrument = indexRef ?? scanList[0]
 
-      // Prefetch refs em paralelo (BTC + índice) antes do pool.
+      // Prefetch refs em paralelo (BTC + índice) antes do pool — como de manhã, rede primeiro.
       await Promise.all([
         needsCryptoRef && refInstrument.id !== T212_BTC_INSTRUMENT.id
           ? getT212PlaybookCandles(T212_BTC_INSTRUMENT, { feed: dataFeed })
-            .then((pack) => { cryptoRefPack = pack })
+            .then((pack) => {
+              cryptoRefPack = pack
+              packById.set(T212_BTC_INSTRUMENT.id, pack)
+            })
             .catch(() => { /* BTC ref opcional */ })
           : Promise.resolve(),
         (async () => {
           try {
             const data = await getT212PlaybookCandles(refInstrument, { feed: dataFeed })
+            packById.set(refInstrument.id, data)
             if (refInstrument.kind === 'index' || refInstrument.kind === 'future' || refInstrument.id === 'us500') {
               indexRefPack = data
             }
             if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
-            const refPack = refInstrument.kind === 'crypto'
-              ? (cryptoRefPack ?? data)
-              : (indexRefPack ?? data)
-            results.push(buildRow(refInstrument, data, refPack, esNq))
+            // Fase 1: 1 eval (rápido). Os 9 setups vêm depois, em cache.
+            results.push(buildRow(refInstrument, data, refFor(refInstrument, data), esNq, { allSetups: false }))
             done += 1
-            publishProgress(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
+            publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
           } catch (error) {
             failed.push(refInstrument.short)
             done += 1
@@ -498,26 +491,38 @@ export default function T212Dashboard() {
       ])
 
       const rest = scanList.filter((item) => item.id !== refInstrument.id)
-      const poolLimit = dataFeed === 'twelve' ? 1 : 6
+      // Concurrency 4 — valor estável de manhã (6/8 saturavam Yahoo → fallback lento).
+      const poolLimit = dataFeed === 'twelve' ? 1 : 4
       await mapPool(rest, poolLimit, async (instrument) => {
         try {
           const data = await getT212PlaybookCandles(instrument, { feed: dataFeed })
+          packById.set(instrument.id, data)
           if (instrument.kind !== 'crypto' && !indexRefPack) indexRefPack = data
           if (instrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
-          const refPack = instrument.kind === 'crypto'
-            ? (cryptoRefPack ?? data)
-            : (indexRefPack ?? cryptoRefPack ?? data)
-          results.push(buildRow(instrument, data, refPack, esNq))
+          results.push(buildRow(instrument, data, refFor(instrument, data), esNq, { allSetups: false }))
         } catch {
           failed.push(instrument.short)
         } finally {
           done += 1
-          publishProgress(results, done, `OK · ${instrument.short} · ${done}/${total}`, done >= total)
+          publish(results, done, `OK · ${instrument.short} · ${done}/${total}`)
         }
       })
 
-      if (uiTimer !== undefined) window.clearTimeout(uiTimer)
-      publishProgress(results, done, `OK · ${done}/${total}`, true)
+      // Fase 2: expandir 9 setups em memória (sem novas calls) — mais oportunidades, sem atrasar o fetch.
+      if (scanAllSetups && results.length > 0) {
+        setScanProgress({ pct: 92, label: `9 setups · ${results.length} símbolos…` })
+        setStatus(`A expandir 9 setups (cache) · ${results.length}…`)
+        for (let index = 0; index < results.length; index += 1) {
+          const row = results[index]
+          const data = packById.get(row.instrument.id)
+          if (!data) continue
+          results[index] = buildRow(row.instrument, data, refFor(row.instrument, data), esNq, { allSetups: true })
+          if (index % 4 === 3 || index === results.length - 1) {
+            publish(results, total, `9 setups · ${index + 1}/${results.length}`)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+          }
+        }
+      }
 
       if (results.length === 0) {
         throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Twelve/Yahoo).')
