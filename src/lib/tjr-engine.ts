@@ -118,6 +118,19 @@ export type EvaluateOptions = {
    * entradas AGORA só 09:30–10:30 ET.
    */
   usIndexPlaybook?: boolean
+  /**
+   * Vídeo TJR / taxa: confirmação 5m BOS/iFVG (sem exigir 1h);
+   * LTF 1m BOS ou iFVG; sem atalho 5m; sem softOpposed/near-EQ.
+   * Sobrepõe CFD prático / Malha nos atalhos de entrada.
+   */
+  tjrVideoStrict?: boolean
+  /**
+   * Mercado do instrumento aberto? `false` → AGORA baixa para AGUARDAR (ex. stock US pré-market).
+   * `undefined` = não aplica.
+   */
+  instrumentMarketOpen?: boolean
+  /** Nota do gate de mercado (ex. reason de getInstrumentMarketStatus). */
+  instrumentMarketNote?: string
 }
 
 type TradeSide = 'long' | 'short'
@@ -344,8 +357,9 @@ function evaluate(
   const allowHighSweepLong = Boolean(options.allowHighSweepLong)
   const wideNet = Boolean(options.wideNet)
   const cfdPractical = Boolean(options.cfdPractical)
-  /** Flexível = Agressivo, Malha larga ou CFD prático. */
-  const flexible = profile === 'agressivo' || wideNet || cfdPractical
+  const tjrVideoStrict = Boolean(options.tjrVideoStrict)
+  /** Flexível = Agressivo, Malha larga ou CFD prático (strict desliga atalhos). */
+  const flexible = !tjrVideoStrict && (profile === 'agressivo' || wideNet || cfdPractical)
   const referenceLabel = options.referenceLabel ?? 'BTC'
   const minRr = riskProfiles[profile].minimumRiskReward
   const bias: Direction = side === 'long' ? 'bullish' : side === 'short' ? 'bearish' : 'neutral'
@@ -421,7 +435,8 @@ function evaluate(
   )
   const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
   // CFD prático / Malha larga: se já há sweep alinhado, o oposto é aviso — não veto (evita chop a matar os dois lados).
-  const softOpposed = (cfdPractical || wideNet) && sweepOk && opposedSweep
+  // Vídeo TJR strict: opposed continua a bloquear (menos trades, mais qualidade).
+  const softOpposed = !tjrVideoStrict && (cfdPractical || wideNet) && sweepOk && opposedSweep
   const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
   const sweepLabel = sweepOk && drawHit
@@ -448,10 +463,13 @@ function evaluate(
   const confirmExec = confirmationHit(exec, side)
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
-  const displacementOk = flexible || hasDisplacement(displaceCandles)
-  const confirmOk = cfdPractical
-    ? (confirmExec || confirmHtf) && displacementOk
-    : confirmExec && confirmHtf && displacementOk
+  const displacementOk = flexible || tjrVideoStrict || hasDisplacement(displaceCandles)
+  // Vídeo TJR: confirmação no 5m (exec) BOS/iFVG — 1h opcional (não bloqueia).
+  const confirmOk = tjrVideoStrict
+    ? confirmExec && displacementOk
+    : cfdPractical
+      ? (confirmExec || confirmHtf) && displacementOk
+      : confirmExec && confirmHtf && displacementOk
 
   const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
   const entryZone = continuationEntryZone(exec, side) ?? continuationEntryZone(h1, side)
@@ -460,21 +478,23 @@ function evaluate(
   const usIndexPlaybook = Boolean(options.usIndexPlaybook)
   const ltf1m = candles1m && candles1m.length >= 12
     ? ltfEntryConfirmation(candles1m, side)
-    : { ready: false as const, retraceSeen: false }
-  // Índices US TJR: sem atalho 5m — exige retrace→BOS no 1m.
-  const ltf5m = !usIndexPlaybook && cfdPractical && candles5m && candles5m.length >= 12
+    : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
+  // Índices US / Vídeo TJR: sem atalho 5m — exige retrace→BOS/iFVG no 1m.
+  const allowLtf5m = !tjrVideoStrict && !usIndexPlaybook && cfdPractical
+  const ltf5m = allowLtf5m && candles5m && candles5m.length >= 12
     ? ltfEntryConfirmation(candles5m, side, 36)
-    : { ready: false as const, retraceSeen: false }
-  const ltfReady = usIndexPlaybook ? ltf1m.ready : (ltf1m.ready || Boolean(ltf5m.ready))
+    : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
+  const ltfReady = (usIndexPlaybook || tjrVideoStrict) ? ltf1m.ready : (ltf1m.ready || Boolean(ltf5m.ready))
   const ltfEntryPrice = ltf1m.entryPrice ?? ltf5m.entryPrice
-  const ltfVia5m = Boolean(!usIndexPlaybook && cfdPractical && !ltf1m.ready && ltf5m.ready)
+  const ltfVia5m = Boolean(allowLtf5m && !ltf1m.ready && ltf5m.ready)
+  const ltfVia = ltf1m.ready ? ltf1m.entryVia : ltf5m.ready ? ltf5m.entryVia : undefined
 
   const eq = exec.eq ?? h1.eq ?? h4.eq
   const locationPrice = continueTouch ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
   const inDiscount = eq ? priceInDiscount(locationPrice, eq, 'bullish') : false
   const inPremium = eq ? priceInPremium(locationPrice, eq, 'bearish') : false
-  const nearEqLong = Boolean(cfdPractical && eq && side === 'long' && locationPrice <= eq * 1.003)
-  const nearEqShort = Boolean(cfdPractical && eq && side === 'short' && locationPrice >= eq * 0.997)
+  const nearEqLong = Boolean(!tjrVideoStrict && cfdPractical && eq && side === 'long' && locationPrice <= eq * 1.003)
+  const nearEqShort = Boolean(!tjrVideoStrict && cfdPractical && eq && side === 'short' && locationPrice >= eq * 0.997)
   const locationOk = !eq
     ? flexible
     : side === 'long'
@@ -528,9 +548,14 @@ function evaluate(
   let nyMidAvoided = false
   let usIndexPreRth = false
   let usIndexCutoff = false
+  let instrumentClosed = false
   if (setupReadyWithRr) {
     if (session.blockEntries) {
       sessionBlocked = true
+    } else if (entryTiming === 'AGORA' && options.instrumentMarketOpen === false) {
+      // Acção US pré/pós-market, etc.: setup ok → AGUARDAR, nunca LONG/SHORT JÁ.
+      sessionDowngrade = true
+      instrumentClosed = true
     } else if (entryTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter) {
       // Diário Spot: NY mid concentrava perdas — não COMPRAR JÁ mesmo com malha/agressivo.
       sessionDowngrade = true
@@ -541,7 +566,7 @@ function evaluate(
       if (!reactiveNy) sessionDowngrade = true
     }
     // T212 índices US: só 09:30–10:30 ET (ignora malha/agressivo).
-    if (usIndexPlaybook && entryTiming === 'AGORA' && !sessionBlocked) {
+    if (usIndexPlaybook && entryTiming === 'AGORA' && !sessionBlocked && !instrumentClosed) {
       const prime = usIndexPrimeWindow()
       if (prime.beforeOpen) {
         sessionDowngrade = true
@@ -623,28 +648,44 @@ function evaluate(
   const sweepPartial = Boolean(softOpposed || riskyHighLong)
   const checklist = [
     {
-      label: '1. Sweep (draw HTF)',
+      label: tjrVideoStrict ? '1. Sweep de liquidez' : '1. Sweep (draw HTF)',
       complete: sweepClassicOk || sweepPartial,
       partial: sweepPartial,
       note: sweepNote,
     },
-    { label: '2. Confirmação + displacement', complete: confirmOk, note: confirmOk
-      ? (cfdPractical && !(confirmExec && confirmHtf)
-        ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
-        : `BOS/IFVG no ${execLabel}+1h com displacement.`)
-      : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.` },
-    { label: '3. Continuação (FVG / EQ)', complete: continuationOk && Boolean(entryZone), note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.' },
-    { label: '4. Entrada LTF (retrace→BOS)', complete: ltfReady, note: quickScan
-      ? 'Scan rápido — expande para LTF.'
-      : ltfReady
-        ? (ltfVia5m
-          ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
-          : `Retrace→BOS 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
-        : usIndexPlaybook
-          ? (ltf1m.retraceSeen
-            ? 'Retrace 1m ok — à espera BOS 1m a favor.'
-            : 'À espera retrace 1m (BOS oposto) → depois BOS a favor.')
-          : 'À espera do BOS 1m (ou 5m em CFD prático).' },
+    {
+      label: tjrVideoStrict ? '2. 5m BOS ou iFVG' : '2. Confirmação + displacement',
+      complete: confirmOk,
+      note: confirmOk
+        ? (tjrVideoStrict
+          ? `BOS/iFVG no ${execLabel}${confirmHtf ? ' (+1h ok)' : ''}.`
+          : cfdPractical && !(confirmExec && confirmHtf)
+            ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
+            : `BOS/IFVG no ${execLabel}+1h com displacement.`)
+        : tjrVideoStrict
+          ? `Precisa BOS ou iFVG no ${execLabel}.`
+          : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.`,
+    },
+    {
+      label: tjrVideoStrict ? '3. Continuação (EQ / FVG)' : '3. Continuação (FVG / EQ)',
+      complete: continuationOk && Boolean(entryZone),
+      note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.',
+    },
+    {
+      label: tjrVideoStrict ? '4. Entrada 1m BOS ou iFVG' : '4. Entrada LTF (retrace→BOS)',
+      complete: ltfReady,
+      note: quickScan
+        ? 'Scan rápido — expande para LTF.'
+        : ltfReady
+          ? (ltfVia5m
+            ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
+            : `Retrace→${ltfVia === 'ifvg' ? 'iFVG' : 'BOS'} 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
+          : (usIndexPlaybook || tjrVideoStrict)
+            ? (ltf1m.retraceSeen
+              ? 'Retrace 1m ok — à espera BOS/iFVG 1m a favor.'
+              : 'À espera retrace 1m (BOS/iFVG oposto) → depois BOS/iFVG a favor.')
+            : 'À espera do BOS/iFVG 1m (ou 5m em CFD prático).',
+    },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? (nearEqLong && !inDiscount ? 'Perto do EQ (CFD prático).' : 'Discount.') : (nearEqShort && !inPremium ? 'Perto do EQ (CFD prático).' : 'Premium.')) : 'Fora da zona vs EQ.' },
     { label: `Estrutura ${execLabel} intacta`, complete: !structureBroken, note: structureBroken ? bosInvalidationNote(side, invalidationLabel) : `Sem BOS contrário no ${execLabel}.` },
@@ -660,8 +701,18 @@ function evaluate(
         }]
       : []),
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
+    ...(options.instrumentMarketOpen !== undefined
+      ? [{
+          label: 'Mercado do instrumento',
+          complete: options.instrumentMarketOpen && !instrumentClosed,
+          note: options.instrumentMarketOpen
+            ? (options.instrumentMarketNote ?? 'Mercado aberto.')
+            : `${options.instrumentMarketNote ?? 'Mercado fechado'} — sem LONG/SHORT JÁ (aguarda open).`,
+        }]
+      : []),
     { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${
-      usIndexCutoff ? ' · US índice: após 10:30 ET — sem entradas'
+      instrumentClosed ? ' · instrumento CLOSED → AGUARDAR'
+        : usIndexCutoff ? ' · US índice: após 10:30 ET — sem entradas'
         : usIndexPreRth ? ' · US índice: só após 09:30 ET'
           : nyMidAvoided ? ' · Evitar NY mid → AGUARDAR'
             : sessionDowngrade ? ' · AGORA→AGUARDAR'
@@ -707,7 +758,13 @@ function evaluate(
     if (sweepOk) reasons.push(reactive ? `1· Sweep reactivo de low (${sweepLabel}).` : '1· Sweep de low HTF.')
     if (confirmOk) reasons.push('2· Confirmação + displacement.')
     if (resolvedTiming === 'AGORA') reasons.push(`4· Entrada 1m @ ${entry.toPrecision(5)}.`)
-    else if (resolvedTiming === 'RETRACE') reasons.push(ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS LTF.')
+    else if (resolvedTiming === 'RETRACE') {
+      reasons.push(
+        instrumentClosed
+          ? `Mercado CLOSED — setup ok, aguarda open (${options.instrumentMarketNote ?? 'sem LONG/SHORT JÁ'}).`
+          : ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS LTF.',
+      )
+    }
     if (ltfVia5m) reasons.push('Entrada via BOS 5m (CFD prático — Yahoo 1m fraco).')
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
@@ -715,9 +772,10 @@ function evaluate(
     if (esNqBlocked) reasons.push(options.esNqNote ?? 'ES↔NQ 5m desalinhados — sem trade.')
     if (usIndexCutoff) reasons.push('Índices US: após 10:30 ET — sem novas entradas (TJR).')
     else if (usIndexPreRth) reasons.push('Índices US: só RTH após 09:30 ET.')
+    if (instrumentClosed) reasons.push('Instrumento CLOSED — sem LONG/SHORT JÁ.')
     if (sessionBlocked && !usIndexCutoff) reasons.push(`${session.badge}: sem entradas.`)
     else if (nyMidAvoided) reasons.push('NY mid: COMPRAR JÁ desactivado (Evitar NY mid) — só AGUARDAR.')
-    else if (sessionDowngrade && !usIndexPreRth) reasons.push(`${session.badge}: só AGUARDAR.`)
+    else if (sessionDowngrade && !usIndexPreRth && !instrumentClosed) reasons.push(`${session.badge}: só AGUARDAR.`)
     if (quickScan && tradeReady) reasons.push('Expande para preço 1m exacto.')
     if (!tradeReady && !sessionBlocked && !blockOpposed) {
       reasons.push(setupReady && !rrOk ? 'R:R fora de 1–3×.' : structureBroken ? 'Estrutura invalidada.' : 'Setup TJR incompleto.')
@@ -928,7 +986,8 @@ export function evaluateTjrFull(
   const h4 = structureSnapshot(data['4h'])
   const h1 = structureSnapshot(data['1h'])
   const aligned = h4.trend === h1.trend && h4.trend !== 'neutral'
-  const execLabel = aligned ? '5m' : '15m'
+  // Vídeo TJR: sempre preferir 5m para confirmação (como no vídeo).
+  const execLabel = options.tjrVideoStrict || aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
   const side = forcedSide ?? inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)
   return evaluate(symbol, side, h4, h1, exec, execLabel, data['1h'], btc['1h'], profile, data['1m'], data[execLabel], false, tpMode, options, data['5m'])

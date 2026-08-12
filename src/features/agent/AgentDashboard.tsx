@@ -28,6 +28,7 @@ import {
 } from '../../lib/tjr-engine'
 import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
+import { explainNoAgoraSpot } from '../../lib/no-agora-explain'
 import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
 import { BinanceOrderPanel } from './BinanceTradeGuide'
@@ -44,6 +45,7 @@ const HIGH_SWEEP_KEY = 'tjr-allow-high-sweep-long'
 const ALL_SETUPS_KEY = 'tjr-scan-all-setups'
 const WIDE_NET_KEY = 'tjr-wide-net'
 const AVOID_NY_MID_KEY = 'tjr-avoid-ny-mid'
+const VIDEO_STRICT_KEY = 'tjr-video-strict'
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -110,6 +112,7 @@ export default function AgentDashboard() {
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [avoidNyMid, setAvoidNyMid] = useState(() => readBool(AVOID_NY_MID_KEY, true))
+  const [tjrVideoStrict, setTjrVideoStrict] = useState(() => readBool(VIDEO_STRICT_KEY, false))
   const [selected, setSelected] = useState<AgentRow>()
   const [chartInterval, setChartInterval] = useState<Interval>('15m')
   const [loadingFull, setLoadingFull] = useState<string>()
@@ -123,8 +126,9 @@ export default function AgentDashboard() {
       wideNet,
       sessionMarket: 'crypto' as const,
       avoidNyMidEnter: avoidNyMid,
+      tjrVideoStrict,
     }),
-    [allowHighSweepLong, wideNet, avoidNyMid],
+    [allowHighSweepLong, wideNet, avoidNyMid, tjrVideoStrict],
   )
   const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
@@ -144,6 +148,7 @@ export default function AgentDashboard() {
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
       localStorage.setItem(AVOID_NY_MID_KEY, avoidNyMid ? '1' : '0')
+      localStorage.setItem(VIDEO_STRICT_KEY, tjrVideoStrict ? '1' : '0')
     } catch {
       /* ignore */
     }
@@ -154,10 +159,11 @@ export default function AgentDashboard() {
       wideNet,
       allowHighSweepLong,
       scanAllSetups,
+      tjrVideoStrict,
     })
     setPresetId(matched)
     writeActivePresetId(matched)
-  }, [tpMode, riskIndex, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
+  }, [tpMode, riskIndex, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid, tjrVideoStrict])
 
   const applyPreset = (id: Exclude<AgentPresetId, 'custom'>) => {
     const { config } = AGENT_PRESETS[id]
@@ -167,6 +173,7 @@ export default function AgentDashboard() {
     setWideNet(config.wideNet)
     setAllowHighSweepLong(config.allowHighSweepLong)
     setScanAllSetups(config.scanAllSetups)
+    setTjrVideoStrict(config.tjrVideoStrict)
     setPresetId(id)
     writeActivePresetId(id)
     if (rows.length > 0) setStatus(`Playbook «${AGENT_PRESETS[id].label}» — aplica + scan para recalcular.`)
@@ -307,7 +314,7 @@ export default function AgentDashboard() {
         setLoadingFull(undefined)
       }
     })()
-  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid])
+  }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid, tjrVideoStrict])
 
   const scan = async () => {
     setRunning(true)
@@ -838,6 +845,17 @@ export default function AgentDashboard() {
           />
           <span>Malha larga</span>
         </label>
+        <label className="tv-setup-toggle" title="Sequência do vídeo TJR: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem softOpposed. Preferido para taxa de acerto.">
+          <input
+            type="checkbox"
+            checked={tjrVideoStrict}
+            onChange={(event) => {
+              setTjrVideoStrict(event.target.checked)
+              if (rows.length > 0) setStatus('Vídeo TJR — re-analisa para aplicar.')
+            }}
+          />
+          <span>Vídeo TJR</span>
+        </label>
         <label className="tv-setup-toggle" title="Diário: NY mid concentrava perdas. Com isto ON, COMPRAR JÁ no NY mid baixa para AGUARDAR (mesmo com Malha/Agressivo).">
           <input
             type="checkbox"
@@ -939,7 +957,13 @@ export default function AgentDashboard() {
           {showBuyNowEmpty && (
             <section className="scan-empty">
               <h3>Nenhum COMPRAR JÁ neste scan</h3>
-              <p>Normal fora da NY open ou quando nenhum par completa os 4 passos + BOS 1m. Setups expiram em minutos.</p>
+              <p>
+                {explainNoAgoraSpot(rows, {
+                  tjrVideoStrict,
+                  avoidNyMid,
+                  inIdealWindow: session.inIdealWindow,
+                })}
+              </p>
               <div className="scan-empty-actions">
                 {counts.AGUARDAR_COMPRA > 0 && (
                   <button type="button" onClick={() => setFilter('AGUARDAR_COMPRA')}>Ver aguardar compra ({counts.AGUARDAR_COMPRA})</button>

@@ -153,12 +153,30 @@ export function isReactiveSweep(source: SweepSource | undefined, side: 'long' | 
 export type LtfEntryResult = {
   ready: boolean
   entryPrice?: number
-  /** Houve BOS 1m contrário (retrace 5m) na janela. */
+  /** Houve BOS/iFVG 1m contrário (retrace 5m) na janela. */
   retraceSeen: boolean
+  /** Sinal de entrada: BOS ou iFVG. */
+  entryVia?: 'bos' | 'ifvg'
+}
+
+/** BOS ou iFVG no fecho do slice (vídeo TJR: ambos válidos no LTF). */
+export function ltfConfirmSignal(candles: Candle[]): { direction: Direction; via: 'bos' | 'ifvg' } | undefined {
+  if (candles.length < 6) return undefined
+  const swings = findTjrSwings(candles)
+  const bos = breakOfStructure(candles, swings)
+  if (bos === 'bullish' || bos === 'bearish') return { direction: bos, via: 'bos' }
+  const gaps = findFairValueGaps(candles)
+  const trend = trendFromSwings(swings)
+  const inverse = recentInverseFvg(gaps, trend)
+  if (inverse === 'bullish' || inverse === 'bearish') return { direction: inverse, via: 'ifvg' }
+  const last = gaps.filter((g) => g.disrespected).at(-1)
+  if (!last) return undefined
+  // Bullish FVG disrespected → bearish; bearish FVG disrespected → bullish
+  return { direction: last.bullish ? 'bearish' : 'bullish', via: 'ifvg' }
 }
 
 /**
- * TJR step 4: retrace (1m BOS contrário) → BOS 1m na direção.
+ * TJR step 4: retrace (1m BOS/iFVG contrário) → BOS/iFVG 1m na direção.
  * Devolve o close do candle de entrada (preço a copiar).
  */
 export function ltfEntryConfirmation(
@@ -170,21 +188,25 @@ export function ltfEntryConfirmation(
   const window = candles1m.slice(-lookback)
   let sawRetrace = false
   let entryAt: number | undefined
+  let entryVia: 'bos' | 'ifvg' | undefined
   for (let end = 6; end <= window.length; end += 1) {
-    const slice = window.slice(0, end)
-    const bos = breakOfStructure(slice, findTjrSwings(slice))
-    if (!bos) continue
-    const aligned = (side === 'long' && bos === 'bullish') || (side === 'short' && bos === 'bearish')
-    const opposite = (side === 'long' && bos === 'bearish') || (side === 'short' && bos === 'bullish')
+    const signal = ltfConfirmSignal(window.slice(0, end))
+    if (!signal) continue
+    const aligned = (side === 'long' && signal.direction === 'bullish') || (side === 'short' && signal.direction === 'bearish')
+    const opposite = (side === 'long' && signal.direction === 'bearish') || (side === 'short' && signal.direction === 'bullish')
     if (opposite) {
       sawRetrace = true
       entryAt = undefined
+      entryVia = undefined
     }
-    if (aligned && sawRetrace) entryAt = end
+    if (aligned && sawRetrace) {
+      entryAt = end
+      entryVia = signal.via
+    }
   }
   const ready = entryAt !== undefined && entryAt >= window.length - 5
   if (!ready || entryAt === undefined) return { ready: false, retraceSeen: sawRetrace }
-  return { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true }
+  return { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true, entryVia }
 }
 
 /** Candle de confirmação com corpo ≥ 1.2× média = displacement (mudança de order flow). */

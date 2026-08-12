@@ -37,6 +37,7 @@ import {
   t212NeedsEsNqGate,
   t212NqInstrument,
 } from '../../lib/t212-es-nq'
+import { getInstrumentMarketStatus } from '../../lib/trading-session'
 import {
   T212_BTC_INSTRUMENT,
   T212_CATALOG,
@@ -58,6 +59,7 @@ const T212_RISK_KEY = 't212-risk-index'
 const T212_TP_KEY = 't212-tp-mode'
 const T212_WIDE_KEY = 't212-wide-net'
 const T212_CFD_KEY = 't212-cfd-practical'
+const T212_VIDEO_KEY = 't212-video-strict'
 const T212_FEED_KEY = 't212-data-feed'
 
 const adviceClass = (advice: PositionAdvice) => {
@@ -116,6 +118,7 @@ export default function PositionsDashboard() {
   const tpMode = venue === 'spot' ? readTp(SPOT_TP_KEY) : readTp(T212_TP_KEY)
   const wideNet = readBool(T212_WIDE_KEY, false)
   const cfdPractical = readBool(T212_CFD_KEY, true)
+  const tjrVideoStrict = readBool(T212_VIDEO_KEY, false)
   const dataFeed = (localStorage.getItem(T212_FEED_KEY) as T212FeedPreference | null) ?? 'yahoo'
 
   const instrument = useMemo(
@@ -163,11 +166,15 @@ export default function PositionsDashboard() {
 
   const optionsFor = (item: T212Instrument, esNqAligned?: boolean, esNqNote?: string) => {
     const usIndex = t212NeedsEsNqGate(item)
+    const market = getInstrumentMarketStatus(item.kind)
     return {
       referenceLabel: item.kind === 'crypto' ? 'BTC' : 'US500',
       wideNet,
       cfdPractical,
+      tjrVideoStrict,
       sessionMarket: (item.kind === 'crypto' ? 'crypto' : 'cfd') as 'crypto' | 'cfd',
+      instrumentMarketOpen: market.open,
+      instrumentMarketNote: market.reason,
       ...(item.kind === 'index' || item.kind === 'future' ? {} : { requireSmtAlign: false as const }),
       ...(usIndex ? { usIndexPlaybook: true as const } : {}),
       ...(usIndex && esNqAligned !== undefined ? { esNqAligned, esNqNote } : {}),

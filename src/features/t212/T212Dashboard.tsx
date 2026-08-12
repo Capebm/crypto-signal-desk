@@ -28,6 +28,7 @@ import {
   type TjrDecision,
 } from '../../lib/tjr-engine'
 import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus, getInstrumentMarketStatus } from '../../lib/trading-session'
+import { explainNoAgora } from '../../lib/no-agora-explain'
 import type { Direction, Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
@@ -59,6 +60,7 @@ const TP_KEY = 't212-tp-mode'
 const ALL_SETUPS_KEY = 't212-scan-all-setups'
 const WIDE_NET_KEY = 't212-wide-net'
 const CFD_PRACTICAL_KEY = 't212-cfd-practical'
+const VIDEO_STRICT_KEY = 't212-video-strict'
 const FEED_KEY = 't212-data-feed'
 
 const readBool = (key: string, fallback = false) => {
@@ -110,6 +112,7 @@ export default function T212Dashboard() {
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [cfdPractical, setCfdPractical] = useState(() => readBool(CFD_PRACTICAL_KEY, true))
+  const [tjrVideoStrict, setTjrVideoStrict] = useState(() => readBool(VIDEO_STRICT_KEY, false))
   const [dataFeed, setDataFeed] = useState<T212FeedPreference>(() => {
     try {
       return localStorage.getItem(FEED_KEY) === 'twelve' ? 'twelve' : 'yahoo'
@@ -122,14 +125,17 @@ export default function T212Dashboard() {
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
 
-  /** Índices: SMT do perfil. US indices: gate ES↔NQ 5m. Crypto CFD: sessão 24/7. */
   const optionsFor = (instrument: T212Instrument, esNq?: EsNqAlignment) => {
     const usIndex = t212NeedsEsNqGate(instrument)
+    const market = getInstrumentMarketStatus(instrument.kind)
     return {
       referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
       wideNet,
       cfdPractical,
+      tjrVideoStrict,
       sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
+      instrumentMarketOpen: market.open,
+      instrumentMarketNote: market.reason,
       ...(instrument.kind === 'index' || instrument.kind === 'future' ? {} : { requireSmtAlign: false as const }),
       ...(usIndex ? { usIndexPlaybook: true as const } : {}),
       ...(usIndex && esNq
@@ -316,7 +322,7 @@ export default function T212Dashboard() {
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refine ao abrir asset / mudar setup
-  }, [selectedId, riskProfile, tpMode, scanAllSetups, wideNet, cfdPractical, dataFeed])
+  }, [selectedId, riskProfile, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed])
 
   useEffect(() => {
     try {
@@ -325,15 +331,16 @@ export default function T212Dashboard() {
       localStorage.setItem(ALL_SETUPS_KEY, scanAllSetups ? '1' : '0')
       localStorage.setItem(WIDE_NET_KEY, wideNet ? '1' : '0')
       localStorage.setItem(CFD_PRACTICAL_KEY, cfdPractical ? '1' : '0')
+      localStorage.setItem(VIDEO_STRICT_KEY, tjrVideoStrict ? '1' : '0')
       localStorage.setItem(FEED_KEY, dataFeed)
       writeT212WatchlistIds(watchIds)
     } catch {
       /* ignore */
     }
-    const matched = matchT212Preset({ riskIndex, tpMode, wideNet, cfdPractical, scanAllSetups })
+    const matched = matchT212Preset({ riskIndex, tpMode, wideNet, cfdPractical, scanAllSetups, tjrVideoStrict })
     setPresetId(matched)
     writeT212PresetId(matched)
-  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, dataFeed, watchIds])
+  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed, watchIds])
 
   const applyPreset = (id: Exclude<T212PresetId, 'custom'>) => {
     const { config } = T212_PRESETS[id]
@@ -341,6 +348,7 @@ export default function T212Dashboard() {
     setTpIndex(tpIndexForT212(config.tpMode))
     setWideNet(config.wideNet)
     setCfdPractical(config.cfdPractical)
+    setTjrVideoStrict(config.tjrVideoStrict)
     setScanAllSetups(config.scanAllSetups)
     setPresetId(id)
     writeT212PresetId(id)
@@ -520,10 +528,17 @@ export default function T212Dashboard() {
       const esNqNote = esNq
         ? (esNq.aligned ? ` ES↔NQ 5m: ${esNq.esTrend}.` : ` ES↔NQ 5m: BLOQUEADO (${esNq.esTrend}≠${esNq.nqTrend}).`)
         : ''
+      const whyNone = buyNow + sellNow === 0
+        ? ` ${explainNoAgora(sorted, {
+            tjrVideoStrict,
+            cfdPractical,
+            esNqBlocked: esNq ? !esNq.aligned : false,
+          })}`
+        : ''
       setStatus(
         buyNow + sellNow > 0
           ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${scanAllSetups && aguardar === 0 ? ' Todos setups: nenhum dos 9 deu JÁ/Aguardar.' : ''}${cfdPractical ? '' : ' Liga CFD prático ou Malha larga.'} Melhor na NY open.`,
+          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`,
       )
       if (buyNow > 0) setFilter('COMPRAR_JA')
       else if (sellNow > 0) setFilter('VENDER')
@@ -725,7 +740,7 @@ export default function T212Dashboard() {
             <option value="twelve">Twelve Data</option>
           </select>
         </label>
-        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade.">
+        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade. Desactivado no playbook Vídeo TJR.">
           <input
             type="checkbox"
             checked={wideNet}
@@ -733,13 +748,21 @@ export default function T212Dashboard() {
           />
           <span>Malha larga</span>
         </label>
-        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. Ligado por defeito — desliga para TJR estrito.">
+        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. On por defeito (mais AGORA). Desliga ou usa Vídeo TJR para filtrar taxa.">
           <input
             type="checkbox"
             checked={cfdPractical}
             onChange={(event) => setCfdPractical(event.target.checked)}
           />
           <span>CFD prático</span>
+        </label>
+        <label className="tv-setup-toggle" title="Sequência do vídeo TJR: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem atalho 5m · sem softOpposed. Preferido para taxa de acerto.">
+          <input
+            type="checkbox"
+            checked={tjrVideoStrict}
+            onChange={(event) => setTjrVideoStrict(event.target.checked)}
+          />
+          <span>Vídeo TJR</span>
         </label>
         <label
           className="tv-setup-toggle"
@@ -795,9 +818,26 @@ export default function T212Dashboard() {
         </div>
       )}
       <p className="agent-status">{status}</p>
+      {rows.length > 0 && counts.COMPRAR_JA + counts.VENDER === 0 && (
+        <section className="scan-empty" style={{ marginBottom: 12 }}>
+          <h3>Nenhum LONG/SHORT JÁ neste scan</h3>
+          <p>
+            {explainNoAgora(rows, {
+              tjrVideoStrict,
+              cfdPractical,
+              esNqBlocked: rows.some((r) => r.checklist?.some((c) => c.label.startsWith('ES↔NQ') && !c.complete)),
+            })}
+          </p>
+          {counts.AGUARDAR > 0 && (
+            <div className="scan-empty-actions">
+              <button type="button" onClick={() => setFilter('AGUARDAR')}>Ver Aguardar ({counts.AGUARDAR})</button>
+            </div>
+          )}
+        </section>
+      )}
       <p className="t212-disclaimer">
         CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
-        Gestão de posição aberta → tab <strong>Posições</strong>.
+        Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>
 
       {rows.length > 0 && (

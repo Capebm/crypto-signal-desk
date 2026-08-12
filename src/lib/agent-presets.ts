@@ -1,7 +1,7 @@
 import type { RiskProfile } from './risk-profile'
 import { tpModes, type TpMode } from './tp-mode'
 
-export type AgentPresetId = 'disciplina' | 'equilibrio' | 'malha' | 'custom'
+export type AgentPresetId = 'disciplina' | 'video' | 'equilibrio' | 'malha' | 'custom'
 
 export type AgentPresetConfig = {
   riskIndex: number
@@ -10,6 +10,7 @@ export type AgentPresetConfig = {
   wideNet: boolean
   allowHighSweepLong: boolean
   scanAllSetups: boolean
+  tjrVideoStrict: boolean
 }
 
 export const AGENT_PRESET_KEY = 'tjr-active-preset'
@@ -27,6 +28,20 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
       wideNet: false,
       allowHighSweepLong: false,
       scanAllSetups: false,
+      tjrVideoStrict: false,
+    },
+  },
+  video: {
+    label: 'Vídeo TJR',
+    title: 'Taxa · 5m BOS/iFVG + 1m BOS/iFVG · sem malha · evitar NY mid',
+    config: {
+      riskIndex: 1,
+      tpMode: '1_5r',
+      avoidNyMid: true,
+      wideNet: false,
+      allowHighSweepLong: false,
+      scanAllSetups: false,
+      tjrVideoStrict: true,
     },
   },
   equilibrio: {
@@ -39,6 +54,7 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
       wideNet: false,
       allowHighSweepLong: false,
       scanAllSetups: false,
+      tjrVideoStrict: false,
     },
   },
   malha: {
@@ -51,6 +67,7 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
       wideNet: true,
       allowHighSweepLong: false,
       scanAllSetups: true,
+      tjrVideoStrict: false,
     },
   },
 }
@@ -58,7 +75,7 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
 export function readActivePresetId(): AgentPresetId {
   try {
     const raw = localStorage.getItem(AGENT_PRESET_KEY)
-    if (raw === 'disciplina' || raw === 'equilibrio' || raw === 'malha' || raw === 'custom') return raw
+    if (raw === 'disciplina' || raw === 'video' || raw === 'equilibrio' || raw === 'malha' || raw === 'custom') return raw
   } catch {
     /* ignore */
   }
@@ -83,6 +100,7 @@ export function matchAgentPreset(state: AgentPresetConfig): AgentPresetId {
       && c.wideNet === state.wideNet
       && c.allowHighSweepLong === state.allowHighSweepLong
       && c.scanAllSetups === state.scanAllSetups
+      && c.tjrVideoStrict === state.tjrVideoStrict
     ) {
       return id
     }

@@ -1,6 +1,7 @@
-import { tpModes, type TpMode } from './tp-mode'
+import type { TpMode } from './tp-mode'
+import { tpModes } from './tp-mode'
 
-export type T212PresetId = 'estrito' | 'pratico' | 'malha' | 'custom'
+export type T212PresetId = 'estrito' | 'video' | 'pratico' | 'malha' | 'custom'
 
 export type T212PresetConfig = {
   riskIndex: number
@@ -8,6 +9,7 @@ export type T212PresetConfig = {
   wideNet: boolean
   cfdPractical: boolean
   scanAllSetups: boolean
+  tjrVideoStrict: boolean
 }
 
 export const T212_PRESET_KEY = 't212-active-preset'
@@ -22,17 +24,31 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: stri
       wideNet: false,
       cfdPractical: false,
       scanAllSetups: false,
+      tjrVideoStrict: false,
+    },
+  },
+  video: {
+    label: 'Vídeo TJR',
+    title: 'Taxa · 5m BOS/iFVG + 1m BOS/iFVG · sem malha/CFD',
+    config: {
+      riskIndex: 1,
+      tpMode: '1_5r',
+      wideNet: false,
+      cfdPractical: false,
+      scanAllSetups: false,
+      tjrVideoStrict: true,
     },
   },
   pratico: {
     label: 'Prático',
-    title: 'Equilibrado · CFD prático on (default Yahoo)',
+    title: 'Equilibrado · CFD prático on (default · mais AGORA)',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',
       wideNet: false,
       cfdPractical: true,
       scanAllSetups: false,
+      tjrVideoStrict: false,
     },
   },
   malha: {
@@ -44,6 +60,7 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: stri
       wideNet: true,
       cfdPractical: true,
       scanAllSetups: true,
+      tjrVideoStrict: false,
     },
   },
 }
@@ -51,7 +68,7 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: stri
 export function readT212PresetId(): T212PresetId {
   try {
     const raw = localStorage.getItem(T212_PRESET_KEY)
-    if (raw === 'estrito' || raw === 'pratico' || raw === 'malha' || raw === 'custom') return raw
+    if (raw === 'estrito' || raw === 'video' || raw === 'pratico' || raw === 'malha' || raw === 'custom') return raw
   } catch {
     /* ignore */
   }
@@ -75,6 +92,7 @@ export function matchT212Preset(state: T212PresetConfig): T212PresetId {
       && c.wideNet === state.wideNet
       && c.cfdPractical === state.cfdPractical
       && c.scanAllSetups === state.scanAllSetups
+      && c.tjrVideoStrict === state.tjrVideoStrict
     ) {
       return id
     }
