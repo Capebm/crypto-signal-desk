@@ -119,7 +119,7 @@ export type EvaluateOptions = {
    */
   usIndexPlaybook?: boolean
   /**
-   * Vídeo TJR / taxa: confirmação 5m BOS/iFVG (sem exigir 1h);
+   * Disciplina (filtro taxa): confirmação 5m BOS/iFVG (sem exigir 1h);
    * LTF 1m BOS ou iFVG; sem atalho 5m; sem softOpposed/near-EQ.
    * Sobrepõe CFD prático / Malha nos atalhos de entrada.
    */
@@ -435,7 +435,7 @@ function evaluate(
   )
   const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
   // CFD prático / Malha larga: se já há sweep alinhado, o oposto é aviso — não veto (evita chop a matar os dois lados).
-  // Vídeo TJR strict: opposed continua a bloquear (menos trades, mais qualidade).
+  // Disciplina: opposed continua a bloquear (menos trades, mais qualidade).
   const softOpposed = !tjrVideoStrict && (cfdPractical || wideNet) && sweepOk && opposedSweep
   const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
@@ -464,7 +464,7 @@ function evaluate(
   const confirmHtf = confirmationHit(h1, side)
   const displaceCandles = execCandles ?? primary1h
   const displacementOk = flexible || tjrVideoStrict || hasDisplacement(displaceCandles)
-  // Vídeo TJR: confirmação no 5m (exec) BOS/iFVG — 1h opcional (não bloqueia).
+  // Disciplina: confirmação no 5m (exec) BOS/iFVG — 1h opcional (não bloqueia).
   const confirmOk = tjrVideoStrict
     ? confirmExec && displacementOk
     : cfdPractical
@@ -479,7 +479,7 @@ function evaluate(
   const ltf1m = candles1m && candles1m.length >= 12
     ? ltfEntryConfirmation(candles1m, side)
     : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
-  // Índices US / Vídeo TJR: sem atalho 5m — exige retrace→BOS/iFVG no 1m.
+  // Índices US / Disciplina: sem atalho 5m — exige retrace→BOS/iFVG no 1m.
   const allowLtf5m = !tjrVideoStrict && !usIndexPlaybook && cfdPractical
   const ltf5m = allowLtf5m && candles5m && candles5m.length >= 12
     ? ltfEntryConfirmation(candles5m, side, 36)
@@ -986,7 +986,7 @@ export function evaluateTjrFull(
   const h4 = structureSnapshot(data['4h'])
   const h1 = structureSnapshot(data['1h'])
   const aligned = h4.trend === h1.trend && h4.trend !== 'neutral'
-  // Vídeo TJR: sempre preferir 5m para confirmação (como no vídeo).
+  // Disciplina: sempre preferir 5m para confirmação.
   const execLabel = options.tjrVideoStrict || aligned ? '5m' : '15m'
   const exec = structureSnapshot(data[execLabel])
   const side = forcedSide ?? inferSide(h4.trend, h1.trend, h1.sweep ?? h4.sweep)

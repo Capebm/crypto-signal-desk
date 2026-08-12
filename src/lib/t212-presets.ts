@@ -28,8 +28,8 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: stri
     },
   },
   video: {
-    label: 'Vídeo TJR',
-    title: 'Taxa · 5m BOS/iFVG + 1m BOS/iFVG · sem malha/CFD',
+    label: 'Disciplina',
+    title: 'Filtro apertado · 5m BOS/iFVG + 1m BOS/iFVG · sem malha/CFD',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',

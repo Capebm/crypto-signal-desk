@@ -19,7 +19,7 @@ const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
 
 export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: string; title: string; config: AgentPresetConfig }> = {
   disciplina: {
-    label: 'Disciplina',
+    label: 'Conservador',
     title: 'Conservador · Evitar NY mid · sem malha · sem Long após H',
     config: {
       riskIndex: 0,
@@ -32,8 +32,8 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
     },
   },
   video: {
-    label: 'Vídeo TJR',
-    title: 'Taxa · 5m BOS/iFVG + 1m BOS/iFVG · sem malha · evitar NY mid',
+    label: 'Disciplina',
+    title: 'Filtro apertado · 5m BOS/iFVG + 1m BOS/iFVG · sem malha · evitar NY mid',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',

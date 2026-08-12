@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'reac
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
+import { mapPool } from '../../lib/map-pool'
 import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
 import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -253,13 +254,20 @@ export default function T212Dashboard() {
     let toEsperar = 0
     let failed = 0
     try {
-      for (let index = 0; index < targets.length; index += 1) {
-        const row = targets[index]
-        setScanProgress({
-          pct: Math.round(((index + 1) / targets.length) * 100),
-          label: `Refresh Aguardar · ${index + 1}/${targets.length} · ${row.instrument.short}`,
-        })
-        setStatus(`Refresh Aguardar · ${index + 1}/${targets.length} · ${row.instrument.short}…`)
+      // ES/NQ + refs uma vez; depois paraleliza instrumentos (Yahoo aguenta; Twelve fica serial na queue).
+      if (targets.some((row) => t212NeedsEsNqGate(row.instrument))) {
+        try {
+          await Promise.all([
+            getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed, bypassCache: true }),
+            getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed, bypassCache: true }),
+          ])
+        } catch {
+          /* gate trata falha no refine */
+        }
+      }
+      const poolLimit = dataFeed === 'twelve' ? 1 : 6
+      let done = 0
+      await mapPool(targets, poolLimit, async (row) => {
         try {
           const refined = await refineRow(row.instrument, true)
           if (isBuyNow(refined)) {
@@ -280,8 +288,15 @@ export default function T212Dashboard() {
           else toEsperar += 1
         } catch {
           failed += 1
+        } finally {
+          done += 1
+          setScanProgress({
+            pct: Math.round((done / targets.length) * 100),
+            label: `Refresh Aguardar · ${done}/${targets.length} · ${row.instrument.short}`,
+          })
+          setStatus(`Refresh Aguardar · ${done}/${targets.length} · ${row.instrument.short}…`)
         }
-      }
+      })
       setStatus(
         `Refresh Aguardar (${targets.length}): ${buyNow} → Long JÁ · ${sellNow} → Short JÁ · ${stillWait} ainda AGUARDAR · ${toEsperar} → ESPERAR/outro${failed ? ` · ${failed} falhou` : ''}.`,
       )
@@ -400,20 +415,6 @@ export default function T212Dashboard() {
       setStatus(label)
     }
 
-    const mapPool = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>) => {
-      const out: R[] = new Array(items.length)
-      let cursor = 0
-      const worker = async () => {
-        while (cursor < items.length) {
-          const index = cursor
-          cursor += 1
-          out[index] = await fn(items[index])
-        }
-      }
-      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
-      return out
-    }
-
     try {
       resetT212FeedStats()
       const results: T212Row[] = []
@@ -447,35 +448,39 @@ export default function T212Dashboard() {
       let indexRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
       let cryptoRefPack: Awaited<ReturnType<typeof getT212PlaybookCandles>> | undefined
 
-      if (needsCryptoRef) {
-        try {
-          cryptoRefPack = await getT212PlaybookCandles(T212_BTC_INSTRUMENT, { feed: dataFeed })
-        } catch {
-          /* BTC ref opcional */
-        }
-      }
-
       const refInstrument = indexRef ?? scanList[0]
-      try {
-        const data = await getT212PlaybookCandles(refInstrument, { feed: dataFeed })
-        if (refInstrument.kind === 'index' || refInstrument.kind === 'future' || refInstrument.id === 'us500') {
-          indexRefPack = data
-        }
-        if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
-        const refPack = refInstrument.kind === 'crypto'
-          ? (cryptoRefPack ?? data)
-          : (indexRefPack ?? data)
-        results.push(buildRow(refInstrument, data, refPack, esNq))
-        done += 1
-        publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
-      } catch (error) {
-        failed.push(refInstrument.short)
-        done += 1
-        setStatus(error instanceof Error ? error.message : `Falha ${refInstrument.short}`)
-      }
+
+      // Prefetch refs em paralelo (BTC + índice) antes do pool.
+      await Promise.all([
+        needsCryptoRef && refInstrument.id !== T212_BTC_INSTRUMENT.id
+          ? getT212PlaybookCandles(T212_BTC_INSTRUMENT, { feed: dataFeed })
+            .then((pack) => { cryptoRefPack = pack })
+            .catch(() => { /* BTC ref opcional */ })
+          : Promise.resolve(),
+        (async () => {
+          try {
+            const data = await getT212PlaybookCandles(refInstrument, { feed: dataFeed })
+            if (refInstrument.kind === 'index' || refInstrument.kind === 'future' || refInstrument.id === 'us500') {
+              indexRefPack = data
+            }
+            if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
+            const refPack = refInstrument.kind === 'crypto'
+              ? (cryptoRefPack ?? data)
+              : (indexRefPack ?? data)
+            results.push(buildRow(refInstrument, data, refPack, esNq))
+            done += 1
+            publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
+          } catch (error) {
+            failed.push(refInstrument.short)
+            done += 1
+            setStatus(error instanceof Error ? error.message : `Falha ${refInstrument.short}`)
+          }
+        })(),
+      ])
 
       const rest = scanList.filter((item) => item.id !== refInstrument.id)
-      await mapPool(rest, 4, async (instrument) => {
+      const poolLimit = dataFeed === 'twelve' ? 1 : 8
+      await mapPool(rest, poolLimit, async (instrument) => {
         try {
           const data = await getT212PlaybookCandles(instrument, { feed: dataFeed })
           if (instrument.kind !== 'crypto' && !indexRefPack) indexRefPack = data
@@ -740,7 +745,7 @@ export default function T212Dashboard() {
             <option value="twelve">Twelve Data</option>
           </select>
         </label>
-        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade. Desactivado no playbook Vídeo TJR.">
+        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade. Desactivado com Disciplina.">
           <input
             type="checkbox"
             checked={wideNet}
@@ -748,7 +753,7 @@ export default function T212Dashboard() {
           />
           <span>Malha larga</span>
         </label>
-        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. On por defeito (mais AGORA). Desliga ou usa Vídeo TJR para filtrar taxa.">
+        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. On por defeito (mais AGORA). Para filtrar taxa, activa Disciplina.">
           <input
             type="checkbox"
             checked={cfdPractical}
@@ -756,13 +761,13 @@ export default function T212Dashboard() {
           />
           <span>CFD prático</span>
         </label>
-        <label className="tv-setup-toggle" title="Sequência do vídeo TJR: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem atalho 5m · sem softOpposed. Preferido para taxa de acerto.">
+        <label className="tv-setup-toggle" title="Filtro apertado: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem atalho 5m · sem softOpposed. Preferido para taxa de acerto.">
           <input
             type="checkbox"
             checked={tjrVideoStrict}
             onChange={(event) => setTjrVideoStrict(event.target.checked)}
           />
-          <span>Vídeo TJR</span>
+          <span>Disciplina</span>
         </label>
         <label
           className="tv-setup-toggle"

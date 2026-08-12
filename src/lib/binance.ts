@@ -88,14 +88,58 @@ export async function getActiveQuoteSymbols(quote: QuoteAsset = AGENT_QUOTE_ASSE
 /** @deprecated Use getActiveQuoteSymbols */
 export const getActiveUsdtSymbols = () => getActiveQuoteSymbols(AGENT_QUOTE_ASSET)
 
-export async function getPlaybookCandles(symbol: string): Promise<Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>> {
-  const [fourHour, oneHour, fifteenMinute, fiveMinute, oneMinute] = await Promise.all([
-    getCandles(symbol, '4h'),
+type PlaybookPack = Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>
+
+/** Agrega 1h → 4h (mesma lógica Yahoo) — evita 1 pedido Binance extra por par. */
+function aggregateTo4h(hourly: Candle[]): Candle[] {
+  if (hourly.length === 0) return []
+  const buckets = new Map<number, Candle[]>()
+  for (const row of hourly) {
+    const d = new Date(row.openTime)
+    const bucket = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), Math.floor(d.getUTCHours() / 4) * 4)
+    const list = buckets.get(bucket) ?? []
+    list.push(row)
+    buckets.set(bucket, list)
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([openTime, rows]) => ({
+      openTime,
+      open: rows[0].open,
+      high: Math.max(...rows.map((r) => r.high)),
+      low: Math.min(...rows.map((r) => r.low)),
+      close: rows[rows.length - 1].close,
+      volume: rows.reduce((sum, r) => sum + r.volume, 0),
+    }))
+}
+
+const playbookCache = new Map<string, { at: number; data: PlaybookPack }>()
+/** Cache curto: acelera scan MTF; Refresh Aguardar / cartão usam bypass. */
+const PLAYBOOK_TTL_MS = 25_000
+
+export async function getPlaybookCandles(
+  symbol: string,
+  options: { bypassCache?: boolean } = {},
+): Promise<PlaybookPack> {
+  if (!options.bypassCache) {
+    const cached = playbookCache.get(symbol)
+    if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
+  }
+
+  const [oneHour, fifteenMinute, fiveMinute, oneMinute] = await Promise.all([
     getCandles(symbol, '1h'),
     getCandles(symbol, '15m'),
     getCandles(symbol, '5m'),
     getCandles(symbol, '1m', 120),
   ])
 
-  return { '4h': fourHour, '1h': oneHour, '15m': fifteenMinute, '5m': fiveMinute, '1m': oneMinute }
+  const data: PlaybookPack = {
+    '4h': aggregateTo4h(oneHour),
+    '1h': oneHour,
+    '15m': fifteenMinute,
+    '5m': fiveMinute,
+    '1m': oneMinute,
+  }
+  playbookCache.set(symbol, { at: Date.now(), data })
+  return data
 }

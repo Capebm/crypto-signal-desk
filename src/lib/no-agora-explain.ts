@@ -40,7 +40,7 @@ export function explainNoAgora(rows: RowLike[], opts?: {
   }
 
   if (opts?.esNqBlocked) parts.push('ES↔NQ 5m desalinhados')
-  if (opts?.tjrVideoStrict) parts.push('Vídeo TJR activo (filtro mais apertado)')
+  if (opts?.tjrVideoStrict) parts.push('Disciplina activa (filtro mais apertado)')
   if (opts?.cfdPractical === false) parts.push('CFD prático off')
 
   if (parts.length === 0) {
@@ -63,7 +63,7 @@ export function explainNoAgoraSpot(rows: RowLike[], opts?: {
   const parts: string[] = []
   if (waitingLtf.length > 0) parts.push(`${waitingLtf.length} à espera BOS/iFVG 1m`)
   else if (aguardar.length > 0) parts.push(`${aguardar.length} em Aguardar`)
-  if (opts?.tjrVideoStrict) parts.push('Vídeo TJR activo')
+  if (opts?.tjrVideoStrict) parts.push('Disciplina activa')
   if (opts?.avoidNyMid && opts.inIdealWindow === false) parts.push('fora NY open / mid evitado')
   if (parts.length === 0) return 'Nenhum COMPRAR JÁ — falta completar sweep→confirm→continuação→LTF.'
   return `Porquê 0 COMPRAR JÁ: ${parts.join(' · ')}.`

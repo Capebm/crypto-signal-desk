@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
+import { mapPool } from '../../lib/map-pool'
 import {
   AGENT_PRESETS,
   matchAgentPreset,
@@ -203,8 +204,17 @@ export default function AgentDashboard() {
     return () => window.clearInterval(id)
   }, [])
 
-  const refineRow = async (symbol: string, fallback: Pick<AgentRow, 'price' | 'change24h'>) => {
-    const [data, btc] = await Promise.all([getPlaybookCandles(symbol), getPlaybookCandles(BTC_REFERENCE_SYMBOL)])
+  const refineRow = async (
+    symbol: string,
+    fallback: Pick<AgentRow, 'price' | 'change24h'>,
+    options: { bypassCache?: boolean; btcPack?: Awaited<ReturnType<typeof getPlaybookCandles>> } = {},
+  ) => {
+    const [data, btc] = await Promise.all([
+      getPlaybookCandles(symbol, { bypassCache: options.bypassCache }),
+      options.btcPack
+        ? Promise.resolve(options.btcPack)
+        : getPlaybookCandles(BTC_REFERENCE_SYMBOL, { bypassCache: options.bypassCache }),
+    ])
     const openHere = Boolean(openFill && resolveBase(symbol) === openFill.base.toUpperCase())
     const opts = { ...evalOptions, openPosition: openHere }
     let decision = evaluateTjrFull(symbol, data, btc, riskProfile, tpMode, 'long', opts)
@@ -257,15 +267,15 @@ export default function AgentDashboard() {
     let toEsperar = 0
     let failed = 0
     try {
-      for (let index = 0; index < targets.length; index += 1) {
-        const row = targets[index]
-        setScanProgress({
-          pct: Math.round(((index + 1) / targets.length) * 100),
-          label: `Refresh Aguardar · ${index + 1}/${targets.length} · ${formatTradingPair(row.symbol)}`,
-        })
-        setStatus(`Refresh Aguardar · ${index + 1}/${targets.length} · ${formatTradingPair(row.symbol)}…`)
+      const btcPack = await getPlaybookCandles(BTC_REFERENCE_SYMBOL, { bypassCache: true })
+      let done = 0
+      await mapPool(targets, 5, async (row) => {
         try {
-          const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
+          const refined = await refineRow(
+            row.symbol,
+            { price: row.price, change24h: row.change24h },
+            { bypassCache: true, btcPack },
+          )
           if (isEnterLongNow(refined)) {
             buyNow += 1
             void notifyActionNow({
@@ -277,8 +287,15 @@ export default function AgentDashboard() {
           else toEsperar += 1
         } catch {
           failed += 1
+        } finally {
+          done += 1
+          setScanProgress({
+            pct: Math.round((done / targets.length) * 100),
+            label: `Refresh Aguardar · ${done}/${targets.length} · ${formatTradingPair(row.symbol)}`,
+          })
+          setStatus(`Refresh Aguardar · ${done}/${targets.length} · ${formatTradingPair(row.symbol)}…`)
         }
-      }
+      })
       setStatus(
         `Refresh Aguardar (${targets.length}): ${buyNow} → COMPRAR JÁ · ${stillWait} ainda AGUARDAR · ${toEsperar} → ESPERAR/outro${failed ? ` · ${failed} falhou` : ''}.`,
       )
@@ -304,7 +321,7 @@ export default function AgentDashboard() {
     void (async () => {
       const started = Date.now()
       try {
-        await refineRow(symbol, { price: selected.price, change24h: selected.change24h })
+        await refineRow(symbol, { price: selected.price, change24h: selected.change24h }, { bypassCache: true })
       } catch {
         /* scan rápido 1h permanece */
       } finally {
@@ -327,11 +344,11 @@ export default function AgentDashboard() {
       const results: AgentRow[] = []
       /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar; o sinal MTF vem do melhor dos 9. */
       const scoutSymbols = new Set<string>()
-      for (let index = 0; index < markets.length; index += 5) {
-        const done = Math.min(index + 5, markets.length)
+      for (let index = 0; index < markets.length; index += 10) {
+        const done = Math.min(index + 10, markets.length)
         setScanProgress({ pct: Math.round((done / markets.length) * 70), label: `Scan 1h · ${done}/${markets.length}` })
         setStatus(`TJR · ${done} / ${markets.length} moedas…`)
-        const batch = await Promise.all(markets.slice(index, index + 5).map(async (market) => {
+        const batch = await Promise.all(markets.slice(index, index + 10).map(async (market) => {
           try {
             const candles1h = await getCandles(market.symbol, '1h')
             const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
@@ -386,15 +403,15 @@ export default function AgentDashboard() {
         )
         let buyNow = 0
         let stillAguardar = 0
-        for (let index = 0; index < buyCandidates.length; index += 1) {
-          const row = buyCandidates[index]
-          setScanProgress({
-            pct: 70 + Math.round(((index + 1) / buyCandidates.length) * 30),
-            label: `MTF · ${index + 1}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}`,
-          })
-          setStatus(`MTF · ${index + 1}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}…`)
+        const btcPack = await getPlaybookCandles(BTC_REFERENCE_SYMBOL)
+        let mtfDone = 0
+        await mapPool(buyCandidates, 5, async (row) => {
           try {
-            const refined = await refineRow(row.symbol, { price: row.price, change24h: row.change24h })
+            const refined = await refineRow(
+              row.symbol,
+              { price: row.price, change24h: row.change24h },
+              { btcPack },
+            )
             if (isEnterLongNow(refined)) {
               buyNow += 1
               void notifyActionNow({
@@ -407,8 +424,15 @@ export default function AgentDashboard() {
             }
           } catch {
             /* mantém scan 1h deste par */
+          } finally {
+            mtfDone += 1
+            setScanProgress({
+              pct: 70 + Math.round((mtfDone / buyCandidates.length) * 30),
+              label: `MTF · ${mtfDone}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}`,
+            })
+            setStatus(`MTF · ${mtfDone}/${buyCandidates.length} · ${formatTradingPair(row.symbol)}…`)
           }
-        }
+        })
         const dropped = buyCandidates.length - buyNow - stillAguardar
         setStatus(
           buyNow > 0
@@ -845,16 +869,16 @@ export default function AgentDashboard() {
           />
           <span>Malha larga</span>
         </label>
-        <label className="tv-setup-toggle" title="Sequência do vídeo TJR: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem softOpposed. Preferido para taxa de acerto.">
+        <label className="tv-setup-toggle" title="Filtro apertado: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem softOpposed. Preferido para taxa de acerto.">
           <input
             type="checkbox"
             checked={tjrVideoStrict}
             onChange={(event) => {
               setTjrVideoStrict(event.target.checked)
-              if (rows.length > 0) setStatus('Vídeo TJR — re-analisa para aplicar.')
+              if (rows.length > 0) setStatus('Disciplina — re-analisa para aplicar.')
             }}
           />
-          <span>Vídeo TJR</span>
+          <span>Disciplina</span>
         </label>
         <label className="tv-setup-toggle" title="Diário: NY mid concentrava perdas. Com isto ON, COMPRAR JÁ no NY mid baixa para AGUARDAR (mesmo com Malha/Agressivo).">
           <input
