@@ -32,18 +32,25 @@ const sessionLabels: Record<SessionName, string> = {
 
 type NyParts = { year: number; month: number; day: number; hour: number; minute: number }
 
+const nyFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
+const nyPartsCache = new Map<number, NyParts>()
+
 const nyParts = (ts: number): NyParts => {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date(ts))
+  const cached = nyPartsCache.get(ts)
+  if (cached) return cached
+  const parts = nyFormatter.formatToParts(new Date(ts))
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
-  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute') }
+  const value = { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute') }
+  nyPartsCache.set(ts, value)
+  return value
 }
 
 const dateKey = (p: NyParts) => `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`
@@ -78,6 +85,8 @@ const sessionInstanceKey = (ts: number): { key: string; session: SessionName } |
 }
 
 type Bucket = { session: SessionName; high: number; low: number; sortKey: string }
+const sessionLevelsCache = new WeakMap<Candle[], SessionLine[]>()
+const previousDayCache = new WeakMap<Candle[], PreviousDayLine[]>()
 
 const bump = (map: Map<string, Bucket>, key: string, session: SessionName, candle: Candle) => {
   const existing = map.get(key)
@@ -91,6 +100,8 @@ const bump = (map: Map<string, Bucket>, key: string, session: SessionName, candl
 
 /** Latest completed or in-progress high/low per session (TJR draws on liquidity). */
 export function latestSessionLevels(candles: Candle[]): SessionLine[] {
+  const cached = sessionLevelsCache.get(candles)
+  if (cached) return cached
   const buckets = new Map<string, Bucket>()
   for (const candle of candles) {
     const inst = sessionInstanceKey(candle.openTime)
@@ -113,12 +124,15 @@ export function latestSessionLevels(candles: Candle[]): SessionLine[] {
     lines.push({ session, kind: 'high', price: bucket.high, title: `${label} H`, color })
     lines.push({ session, kind: 'low', price: bucket.low, title: `${label} L`, color })
   }
+  sessionLevelsCache.set(candles, lines)
   return lines
 }
 
 /** Previous NY calendar day high/low (all sessions combined). */
 export function previousDayLevels(candles: Candle[]): PreviousDayLine[] {
   if (candles.length === 0) return []
+  const cached = previousDayCache.get(candles)
+  if (cached) return cached
   const dates = [...new Set(candles.map((c) => dateKey(nyParts(c.openTime))))].sort()
   if (dates.length < 2) return []
   const yKey = dates.at(-2)!
@@ -129,10 +143,12 @@ export function previousDayLevels(candles: Candle[]): PreviousDayLine[] {
   const high = Math.max(...dayCandles.map((c) => c.high))
   const low = Math.min(...dayCandles.map((c) => c.low))
   const color = '#787b86'
-  return [
+  const lines: PreviousDayLine[] = [
     { kind: 'high', price: high, title: 'Dia ant. H', color },
     { kind: 'low', price: low, title: 'Dia ant. L', color },
   ]
+  previousDayCache.set(candles, lines)
+  return lines
 }
 
 export const sessionLinesForChart = (candles: Candle[], includePreviousDay = true) => [

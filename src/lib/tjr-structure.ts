@@ -1,12 +1,15 @@
 import type { Candle, Direction, PriceZone } from './types'
 
 export type SwingPoint = { type: 'high' | 'low'; price: number; index: number }
+const swingsCache = new WeakMap<Candle[], SwingPoint[]>()
 
 const isUp = (c: Candle) => c.close >= c.open
 const isDown = (c: Candle) => c.close < c.open
 
 /** TJR: up + down = high; down + up = low (highest/lowest wick of the pair). */
 export function findTjrSwings(candles: Candle[]): SwingPoint[] {
+  const cached = swingsCache.get(candles)
+  if (cached) return cached
   const swings: SwingPoint[] = []
   for (let index = 1; index < candles.length; index += 1) {
     const prev = candles[index - 1]
@@ -14,6 +17,7 @@ export function findTjrSwings(candles: Candle[]): SwingPoint[] {
     if (isUp(prev) && isDown(curr)) swings.push({ type: 'high', price: Math.max(prev.high, curr.high), index })
     if (isDown(prev) && isUp(curr)) swings.push({ type: 'low', price: Math.min(prev.low, curr.low), index })
   }
+  swingsCache.set(candles, swings)
   return swings
 }
 
@@ -158,6 +162,7 @@ export type LtfEntryResult = {
   /** Sinal de entrada: BOS ou iFVG. */
   entryVia?: 'bos' | 'ifvg'
 }
+const ltfEntryCache = new WeakMap<Candle[], Map<string, LtfEntryResult>>()
 
 /** BOS ou iFVG no fecho do slice (vídeo TJR: ambos válidos no LTF). */
 export function ltfConfirmSignal(candles: Candle[]): { direction: Direction; via: 'bos' | 'ifvg' } | undefined {
@@ -184,6 +189,9 @@ export function ltfEntryConfirmation(
   side: 'long' | 'short',
   lookback = 45,
 ): LtfEntryResult {
+  const cacheKey = `${side}:${lookback}`
+  const cached = ltfEntryCache.get(candles1m)?.get(cacheKey)
+  if (cached) return cached
   if (candles1m.length < 12) return { ready: false, retraceSeen: false }
   const window = candles1m.slice(-lookback)
   let sawRetrace = false
@@ -205,8 +213,13 @@ export function ltfEntryConfirmation(
     }
   }
   const ready = entryAt !== undefined && entryAt >= window.length - 5
-  if (!ready || entryAt === undefined) return { ready: false, retraceSeen: sawRetrace }
-  return { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true, entryVia }
+  const result: LtfEntryResult = !ready || entryAt === undefined
+    ? { ready: false, retraceSeen: sawRetrace }
+    : { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true, entryVia }
+  const entries = ltfEntryCache.get(candles1m) ?? new Map<string, LtfEntryResult>()
+  entries.set(cacheKey, result)
+  ltfEntryCache.set(candles1m, entries)
+  return result
 }
 
 /** Candle de confirmação com corpo ≥ 1.2× média = displacement (mudança de order flow). */
@@ -298,7 +311,9 @@ export function smtDivergence(primary: Candle[], reference: Candle[]): Direction
   return undefined
 }
 
-export function structureSnapshot(candles: Candle[]) {
+const structureSnapshotCache = new WeakMap<Candle[], ReturnType<typeof computeStructureSnapshot>>()
+
+function computeStructureSnapshot(candles: Candle[]) {
   const swings = findTjrSwings(candles)
   const trend = trendFromSwings(swings)
   const gaps = findFairValueGaps(candles)
@@ -309,4 +324,12 @@ export function structureSnapshot(candles: Candle[]) {
   const fvg = activeFairValueGap(gaps, trend)
   const price = candles.at(-1)?.close ?? 0
   return { swings, trend, gaps, sweep, bos, inverse, eq, fvg, price }
+}
+
+export function structureSnapshot(candles: Candle[]) {
+  const cached = structureSnapshotCache.get(candles)
+  if (cached) return cached
+  const value = computeStructureSnapshot(candles)
+  structureSnapshotCache.set(candles, value)
+  return value
 }

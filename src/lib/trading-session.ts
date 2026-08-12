@@ -47,13 +47,19 @@ export type SessionOptions = {
   market?: SessionMarket
 }
 
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>()
 const zoneParts = (timeZone: string, date = new Date()) => {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(date)
+  let formatter = zoneFormatters.get(timeZone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    zoneFormatters.set(timeZone, formatter)
+  }
+  const parts = formatter.formatToParts(date)
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
   const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
   return {
@@ -63,6 +69,11 @@ const zoneParts = (timeZone: string, date = new Date()) => {
     label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
   }
 }
+
+const nyWeekdayFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  weekday: 'short',
+})
 
 /** Minutos desde meia-noite em America/New_York. */
 export function getNyMinutes(date = new Date()): number {
@@ -98,7 +109,7 @@ export function usIndexPrimeWindow(date = new Date()): {
  */
 /** Calendário CFD (índices US + forex major) em America/New_York. */
 export function getCfdMarketStatus(date = new Date()): { open: boolean; reason: string } {
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(date)
+  const weekday = nyWeekdayFormatter.format(date)
   const ny = zoneParts('America/New_York', date)
 
   if (weekday === 'Sat') {
@@ -113,7 +124,7 @@ export function getCfdMarketStatus(date = new Date()): { open: boolean; reason: 
   return { open: true, reason: '' }
 }
 
-export function getTradingSessionStatus(date = new Date(), options: SessionOptions = {}): TradingSessionStatus {
+function computeTradingSessionStatus(date = new Date(), options: SessionOptions = {}): TradingSessionStatus {
   const market = options.market ?? 'cfd'
   const ny = zoneParts('America/New_York', date)
   const lisbon = zoneParts('Europe/Lisbon', date)
@@ -195,6 +206,18 @@ export function getTradingSessionStatus(date = new Date(), options: SessionOptio
     blockEntries: true,
     badge: 'Fora da killzone',
   }
+}
+
+const tradingSessionCache = new Map<string, TradingSessionStatus>()
+export function getTradingSessionStatus(date = new Date(), options: SessionOptions = {}): TradingSessionStatus {
+  const market = options.market ?? 'cfd'
+  const key = `${market}:${Math.floor(date.getTime() / 60_000)}`
+  const cached = tradingSessionCache.get(key)
+  if (cached) return cached
+  const value = computeTradingSessionStatus(date, options)
+  tradingSessionCache.clear()
+  tradingSessionCache.set(key, value)
+  return value
 }
 
 const formatLisbonFromNyMins = (nyMins: number, date = new Date()) => {
@@ -299,7 +322,7 @@ export function getInstrumentMarketStatus(kind: 'index' | 'future' | 'forex' | '
   }
 
   if (kind === 'stock') {
-    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(date)
+    const weekday = nyWeekdayFormatter.format(date)
     if (weekday === 'Sat' || weekday === 'Sun') {
       return { open: false, reason: 'US market closed (weekend)' }
     }

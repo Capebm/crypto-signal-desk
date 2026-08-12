@@ -39,6 +39,7 @@ import PriceChart from '../chart/PriceChart'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import type { Direction, Interval } from '../../lib/types'
+import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import TpModeModal from './TpModeModal'
 
 const TP_STORAGE_KEY = 'tjr-tp-mode'
@@ -95,6 +96,7 @@ export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
   const [status, setStatus] = useState('Pronto — analisa na NY open ou vê posição aberta abaixo.')
   const [running, setRunning] = useState(false)
+  useScreenWakeLock(running)
   const [refreshingAguardar, setRefreshingAguardar] = useState(false)
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
@@ -393,6 +395,9 @@ export default function AgentDashboard() {
           for (const row of sorted) {
             if (scoutSymbols.has(row.symbol)) pushUnique(row)
           }
+          // Prático testa sempre o top MTF completo; o scout só ordena prioridade.
+          // Assim não parece “instantâneo” por ter refinado apenas 2–3 candidatos.
+          for (const row of sorted) pushUnique(row)
         }
         return pool.slice(0, AUTO_REFINE_TOP)
       })()

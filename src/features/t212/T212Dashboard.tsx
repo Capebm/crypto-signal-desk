@@ -56,6 +56,7 @@ import {
   t212NqInstrument,
   type EsNqAlignment,
 } from '../../lib/t212-es-nq'
+import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -153,6 +154,7 @@ export default function T212Dashboard() {
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'VENDER' | 'AGUARDAR' | 'ESPERAR'>('TODAS')
   const [status, setStatus] = useState('Clica «Aplicar + scan» para analisar — índices, forex, metais, energia e crypto CFD.')
   const [running, setRunning] = useState(false)
+  useScreenWakeLock(running)
   const [refreshingAguardar, setRefreshingAguardar] = useState(false)
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedIds, setRefinedIds] = useState<Set<string>>(() => new Set())
@@ -174,32 +176,34 @@ export default function T212Dashboard() {
     opts?: { allSetups?: boolean },
   ): T212Row => {
     const evalOptions = optionsFor(instrument, esNq)
-    let decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
     const useAllSetups = opts?.allSetups ?? scanAllSetups
+    let decision: TjrDecision
     if (useAllSetups) {
       const matchingSetups = listActionNowSetups(instrument.short, data, reference, evalOptions, undefined, 'both')
       if (matchingSetups.length > 0) {
         const best = pickPreferredSetupHit(matchingSetups, riskProfile, tpMode)!
-        const sameAsUi = best.profile === riskProfile && best.tpMode === tpMode
         decision = {
-          ...(sameAsUi
-            ? decision
-            : evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions)),
+          ...evaluateTjrFull(instrument.short, data, reference, best.profile, best.tpMode, undefined, evalOptions),
           matchingSetups,
           tradeSetup: best,
         }
+      } else {
+        decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
       }
-    } else if (isBuyNow(decision) || isSellNow(decision) || isAwaitingEntry(decision)) {
-      decision = {
-        ...decision,
-        tradeSetup: {
-          profile: riskProfile,
-          tpMode,
-          label: formatSetupHitLabel(riskProfile, tpMode),
-          score: decision.score,
-          action: decision.action,
-          entryTiming: decision.entryTiming,
-        },
+    } else {
+      decision = evaluateTjrFull(instrument.short, data, reference, riskProfile, tpMode, undefined, evalOptions)
+      if (isBuyNow(decision) || isSellNow(decision) || isAwaitingEntry(decision)) {
+        decision = {
+          ...decision,
+          tradeSetup: {
+            profile: riskProfile,
+            tpMode,
+            label: formatSetupHitLabel(riskProfile, tpMode),
+            score: decision.score,
+            action: decision.action,
+            entryTiming: decision.entryTiming,
+          },
+        }
       }
     }
     const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
@@ -388,6 +392,7 @@ export default function T212Dashboard() {
     setRunning(true)
     setSelectedId(undefined)
     setRows([])
+    setFilter('TODAS')
     const market = getCfdMarketStatus()
     setCfdMarket(market)
     const scanList = market.open
@@ -426,12 +431,12 @@ export default function T212Dashboard() {
       if (instrument.kind === 'crypto') return cryptoRefPack ?? data
       return indexRefPack ?? cryptoRefPack ?? data
     }
+    const results: T212Row[] = []
+    const failed: string[] = []
+    let done = 0
 
     try {
       resetT212FeedStats()
-      const results: T212Row[] = []
-      const failed: string[] = []
-      let done = 0
 
       const needsEsNq = scanList.some(t212NeedsEsNqGate)
       let esNq: EsNqAlignment | undefined
@@ -516,7 +521,12 @@ export default function T212Dashboard() {
           const row = results[index]
           const data = packById.get(row.instrument.id)
           if (!data) continue
-          results[index] = buildRow(row.instrument, data, refFor(row.instrument, data), esNq, { allSetups: true })
+          try {
+            results[index] = buildRow(row.instrument, data, refFor(row.instrument, data), esNq, { allSetups: true })
+          } catch {
+            // Mantém a avaliação rápida deste instrumento; nunca apaga resultados já obtidos.
+            failed.push(`${row.instrument.short} (9 setups)`)
+          }
           if (index % 4 === 3 || index === results.length - 1) {
             publish(results, total, `9 setups · ${index + 1}/${results.length}`)
             await new Promise((resolve) => setTimeout(resolve, 0))
@@ -572,12 +582,16 @@ export default function T212Dashboard() {
           ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
           : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`,
       )
-      if (buyNow > 0) setFilter('COMPRAR_JA')
-      else if (sellNow > 0) setFilter('VENDER')
-      else setFilter('TODAS')
+      // Não esconder linhas quando a fase dos 9 setups termina.
+      // Os contadores permitem ao utilizador filtrar LONG/SHORT manualmente.
+      setFilter('TODAS')
     } catch (error) {
-      setRows([])
-      setStatus(error instanceof Error ? error.message : 'Falha ao obter dados Yahoo.')
+      if (results.length > 0) {
+        setRows(sortRows(results))
+        setStatus(`Scan parcial mantido (${results.length}/${total}) · ${error instanceof Error ? error.message : 'falha de dados'}.`)
+      } else {
+        setStatus(error instanceof Error ? error.message : 'Falha ao obter dados Yahoo.')
+      }
     } finally {
       setRunning(false)
       setScanProgress(undefined)
