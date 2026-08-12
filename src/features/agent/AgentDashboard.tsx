@@ -3,6 +3,7 @@ import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles,
 import { mapPool } from '../../lib/map-pool'
 import {
   AGENT_PRESETS,
+  AGENT_PRIMARY_PRESETS,
   matchAgentPreset,
   readActivePresetId,
   tpIndexFor,
@@ -101,16 +102,16 @@ export default function AgentDashboard() {
   const [riskIndex, setRiskIndex] = useState(() => {
     try {
       const raw = Number(localStorage.getItem(RISK_KEY))
-      return Number.isFinite(raw) && raw >= 0 && raw <= 2 ? raw : 0
+      return Number.isFinite(raw) && raw >= 0 && raw <= 2 ? raw : 1
     } catch {
-      return 0
+      return 1
     }
   })
   const [tpIndex, setTpIndex] = useState(() => Math.max(0, tpModes.indexOf(readStoredTpMode())))
   const [tpHelpOpen, setTpHelpOpen] = useState(false)
   const tpMode = tpModes[tpIndex]
   const [allowHighSweepLong, setAllowHighSweepLong] = useState(() => readBool(HIGH_SWEEP_KEY, false))
-  const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
+  const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, true))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [avoidNyMid, setAvoidNyMid] = useState(() => readBool(AVOID_NY_MID_KEY, true))
   const [tjrVideoStrict, setTjrVideoStrict] = useState(() => readBool(VIDEO_STRICT_KEY, false))
@@ -804,7 +805,7 @@ export default function AgentDashboard() {
 
       <section className="tv-setup-bar" aria-label="Setup de risco">
         <div className="preset-chip-row" role="group" aria-label="Playbooks">
-          {(Object.keys(AGENT_PRESETS) as Exclude<AgentPresetId, 'custom'>[]).map((id) => (
+          {AGENT_PRIMARY_PRESETS.map((id) => (
             <button
               key={id}
               type="button"
@@ -815,96 +816,15 @@ export default function AgentDashboard() {
               {AGENT_PRESETS[id].label}
             </button>
           ))}
-          {presetId === 'custom' && <span className="preset-chip muted">Custom</span>}
+          {(presetId === 'disciplina' || presetId === 'custom') && (
+            <span className="preset-chip muted">{presetId === 'disciplina' ? 'Conservador' : 'Custom'}</span>
+          )}
         </div>
-        <label className="tv-setup-field">
-          <span>Risco</span>
-          <select
-            aria-label="Perfil de risco"
-            value={riskIndex}
-            onChange={(event) => {
-              setRiskIndex(Number(event.target.value))
-              if (rows.length > 0) setStatus('Perfil alterado — aplica e re-analisa para recalcular.')
-            }}
-          >
-            {profiles.map((profile, index) => (
-              <option key={profile} value={index}>{riskProfiles[profile].label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-field">
-          <span>TP <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button></span>
-          <select
-            aria-label="Modo de take-profit"
-            value={tpIndex}
-            onChange={(event) => {
-              setTpIndex(Number(event.target.value))
-              if (rows.length > 0) setStatus('Modo TP alterado — aplica e re-analisa para recalcular o alvo.')
-            }}
-          >
-            {tpModes.map((mode, index) => (
-              <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-toggle" title="Permite COMPRAR após sweep de HIGH (não é setup TJR clássico de long)">
-          <input
-            type="checkbox"
-            checked={allowHighSweepLong}
-            onChange={(event) => {
-              setAllowHighSweepLong(event.target.checked)
-              if (rows.length > 0) setStatus('Toggle H-sweep — re-analisa para aplicar.')
-            }}
-          />
-          <span>Long após H</span>
-        </label>
-        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS 1m para COMPRAR JÁ. Mais sinais, menor qualidade.">
-          <input
-            type="checkbox"
-            checked={wideNet}
-            onChange={(event) => {
-              setWideNet(event.target.checked)
-              if (rows.length > 0) setStatus('Malha larga — re-analisa para aplicar.')
-            }}
-          />
-          <span>Malha larga</span>
-        </label>
-        <label className="tv-setup-toggle" title="Filtro apertado: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem softOpposed. Preferido para taxa de acerto.">
-          <input
-            type="checkbox"
-            checked={tjrVideoStrict}
-            onChange={(event) => {
-              setTjrVideoStrict(event.target.checked)
-              if (rows.length > 0) setStatus('Disciplina — re-analisa para aplicar.')
-            }}
-          />
-          <span>Disciplina</span>
-        </label>
-        <label className="tv-setup-toggle" title="Diário: NY mid concentrava perdas. Com isto ON, COMPRAR JÁ no NY mid baixa para AGUARDAR (mesmo com Malha/Agressivo).">
-          <input
-            type="checkbox"
-            checked={avoidNyMid}
-            onChange={(event) => {
-              setAvoidNyMid(event.target.checked)
-              if (rows.length > 0) setStatus('Evitar NY mid — re-analisa para aplicar.')
-            }}
-          />
-          <span>Evitar NY mid</span>
-        </label>
-        <label
-          className="tv-setup-toggle"
-          title="ON: testa 9 combos (3 riscos × 3 TPs). Se algum der COMPRAR JÁ → esse fica o sinal + setup no card (preferência ao teu Risco×TP se também der). OFF: só o Risco/TP escolhido."
-        >
-          <input
-            type="checkbox"
-            checked={scanAllSetups}
-            onChange={(event) => {
-              setScanAllSetups(event.target.checked)
-              if (rows.length > 0) setStatus('Todos os setups — re-analisa para aplicar.')
-            }}
-          />
-          <span>Todos setups</span>
-        </label>
+        <p className="preset-blurb">
+          {presetId !== 'custom'
+            ? AGENT_PRESETS[presetId].blurb
+            : 'Ajustes manuais — escolhe um playbook ou abre Ajustes.'}
+        </p>
         <label className="tv-setup-toggle" title="Notificação do browser quando um Aguardar passa a COMPRAR JÁ (scan / refresh)">
           <input
             type="checkbox"
@@ -916,7 +836,7 @@ export default function AgentDashboard() {
               if (on) void ensureNotificationPermission()
             }}
           />
-          <span>Alertas COMPRAR JÁ</span>
+          <span>Alertas</span>
         </label>
         {rows.length > 0 && (
           <button type="button" className="setup-reapply" onClick={() => void scan()} disabled={running}>
@@ -924,6 +844,99 @@ export default function AgentDashboard() {
           </button>
         )}
         {scanStale && <strong className="setup-preset-warn">Setup mudou — re-analisa</strong>}
+        <details className="setup-advanced">
+          <summary>Ajustes (risco, TP, toggles)</summary>
+          <div className="setup-advanced-grid">
+            <label className="tv-setup-field">
+              <span>Risco</span>
+              <select
+                aria-label="Perfil de risco"
+                value={riskIndex}
+                onChange={(event) => {
+                  setRiskIndex(Number(event.target.value))
+                  if (rows.length > 0) setStatus('Perfil alterado — aplica e re-analisa para recalcular.')
+                }}
+              >
+                {profiles.map((profile, index) => (
+                  <option key={profile} value={index}>{riskProfiles[profile].label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="tv-setup-field">
+              <span>TP <button type="button" className="tp-help-btn" onClick={() => setTpHelpOpen(true)} title="Explicar modos de TP">?</button></span>
+              <select
+                aria-label="Modo de take-profit"
+                value={tpIndex}
+                onChange={(event) => {
+                  setTpIndex(Number(event.target.value))
+                  if (rows.length > 0) setStatus('Modo TP alterado — aplica e re-analisa para recalcular o alvo.')
+                }}
+              >
+                {tpModes.map((mode, index) => (
+                  <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="preset-chip" onClick={() => applyPreset('disciplina')}>
+              Conservador
+            </button>
+            <label className="tv-setup-toggle" title="Permite COMPRAR após sweep de HIGH (não é setup clássico de long)">
+              <input
+                type="checkbox"
+                checked={allowHighSweepLong}
+                onChange={(event) => {
+                  setAllowHighSweepLong(event.target.checked)
+                  if (rows.length > 0) setStatus('Toggle H-sweep — re-analisa para aplicar.')
+                }}
+              />
+              <span>Long após H</span>
+            </label>
+            <label className="tv-setup-toggle" title="Gates + sessão como Agressivo. Mais sinais, menor qualidade.">
+              <input
+                type="checkbox"
+                checked={wideNet}
+                onChange={(event) => {
+                  setWideNet(event.target.checked)
+                  if (rows.length > 0) setStatus('Malha larga — re-analisa para aplicar.')
+                }}
+              />
+              <span>Malha larga</span>
+            </label>
+            <label className="tv-setup-toggle" title="Filtro apertado 5m+1m BOS/iFVG.">
+              <input
+                type="checkbox"
+                checked={tjrVideoStrict}
+                onChange={(event) => {
+                  setTjrVideoStrict(event.target.checked)
+                  if (rows.length > 0) setStatus('Disciplina — re-analisa para aplicar.')
+                }}
+              />
+              <span>Disciplina (toggle)</span>
+            </label>
+            <label className="tv-setup-toggle" title="COMPRAR JÁ no NY mid baixa para AGUARDAR.">
+              <input
+                type="checkbox"
+                checked={avoidNyMid}
+                onChange={(event) => {
+                  setAvoidNyMid(event.target.checked)
+                  if (rows.length > 0) setStatus('Evitar NY mid — re-analisa para aplicar.')
+                }}
+              />
+              <span>Evitar NY mid</span>
+            </label>
+            <label className="tv-setup-toggle" title="Testa 9 combos (3 riscos × 3 TPs).">
+              <input
+                type="checkbox"
+                checked={scanAllSetups}
+                onChange={(event) => {
+                  setScanAllSetups(event.target.checked)
+                  if (rows.length > 0) setStatus('Todos os setups — re-analisa para aplicar.')
+                }}
+              />
+              <span>Todos setups</span>
+            </label>
+          </div>
+        </details>
       </section>
 
       <MarketClocks snapshot={marketClocks} compact />
@@ -1006,10 +1019,11 @@ export default function AgentDashboard() {
       <details className="agent-panel">
         <summary>Ajuda setup · o que muda cada controlo</summary>
         <div className="agent-panel-body setup-help">
+          <p><strong>Playbooks:</strong> Prático = dia a dia (mais oportunidades). Disciplina = filtro apertado. Malha = rede larga. Toggles avançados ficam em Ajustes.</p>
           <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description} — com Todos setups OFF, define o sinal da linha.</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Todos setups:</strong> 3×3=9 combos. Qualquer COMPRAR JÁ ou AGUARDAR conta — o sinal da linha é o melhor (JÁ &gt; Aguardar); o teu Risco×TP só escolhe preferência e mostra em que combo(s) cai.</p>
-          <p><strong>Malha / Long após H / Evitar NY mid:</strong> aplicam-se a todos os combos (incl. as 9).</p>
+          <p><strong>Todos setups:</strong> 3×3=9 combos (ligado no Prático/Malha). O sinal da linha é o melhor (JÁ &gt; Aguardar).</p>
+          <p><strong>Malha / Long após H / Evitar NY mid:</strong> em Ajustes — aplicam-se a todos os combos.</p>
           <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade. Não altera o scan TJR.</p>
         </div>
       </details>

@@ -903,6 +903,7 @@ export async function fetchYahooCandlesRaw(yahooSymbol: string, interval: Interv
 type PlaybookPack = Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>
 
 const playbookCache = new Map<string, { at: number; data: PlaybookPack }>()
+const playbookInflight = new Map<string, Promise<PlaybookPack>>()
 const PLAYBOOK_TTL_MS = 90_000
 
 type YahooPackResponse = {
@@ -1013,36 +1014,51 @@ export async function getT212PlaybookCandles(
   if (!options.bypassCache) {
     const cached = playbookCache.get(cacheKey)
     if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
+    const pending = playbookInflight.get(cacheKey)
+    if (pending) return pending
   } else {
     playbookCache.delete(cacheKey)
   }
-  let data: PlaybookPack | undefined
-  let source: T212FeedSource = 'yahoo'
 
-  if (feed === 'twelve') {
-    const twelveSymbol = twelveSymbolFor(instrument)
-    if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
-      try {
-        data = await enqueueTwelve(() => fetchPlaybookViaTwelve(twelveSymbol))
-        source = 'twelve'
-      } catch (error) {
-        const err = error as { twelveQuota?: boolean; twelveSkip?: boolean }
-        if (err.twelveQuota) {
-          twelveCooldownUntil = Date.now() + 60 * 60_000
-          feedStats.twelveExhausted = true
+  const load = (async (): Promise<PlaybookPack> => {
+    let data: PlaybookPack | undefined
+    let source: T212FeedSource = 'yahoo'
+
+    if (feed === 'twelve') {
+      const twelveSymbol = twelveSymbolFor(instrument)
+      if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
+        try {
+          data = await enqueueTwelve(() => fetchPlaybookViaTwelve(twelveSymbol))
+          source = 'twelve'
+        } catch (error) {
+          const err = error as { twelveQuota?: boolean; twelveSkip?: boolean }
+          if (err.twelveQuota) {
+            twelveCooldownUntil = Date.now() + 60 * 60_000
+            feedStats.twelveExhausted = true
+          }
         }
       }
     }
+
+    if (!data) {
+      data = await fetchYahooPlaybook(instrument.yahooSymbol)
+      source = 'yahoo'
+    }
+
+    if (source === 'twelve') feedStats.twelve += 1
+    else feedStats.yahoo += 1
+
+    playbookCache.set(cacheKey, { at: Date.now(), data })
+    return data
+  })()
+
+  if (!options.bypassCache) {
+    playbookInflight.set(cacheKey, load)
+    try {
+      return await load
+    } finally {
+      playbookInflight.delete(cacheKey)
+    }
   }
-
-  if (!data) {
-    data = await fetchYahooPlaybook(instrument.yahooSymbol)
-    source = 'yahoo'
-  }
-
-  if (source === 'twelve') feedStats.twelve += 1
-  else feedStats.yahoo += 1
-
-  playbookCache.set(cacheKey, { at: Date.now(), data })
-  return data
+  return load
 }

@@ -10,6 +10,7 @@ import {
   matchT212Preset,
   readT212PresetId,
   T212_PRESETS,
+  T212_PRIMARY_PRESETS,
   tpIndexForT212,
   writeT212PresetId,
   type T212PresetId,
@@ -110,7 +111,7 @@ export default function T212Dashboard() {
       return 1
     }
   })
-  const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, false))
+  const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, true))
   const [wideNet, setWideNet] = useState(() => readBool(WIDE_NET_KEY, false))
   const [cfdPractical, setCfdPractical] = useState(() => readBool(CFD_PRACTICAL_KEY, true))
   const [tjrVideoStrict, setTjrVideoStrict] = useState(() => readBool(VIDEO_STRICT_KEY, false))
@@ -415,6 +416,24 @@ export default function T212Dashboard() {
       setStatus(label)
     }
 
+    let lastUiAt = 0
+    let uiTimer: number | undefined
+    const publishProgress = (list: T212Row[], done: number, label: string, force = false) => {
+      const flush = () => {
+        lastUiAt = Date.now()
+        uiTimer = undefined
+        publish(list, done, label)
+      }
+      if (force || done >= total || Date.now() - lastUiAt >= 200) {
+        if (uiTimer !== undefined) window.clearTimeout(uiTimer)
+        flush()
+        return
+      }
+      if (uiTimer === undefined) {
+        uiTimer = window.setTimeout(flush, 200)
+      }
+    }
+
     try {
       resetT212FeedStats()
       const results: T212Row[] = []
@@ -469,7 +488,7 @@ export default function T212Dashboard() {
               : (indexRefPack ?? data)
             results.push(buildRow(refInstrument, data, refPack, esNq))
             done += 1
-            publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
+            publishProgress(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
           } catch (error) {
             failed.push(refInstrument.short)
             done += 1
@@ -479,7 +498,7 @@ export default function T212Dashboard() {
       ])
 
       const rest = scanList.filter((item) => item.id !== refInstrument.id)
-      const poolLimit = dataFeed === 'twelve' ? 1 : 8
+      const poolLimit = dataFeed === 'twelve' ? 1 : 6
       await mapPool(rest, poolLimit, async (instrument) => {
         try {
           const data = await getT212PlaybookCandles(instrument, { feed: dataFeed })
@@ -493,9 +512,12 @@ export default function T212Dashboard() {
           failed.push(instrument.short)
         } finally {
           done += 1
-          publish(results, done, `OK · ${instrument.short} · ${done}/${total}`)
+          publishProgress(results, done, `OK · ${instrument.short} · ${done}/${total}`, done >= total)
         }
       })
+
+      if (uiTimer !== undefined) window.clearTimeout(uiTimer)
+      publishProgress(results, done, `OK · ${done}/${total}`, true)
 
       if (results.length === 0) {
         throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Twelve/Yahoo).')
@@ -705,7 +727,7 @@ export default function T212Dashboard() {
 
       <section className="tv-setup-bar" aria-label="Setup T212">
         <div className="preset-chip-row" role="group" aria-label="Playbooks">
-          {(Object.keys(T212_PRESETS) as Exclude<T212PresetId, 'custom'>[]).map((id) => (
+          {T212_PRIMARY_PRESETS.map((id) => (
             <button
               key={id}
               type="button"
@@ -716,70 +738,15 @@ export default function T212Dashboard() {
               {T212_PRESETS[id].label}
             </button>
           ))}
-          {presetId === 'custom' && <span className="preset-chip muted">Custom</span>}
+          {(presetId === 'estrito' || presetId === 'custom') && (
+            <span className="preset-chip muted">{presetId === 'estrito' ? 'Estrito' : 'Custom'}</span>
+          )}
         </div>
-        <label className="tv-setup-field">
-          <span>Risco</span>
-          <select aria-label="Perfil de risco" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))}>
-            {profiles.map((profile, index) => (
-              <option key={profile} value={index}>{riskProfiles[profile].label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-field">
-          <span>TP</span>
-          <select aria-label="Modo TP" value={tpIndex} onChange={(event) => setTpIndex(Number(event.target.value))}>
-            {tpModes.map((mode, index) => (
-              <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
-            ))}
-          </select>
-        </label>
-        <label className="tv-setup-field" title="Yahoo por defeito. Twelve Data usa a key Netlify; se créditos esgotarem, volta a Yahoo.">
-          <span>Dados</span>
-          <select
-            aria-label="Fonte de dados"
-            value={dataFeed}
-            onChange={(event) => setDataFeed(event.target.value === 'twelve' ? 'twelve' : 'yahoo')}
-          >
-            <option value="yahoo">Yahoo</option>
-            <option value="twelve">Twelve Data</option>
-          </select>
-        </label>
-        <label className="tv-setup-toggle" title="Gates + sessão como Agressivo (Londres / NY mid). Mantém BOS LTF. Mais sinais, menor qualidade. Desactivado com Disciplina.">
-          <input
-            type="checkbox"
-            checked={wideNet}
-            onChange={(event) => setWideNet(event.target.checked)}
-          />
-          <span>Malha larga</span>
-        </label>
-        <label className="tv-setup-toggle" title="CFD: confirmação 5m OU 1h; entrada BOS 5m se Yahoo 1m falhar; discount perto do EQ. On por defeito (mais AGORA). Para filtrar taxa, activa Disciplina.">
-          <input
-            type="checkbox"
-            checked={cfdPractical}
-            onChange={(event) => setCfdPractical(event.target.checked)}
-          />
-          <span>CFD prático</span>
-        </label>
-        <label className="tv-setup-toggle" title="Filtro apertado: confirm 5m BOS/iFVG · entrada 1m BOS/iFVG · sem atalho 5m · sem softOpposed. Preferido para taxa de acerto.">
-          <input
-            type="checkbox"
-            checked={tjrVideoStrict}
-            onChange={(event) => setTjrVideoStrict(event.target.checked)}
-          />
-          <span>Disciplina</span>
-        </label>
-        <label
-          className="tv-setup-toggle"
-          title="ON: testa 9 combos (3 riscos × 3 TPs). Se algum der LONG/SHORT JÁ → esse fica o sinal + setup no card (preferência ao teu Risco×TP). OFF: só o Risco/TP escolhido."
-        >
-          <input
-            type="checkbox"
-            checked={scanAllSetups}
-            onChange={(event) => setScanAllSetups(event.target.checked)}
-          />
-          <span>Todos setups</span>
-        </label>
+        <p className="preset-blurb">
+          {presetId !== 'custom'
+            ? T212_PRESETS[presetId].blurb
+            : 'Ajustes manuais — escolhe um playbook ou abre Ajustes.'}
+        </p>
         <label className="tv-setup-toggle" title="Notificação do browser em LONG JÁ / SHORT JÁ">
           <input
             type="checkbox"
@@ -796,6 +763,57 @@ export default function T212Dashboard() {
         <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}
         </button>
+        <details className="setup-advanced">
+          <summary>Ajustes (risco, TP, dados, toggles)</summary>
+          <div className="setup-advanced-grid">
+            <label className="tv-setup-field">
+              <span>Risco</span>
+              <select aria-label="Perfil de risco" value={riskIndex} onChange={(event) => setRiskIndex(Number(event.target.value))}>
+                {profiles.map((profile, index) => (
+                  <option key={profile} value={index}>{riskProfiles[profile].label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="tv-setup-field">
+              <span>TP</span>
+              <select aria-label="Modo TP" value={tpIndex} onChange={(event) => setTpIndex(Number(event.target.value))}>
+                {tpModes.map((mode, index) => (
+                  <option key={mode} value={index}>{tpModeMeta[mode].short}</option>
+                ))}
+              </select>
+            </label>
+            <label className="tv-setup-field" title="Yahoo por defeito. Twelve Data usa a key Netlify; se créditos esgotarem, volta a Yahoo.">
+              <span>Dados</span>
+              <select
+                aria-label="Fonte de dados"
+                value={dataFeed}
+                onChange={(event) => setDataFeed(event.target.value === 'twelve' ? 'twelve' : 'yahoo')}
+              >
+                <option value="yahoo">Yahoo</option>
+                <option value="twelve">Twelve Data</option>
+              </select>
+            </label>
+            <button type="button" className="preset-chip" onClick={() => applyPreset('estrito')}>
+              Estrito
+            </button>
+            <label className="tv-setup-toggle" title="Mais sinais, menor qualidade. Desactivado com Disciplina.">
+              <input type="checkbox" checked={wideNet} onChange={(event) => setWideNet(event.target.checked)} />
+              <span>Malha larga</span>
+            </label>
+            <label className="tv-setup-toggle" title="Confirmação flexível Yahoo — mais AGORA. Preferido no playbook Prático.">
+              <input type="checkbox" checked={cfdPractical} onChange={(event) => setCfdPractical(event.target.checked)} />
+              <span>CFD prático</span>
+            </label>
+            <label className="tv-setup-toggle" title="Filtro apertado 5m+1m BOS/iFVG.">
+              <input type="checkbox" checked={tjrVideoStrict} onChange={(event) => setTjrVideoStrict(event.target.checked)} />
+              <span>Disciplina (toggle)</span>
+            </label>
+            <label className="tv-setup-toggle" title="Testa 9 combos (3 riscos × 3 TPs).">
+              <input type="checkbox" checked={scanAllSetups} onChange={(event) => setScanAllSetups(event.target.checked)} />
+              <span>Todos setups</span>
+            </label>
+          </div>
+        </details>
       </section>
 
       <details className="t212-watchlist-panel">

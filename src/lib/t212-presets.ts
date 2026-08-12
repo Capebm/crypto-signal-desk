@@ -12,24 +12,37 @@ export type T212PresetConfig = {
   tjrVideoStrict: boolean
 }
 
+export type T212PresetMeta = {
+  label: string
+  /** Uma frase na UI — o que este playbook faz. */
+  blurb: string
+  title: string
+  config: T212PresetConfig
+}
+
 export const T212_PRESET_KEY = 't212-active-preset'
 
-export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: string; title: string; config: T212PresetConfig }> = {
-  estrito: {
-    label: 'Estrito',
-    title: 'Conservador · CFD prático off · sem malha',
+/** Chips principais (ordem na barra). Estrito fica em Ajustes. */
+export const T212_PRIMARY_PRESETS: Exclude<T212PresetId, 'custom'>[] = ['pratico', 'video', 'malha']
+
+export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, T212PresetMeta> = {
+  pratico: {
+    label: 'Prático',
+    blurb: 'Dia a dia · mais AGORA · Yahoo flexível · 9 setups',
+    title: 'Prático · CFD flexível · todos setups · mais oportunidades',
     config: {
-      riskIndex: 0,
-      tpMode: '1r',
+      riskIndex: 1,
+      tpMode: '1_5r',
       wideNet: false,
-      cfdPractical: false,
-      scanAllSetups: false,
+      cfdPractical: true,
+      scanAllSetups: true,
       tjrVideoStrict: false,
     },
   },
   video: {
     label: 'Disciplina',
-    title: 'Filtro apertado · 5m BOS/iFVG + 1m BOS/iFVG · sem malha/CFD',
+    blurb: 'Filtro apertado · menos trades · melhor qualidade',
+    title: 'Disciplina · 5m+1m BOS/iFVG · sem malha/CFD',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',
@@ -39,27 +52,29 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, { label: stri
       tjrVideoStrict: true,
     },
   },
-  pratico: {
-    label: 'Prático',
-    title: 'Equilibrado · CFD prático on (default · mais AGORA)',
-    config: {
-      riskIndex: 1,
-      tpMode: '1_5r',
-      wideNet: false,
-      cfdPractical: true,
-      scanAllSetups: false,
-      tjrVideoStrict: false,
-    },
-  },
   malha: {
     label: 'Malha',
-    title: 'Agressivo · malha + CFD prático · todos setups',
+    blurb: 'Rede larga · máximo de sinais · qualidade menor',
+    title: 'Malha · agressivo · malha + CFD · todos setups',
     config: {
       riskIndex: 2,
       tpMode: '1_5r',
       wideNet: true,
       cfdPractical: true,
       scanAllSetups: true,
+      tjrVideoStrict: false,
+    },
+  },
+  estrito: {
+    label: 'Estrito',
+    blurb: 'Risco baixo · CFD rígido · sem malha',
+    title: 'Estrito · conservador · CFD prático off · sem malha',
+    config: {
+      riskIndex: 0,
+      tpMode: '1r',
+      wideNet: false,
+      cfdPractical: false,
+      scanAllSetups: false,
       tjrVideoStrict: false,
     },
   },
@@ -72,7 +87,7 @@ export function readT212PresetId(): T212PresetId {
   } catch {
     /* ignore */
   }
-  return 'custom'
+  return 'pratico'
 }
 
 export function writeT212PresetId(id: T212PresetId) {
@@ -84,7 +99,7 @@ export function writeT212PresetId(id: T212PresetId) {
 }
 
 export function matchT212Preset(state: T212PresetConfig): T212PresetId {
-  for (const [id, preset] of Object.entries(T212_PRESETS) as [Exclude<T212PresetId, 'custom'>, typeof T212_PRESETS.estrito][]) {
+  for (const [id, preset] of Object.entries(T212_PRESETS) as [Exclude<T212PresetId, 'custom'>, T212PresetMeta][]) {
     const c = preset.config
     if (
       c.riskIndex === state.riskIndex

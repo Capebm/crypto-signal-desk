@@ -1034,7 +1034,7 @@ export function listActionNowSetups(
   forcedSide?: TradeSide,
   mode: 'buy' | 'both' = 'buy',
 ): SetupHit[] {
-  const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
+  const profiles: RiskProfile[] = ['agressivo', 'equilibrado', 'conservador']
   const hits: SetupHit[] = []
   for (const profile of profiles) {
     for (const modeTp of tpModes) {

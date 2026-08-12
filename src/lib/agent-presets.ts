@@ -13,27 +13,40 @@ export type AgentPresetConfig = {
   tjrVideoStrict: boolean
 }
 
+export type AgentPresetMeta = {
+  label: string
+  /** Uma frase na UI — o que este playbook faz. */
+  blurb: string
+  title: string
+  config: AgentPresetConfig
+}
+
 export const AGENT_PRESET_KEY = 'tjr-active-preset'
+
+/** Chips principais (ordem na barra). Conservador fica em Ajustes. */
+export const AGENT_PRIMARY_PRESETS: Exclude<AgentPresetId, 'custom'>[] = ['equilibrio', 'video', 'malha']
 
 const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
 
-export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: string; title: string; config: AgentPresetConfig }> = {
-  disciplina: {
-    label: 'Conservador',
-    title: 'Conservador · Evitar NY mid · sem malha · sem Long após H',
+export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, AgentPresetMeta> = {
+  equilibrio: {
+    label: 'Prático',
+    blurb: 'Dia a dia · mais oportunidades · testa 9 setups',
+    title: 'Prático · equilibrado · todos setups · evitar NY mid',
     config: {
-      riskIndex: 0,
-      tpMode: '1r',
+      riskIndex: 1,
+      tpMode: '1_5r',
       avoidNyMid: true,
       wideNet: false,
       allowHighSweepLong: false,
-      scanAllSetups: false,
+      scanAllSetups: true,
       tjrVideoStrict: false,
     },
   },
   video: {
     label: 'Disciplina',
-    title: 'Filtro apertado · 5m BOS/iFVG + 1m BOS/iFVG · sem malha · evitar NY mid',
+    blurb: 'Filtro apertado · menos trades · melhor qualidade',
+    title: 'Disciplina · 5m+1m BOS/iFVG · sem malha · evitar NY mid',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',
@@ -44,22 +57,10 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
       tjrVideoStrict: true,
     },
   },
-  equilibrio: {
-    label: 'Equilíbrio',
-    title: 'Equilibrado · Evitar NY mid · sem malha',
-    config: {
-      riskIndex: 1,
-      tpMode: '1_5r',
-      avoidNyMid: true,
-      wideNet: false,
-      allowHighSweepLong: false,
-      scanAllSetups: false,
-      tjrVideoStrict: false,
-    },
-  },
   malha: {
     label: 'Malha',
-    title: 'Agressivo · malha larga · todos setups (mais sinais, score capped)',
+    blurb: 'Rede larga · máximo de sinais · qualidade menor',
+    title: 'Malha · agressivo · malha larga · todos setups',
     config: {
       riskIndex: 2,
       tpMode: '1_5r',
@@ -67,6 +68,20 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, { label: st
       wideNet: true,
       allowHighSweepLong: false,
       scanAllSetups: true,
+      tjrVideoStrict: false,
+    },
+  },
+  disciplina: {
+    label: 'Conservador',
+    blurb: 'Risco baixo · 1R · sem malha',
+    title: 'Conservador · Evitar NY mid · sem malha · sem Long após H',
+    config: {
+      riskIndex: 0,
+      tpMode: '1r',
+      avoidNyMid: true,
+      wideNet: false,
+      allowHighSweepLong: false,
+      scanAllSetups: false,
       tjrVideoStrict: false,
     },
   },
@@ -79,7 +94,7 @@ export function readActivePresetId(): AgentPresetId {
   } catch {
     /* ignore */
   }
-  return 'custom'
+  return 'equilibrio'
 }
 
 export function writeActivePresetId(id: AgentPresetId) {
@@ -91,7 +106,7 @@ export function writeActivePresetId(id: AgentPresetId) {
 }
 
 export function matchAgentPreset(state: AgentPresetConfig): AgentPresetId {
-  for (const [id, preset] of Object.entries(AGENT_PRESETS) as [Exclude<AgentPresetId, 'custom'>, typeof AGENT_PRESETS.disciplina][]) {
+  for (const [id, preset] of Object.entries(AGENT_PRESETS) as [Exclude<AgentPresetId, 'custom'>, AgentPresetMeta][]) {
     const c = preset.config
     if (
       c.riskIndex === state.riskIndex
