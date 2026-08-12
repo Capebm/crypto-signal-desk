@@ -57,6 +57,7 @@ import {
   type EsNqAlignment,
 } from '../../lib/t212-es-nq'
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
+import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -137,6 +138,7 @@ export default function T212Dashboard() {
       cfdPractical,
       tjrVideoStrict,
       sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
+      killzoneQualityOnly: instrument.kind === 'forex' || instrument.kind === 'crypto',
       instrumentMarketOpen: market.open,
       instrumentMarketNote: market.reason,
       ...(instrument.kind === 'index' || instrument.kind === 'future' ? {} : { requireSmtAlign: false as const }),
@@ -148,6 +150,10 @@ export default function T212Dashboard() {
   }
 
   const hasCryptoWatch = useMemo(() => watchlist.some((item) => item.kind === 'crypto'), [watchlist])
+  const hasKillzoneQualityOnlyWatch = useMemo(
+    () => watchlist.some((item) => item.kind === 'forex' || item.kind === 'crypto'),
+    [watchlist],
+  )
 
   const [rows, setRows] = useState<T212Row[]>([])
   const [selectedId, setSelectedId] = useState<string>()
@@ -206,6 +212,7 @@ export default function T212Dashboard() {
         }
       }
     }
+    decision = requireLiveConfirmationForStaleLtf(decision, data)
     const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
     return { ...decision, instrument, price }
   }
@@ -628,6 +635,57 @@ export default function T212Dashboard() {
   const selected = rows.find((row) => row.instrument.id === selectedId)
   const selectedInstrumentMarket = selected ? getInstrumentMarketStatus(selected.instrument.kind) : undefined
 
+  const confirmLiveSetup = (instrumentId: string, livePrice: number) => {
+    const confirmedAt = Date.now()
+    setRows((current) => current.map((row) => {
+      if (row.instrument.id !== instrumentId || !row.liveConfirmationRequired) return row
+      if (row.stop === undefined || row.target === undefined) return row
+      const insideLevels = row.action === 'COMPRAR'
+        ? livePrice > row.stop && livePrice < row.target
+        : row.action === 'VENDER'
+          ? livePrice < row.stop && livePrice > row.target
+          : false
+      if (!insideLevels) return row
+      const risk = Math.abs(livePrice - row.stop)
+      const reward = Math.abs(row.target - livePrice)
+      return {
+        ...row,
+        entry: livePrice,
+        price: livePrice,
+        riskReward: risk > 0 ? reward / risk : row.riskReward,
+        entryTiming: 'AGORA',
+        positionGuidance: 'ENTRAR_AGORA',
+        setupStatus: 'CONFIRMADA',
+        liveConfirmationRequired: false,
+        ltfFeedFresh: true,
+        manualLiveConfirmedAt: confirmedAt,
+        reasons: ['5m + 1m confirmados manualmente no gráfico live T212.', ...row.reasons],
+        checklist: row.checklist.map((item) => item.label === 'Dados LTF live'
+          ? { ...item, complete: true, note: 'Confirmado manualmente no T212; válido por 2 min.' }
+          : item),
+      }
+    }))
+
+    window.setTimeout(() => {
+      setRows((current) => current.map((row) => {
+        if (row.instrument.id !== instrumentId || row.manualLiveConfirmedAt !== confirmedAt) return row
+        return {
+          ...row,
+          entryTiming: 'RETRACE',
+          positionGuidance: 'AGUARDAR_ENTRADA',
+          setupStatus: 'A_AGUARDAR',
+          liveConfirmationRequired: true,
+          ltfFeedFresh: false,
+          manualLiveConfirmedAt: undefined,
+          reasons: ['Confirmação live expirou — volta a validar 5m + 1m no T212.', ...row.reasons],
+          checklist: row.checklist.map((item) => item.label === 'Dados LTF live'
+            ? { ...item, complete: false, note: 'Confirmação expirada — volta a validar no T212.' }
+            : item),
+        }
+      }))
+    }, 120_000)
+  }
+
   const closeDetail = () => {
     const id = selectedId
     setSelectedId(undefined)
@@ -664,8 +722,8 @@ export default function T212Dashboard() {
         <div className="tv-toolbar-left">
           <strong className="tv-symbol">T212/CFD</strong>
           <span className="tv-sep">·</span>
-          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
-            {session.badge}
+          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries && !hasKillzoneQualityOnlyWatch ? 'blocked' : ''}`}>
+            {session.badge}{session.blockEntries && hasKillzoneQualityOnlyWatch ? ' · FX/Crypto permitidos' : ''}
           </span>
           {selected?.riskyHighLong ? (
             <span className="sweep-badge warn">Sweep H · long arriscado</span>
@@ -878,7 +936,8 @@ export default function T212Dashboard() {
         </section>
       )}
       <p className="t212-disclaimer">
-        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Pack Yahoo · resultados progressivos. Índices/forex fecham fim de semana; crypto CFD continua.
+        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Feed preferido: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
+        Índices/forex fecham fim de semana; crypto CFD continua.
         Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>
 
@@ -948,8 +1007,17 @@ export default function T212Dashboard() {
                           })()}
                         </td>
                         <td>
-                          <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row, { cfd: true })}</strong>
-                          <small className="desk-sub">{row.setupStatus}{refinedIds.has(row.instrument.id) ? ' · MTF' : ''}{loadingFull === row.instrument.id ? ' · a refinar…' : ''}</small>
+                          <strong className={`timing-${row.entryTiming.toLowerCase()}`}>
+                            {row.liveConfirmationRequired ? 'CONFIRMAR LIVE' : tjrActionLabel(row, { cfd: true })}
+                          </strong>
+                          <small className="desk-sub">
+                            {row.manualLiveConfirmedAt
+                              ? 'LIVE · manual'
+                              : row.ltfFeedFresh
+                                ? `LIVE · ${Number.isFinite(row.ltfDataAgeMinutes) ? `${Math.round(row.ltfDataAgeMinutes!)}m` : 'LTF'}`
+                                : `DELAYED · ${Number.isFinite(row.ltfDataAgeMinutes) ? `${Math.round(row.ltfDataAgeMinutes!)}m` : 'fallback'}`}
+                            {' · '}{row.setupStatus}{refinedIds.has(row.instrument.id) ? ' · MTF' : ''}{loadingFull === row.instrument.id ? ' · a refinar…' : ''}
+                          </small>
                           {row.matchingSetups && row.matchingSetups.length > 0 && (
                             <div className="setup-hit-row">
                               {row.matchingSetups.map((hit) => {
@@ -999,7 +1067,11 @@ export default function T212Dashboard() {
                                 </button>
                                 <span className="desk-sub">{selected.instrument.short} · {tjrActionLabel(selected, { cfd: true })}</span>
                               </div>
-                              <T212TradeGuide instrument={selected.instrument} decision={selected} />
+                              <T212TradeGuide
+                                instrument={selected.instrument}
+                                decision={selected}
+                                onConfirmLive={confirmLiveSetup}
+                              />
                               <div className="card-expanded-main">
                                 <article className="chart-panel">
                                   <header>

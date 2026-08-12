@@ -531,6 +531,41 @@ body.desk-mode { overflow: hidden; }
   line-height: 1.5;
 }
 .t212-steps li { margin-bottom: 6px; }
+.t212-live-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--tv-amber) 55%, var(--tv-border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--tv-amber) 7%, var(--tv-panel));
+}
+.t212-live-confirm .t212-steps { margin-bottom: 0; }
+.t212-live-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tv-text);
+  font-size: .84rem;
+  font-weight: 650;
+}
+.t212-live-price {
+  display: grid;
+  gap: 5px;
+  max-width: 220px;
+  color: var(--tv-text-secondary);
+  font-size: .76rem;
+  font-weight: 700;
+}
+.t212-live-price input {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--tv-border);
+  border-radius: 3px;
+  background: var(--tv-toolbar);
+  color: var(--tv-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
 
 .market-clocks.compact {
   grid-template-columns: minmax(70px, 0.55fr) repeat(3, minmax(0, 1fr));

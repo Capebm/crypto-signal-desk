@@ -47,6 +47,11 @@ export type SessionOptions = {
   market?: SessionMarket
 }
 
+/** Forex/Crypto podem usar a killzone como qualidade, sem bloquear um setup completo. */
+export function sessionHardBlocksEntry(status: TradingSessionStatus, qualityOnly = false) {
+  return status.blockEntries && !qualityOnly
+}
+
 const zoneFormatters = new Map<string, Intl.DateTimeFormat>()
 const zoneParts = (timeZone: string, date = new Date()) => {
   let formatter = zoneFormatters.get(timeZone)

@@ -129,6 +129,7 @@ export default function AgentDashboard() {
       allowHighSweepLong,
       wideNet,
       sessionMarket: 'crypto' as const,
+      killzoneQualityOnly: true,
       avoidNyMidEnter: avoidNyMid,
       tjrVideoStrict,
     }),
@@ -733,8 +734,8 @@ export default function AgentDashboard() {
         <div className="tv-toolbar-left">
           <strong className="tv-symbol">SPOT/{AGENT_QUOTE_ASSET}</strong>
           <span className="tv-sep">·</span>
-          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>
-            {session.badge}
+          <span className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''}`}>
+            {session.badge}{!session.inIdealWindow ? ' · qualidade menor' : ''}
           </span>
           {selected?.riskyHighLong ? (
             <span className="sweep-badge warn">Sweep H · long arriscado</span>
@@ -1037,12 +1038,13 @@ export default function AgentDashboard() {
       <details className="agent-panel">
         <summary>Killzone · horários · regras TJR</summary>
         <div className="agent-panel-body">
-          <div className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''} ${session.blockEntries ? 'blocked' : ''}`}>{session.badge}</div>
+          <div className={`session-badge session-${session.window} ${session.inIdealWindow ? 'ideal' : ''}`}>
+            {session.badge}{!session.inIdealWindow ? ' · qualidade menor; não bloqueia Crypto' : ''}
+          </div>
           <div className="session-window-body">
-            <p><strong>NY open ({marketClocks.windows.nyOpen.et} ET · {marketClocks.windows.nyOpen.lisbon} PT):</strong> COMPRAR JÁ (conservador/equilibrado).</p>
-            <p><strong>NY mid ({marketClocks.windows.nyMid.lisbon} PT):</strong> só AGUARDAR COMPRA.</p>
-            <p><strong>NY fecho + noite:</strong> sem novas entradas.</p>
-            <p><strong>Londres ({marketClocks.windows.london.lisbon} PT):</strong> AGUARDAR; COMPRAR JÁ só agressivo.</p>
+            <p><strong>NY open ({marketClocks.windows.nyOpen.et} ET · {marketClocks.windows.nyOpen.lisbon} PT):</strong> melhor qualidade TJR.</p>
+            <p><strong>Outras horas:</strong> um setup Crypto completo e live pode dar COMPRAR JÁ, com penalização no score.</p>
+            <p><strong>Londres ({marketClocks.windows.london.lisbon} PT):</strong> janela secundária de liquidez.</p>
           </div>
           <section className="agent-rules">
             <div><strong>COMPRAR JÁ</strong><span>4 passos: sweep → BOS 5m → zona → BOS 1m.</span></div>

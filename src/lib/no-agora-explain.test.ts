@@ -17,6 +17,20 @@ describe('explainNoAgora', () => {
     expect(text).toContain('UBER')
   })
 
+  it('explains when an otherwise actionable setup needs live confirmation', () => {
+    const text = explainNoAgora([
+      {
+        action: 'COMPRAR',
+        entryTiming: 'RETRACE',
+        positionGuidance: 'AGUARDAR_ENTRADA',
+        checklist: [{ label: 'Dados LTF live', complete: false, note: 'delayed' }],
+        reasons: [],
+        instrument: { kind: 'future', short: 'US500' },
+      },
+    ])
+    expect(text).toContain('CONFIRMAR LIVE')
+  })
+
   it('spot variant mentions LTF wait', () => {
     const text = explainNoAgoraSpot([
       {

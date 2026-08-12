@@ -17,7 +17,7 @@ import {
   type DrawLevel,
   type SweepSource,
 } from './tjr-structure'
-import { getTradingSessionStatus, usIndexPrimeWindow } from './trading-session'
+import { getTradingSessionStatus, sessionHardBlocksEntry, usIndexPrimeWindow } from './trading-session'
 import { tpModeMeta, tpModes, type TpMode } from './tp-mode'
 import type { Candle, Direction, PriceZone } from './types'
 
@@ -66,6 +66,14 @@ export type TjrDecision = Decision & {
   tradeSetup?: SetupHit
   /** Swings 4h/1h para markup no gráfico. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
+  /** Candle 1m/5m demasiado antigo: exige validação visual no feed live do T212. */
+  liveConfirmationRequired?: boolean
+  /** Idade observada do candle 1m mais recente. */
+  ltfDataAgeMinutes?: number
+  /** `true` quando existe candle 1m próprio com no máximo 3 minutos. */
+  ltfFeedFresh?: boolean
+  /** Confirmação manual T212; expira rapidamente e não persiste. */
+  manualLiveConfirmedAt?: number
 }
 
 export type SetupHit = {
@@ -131,6 +139,11 @@ export type EvaluateOptions = {
   instrumentMarketOpen?: boolean
   /** Nota do gate de mercado (ex. reason de getInstrumentMarketStatus). */
   instrumentMarketNote?: string
+  /**
+   * Forex/Crypto: killzone melhora a qualidade/score, mas não bloqueia um setup completo.
+   * Mercado fechado e gates técnicos continuam a aplicar-se.
+   */
+  killzoneQualityOnly?: boolean
 }
 
 type TradeSide = 'long' | 'short'
@@ -549,18 +562,19 @@ function evaluate(
   let usIndexPreRth = false
   let usIndexCutoff = false
   let instrumentClosed = false
+  const killzoneQualityOnly = Boolean(options.killzoneQualityOnly)
   if (setupReadyWithRr) {
-    if (session.blockEntries) {
+    if (sessionHardBlocksEntry(session, killzoneQualityOnly)) {
       sessionBlocked = true
     } else if (entryTiming === 'AGORA' && options.instrumentMarketOpen === false) {
       // Acção US pré/pós-market, etc.: setup ok → AGUARDAR, nunca LONG/SHORT JÁ.
       sessionDowngrade = true
       instrumentClosed = true
-    } else if (entryTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter) {
+    } else if (entryTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter && !killzoneQualityOnly) {
       // Diário Spot: NY mid concentrava perdas — não COMPRAR JÁ mesmo com malha/agressivo.
       sessionDowngrade = true
       nyMidAvoided = true
-    } else if (entryTiming === 'AGORA' && !session.allowEnterNow && !flexible) {
+    } else if (entryTiming === 'AGORA' && !session.allowEnterNow && !flexible && !killzoneQualityOnly) {
       // Reactivo (sweep Ásia/Londres/dia ant.): permite COMPRAR JÁ também no NY mid.
       const reactiveNy = reactive && (session.window === 'ny' || session.window === 'ny_open')
       if (!reactiveNy) sessionDowngrade = true
@@ -710,14 +724,20 @@ function evaluate(
             : `${options.instrumentMarketNote ?? 'Mercado fechado'} — sem LONG/SHORT JÁ (aguarda open).`,
         }]
       : []),
-    { label: 'Killzone open/close', complete: !sessionBlocked, note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${
+    {
+      label: 'Killzone open/close',
+      complete: !sessionBlocked,
+      partial: killzoneQualityOnly && !session.allowEnterNow,
+      note: `${session.badge} · ${session.nowNy} ET / ${session.nowLisbon} Lisboa${
       instrumentClosed ? ' · instrumento CLOSED → AGUARDAR'
         : usIndexCutoff ? ' · US índice: após 10:30 ET — sem entradas'
         : usIndexPreRth ? ' · US índice: só após 09:30 ET'
           : nyMidAvoided ? ' · Evitar NY mid → AGUARDAR'
             : sessionDowngrade ? ' · AGORA→AGUARDAR'
+              : killzoneQualityOnly && !session.allowEnterNow ? ' · qualidade menor; não bloqueia'
               : wideNet && !session.allowEnterNow ? ' · malha larga'
-                : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.` },
+                : reactive && !sessionDowngrade && !session.allowEnterNow ? ' · reactivo OK' : ''}.`,
+    },
     ...(usIndexPlaybook
       ? [{
           label: 'Janela US 09:30–10:30 ET',

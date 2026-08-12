@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getCfdMarketStatus, getTradingSessionStatus } from './trading-session'
+import { getCfdMarketStatus, getTradingSessionStatus, sessionHardBlocksEntry } from './trading-session'
 
 describe('CFD market calendar', () => {
   it('marks Saturday closed for CFD default', () => {
@@ -22,5 +22,13 @@ describe('CFD market calendar', () => {
   it('marks Sunday morning closed before forex open', () => {
     const sunMorning = new Date('2026-07-19T12:00:00.000Z') // ~08:00 ET
     expect(getCfdMarketStatus(sunMorning).open).toBe(false)
+  })
+
+  it('treats off-killzone as quality only for Forex/Crypto policy', () => {
+    const afterNyClose = new Date('2026-08-12T20:20:00.000Z') // 16:20 ET
+    const status = getTradingSessionStatus(afterNyClose)
+    expect(status.blockEntries).toBe(true)
+    expect(sessionHardBlocksEntry(status)).toBe(true)
+    expect(sessionHardBlocksEntry(status, true)).toBe(false)
   })
 })

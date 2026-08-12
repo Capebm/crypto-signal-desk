@@ -173,6 +173,7 @@ export default function PositionsDashboard() {
       cfdPractical,
       tjrVideoStrict,
       sessionMarket: (item.kind === 'crypto' ? 'crypto' : 'cfd') as 'crypto' | 'cfd',
+      killzoneQualityOnly: item.kind === 'forex' || item.kind === 'crypto',
       instrumentMarketOpen: market.open,
       instrumentMarketNote: market.reason,
       ...(item.kind === 'index' || item.kind === 'future' ? {} : { requireSmtAlign: false as const }),

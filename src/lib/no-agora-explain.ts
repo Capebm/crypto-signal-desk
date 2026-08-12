@@ -28,7 +28,15 @@ export function explainNoAgora(rows: RowLike[], opts?: {
     parts.push(`${closed.length} CLOSED (${sample}${closed.length > 3 ? '…' : ''}) — sem JÁ até ao open`)
   }
 
-  const aguardar = rows.filter((r) => isAwaitingEntry(r as TjrDecision))
+  const confirmLive = rows.filter((r) =>
+    r.checklist?.some((c) => c.label === 'Dados LTF live' && !c.complete))
+  if (confirmLive.length > 0) {
+    parts.push(`${confirmLive.length} em CONFIRMAR LIVE (feed 1m atrasado/fallback)`)
+  }
+
+  const aguardar = rows.filter((r) =>
+    isAwaitingEntry(r as TjrDecision)
+    && !r.checklist?.some((c) => c.label === 'Dados LTF live' && !c.complete))
   const waitingLtf = aguardar.filter((r) => {
     const ltf = r.checklist?.find((c) => c.label.startsWith('4.'))
     return ltf && !ltf.complete
