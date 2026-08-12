@@ -851,6 +851,19 @@ export default function T212Dashboard() {
                         <td className="col-symbol">
                           {row.instrument.short}
                           <small className="desk-sub">{t212KindLabel(row.instrument.kind)}</small>
+                          {/* per-row market-open badge */}
+                          {(() => {
+                            const m = getInstrumentMarketStatus(row.instrument.kind)
+                            return (
+                              <small
+                                className={`market-badge ${m.open ? 'open' : 'closed'}`}
+                                title={m.reason}
+                                style={{ marginLeft: 8 }}
+                              >
+                                {m.open ? 'OPEN' : 'CLOSED'}
+                              </small>
+                            )
+                          })()}
                         </td>
                         <td>
                           <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row, { cfd: true })}</strong>
