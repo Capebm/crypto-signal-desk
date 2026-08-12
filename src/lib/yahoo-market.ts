@@ -12,11 +12,13 @@ export type T212Instrument = {
   short: string
 }
 
-/** Símbolos Twelve Data (free → Yahoo se falhar/créditos). */
+/**
+ * Símbolos Twelve Data verificados no catálogo oficial.
+ * Ausência deliberada = símbolo ambíguo/inexistente; usa Yahoo e nunca resolve
+ * por engano para uma acção/ETF com o mesmo ticker (ex.: NG, ES).
+ */
 export const T212_TWELVE_SYMBOL: Record<string, string> = {
-  tech100: 'NDX',
   us500: 'SPX',
-  us30: 'DJI',
   ger40: 'GDAXI',
   uk100: 'FTSE',
   eurusd: 'EUR/USD',
@@ -24,24 +26,18 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   usdjpy: 'USD/JPY',
   xauusd: 'XAU/USD',
   xagusd: 'XAG/USD',
-  oil: 'WTICO/USD',
+  oil: 'WTI/USD',
   fra40: 'FCHI',
-  eu50: 'SX5E',
-  jp225: 'NI225',
+  eu50: 'STOXX50E',
   audusd: 'AUD/USD',
   usdchf: 'USD/CHF',
   eurjpy: 'EUR/JPY',
-  copper: 'HG',
-  ngas: 'NG',
+  copper: 'HG1',
   btc: 'BTC/USD',
   eth: 'ETH/USD',
   sol: 'SOL/USD',
   xrp: 'XRP/USD',
   doge: 'DOGE/USD',
-  /** Futuros CME (análise; executar no CFD T212 indicado em t212Search). */
-  es: 'ES',
-  nq: 'NQ',
-  ym: 'YM',
   /** Acções US + macro (Yahoo; Twelve se Grow). */
   nvda: 'NVDA',
   meta: 'META',
@@ -51,15 +47,12 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   msft: 'MSFT',
   amd: 'AMD',
   googl: 'GOOGL',
-  dxy: 'DXY',
-  us2000: 'RUT',
   eurgbp: 'EUR/GBP',
   nzdusd: 'NZD/USD',
   spa35: 'IBEX',
   ita40: 'FTSEMIB',
   aus200: 'AXJO',
   hk50: 'HSI',
-  swiss20: 'SSMI',
   usdcad: 'USD/CAD',
   euraud: 'EUR/AUD',
   gbpjpy: 'GBP/JPY',
@@ -68,14 +61,14 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   eurchf: 'EUR/CHF',
   gbpchf: 'GBP/CHF',
   usdmxn: 'USD/MXN',
-  brent: 'BCO/USD',
+  brent: 'XBR/USD',
   platinum: 'XPT/USD',
   ada: 'ADA/USD',
   link: 'LINK/USD',
   avax: 'AVAX/USD',
   ltc: 'LTC/USD',
   bnb: 'BNB/USD',
-  dot: 'DOT/USD',
+  dot: 'PDOTN/USD',
   near: 'NEAR/USD',
   nflx: 'NFLX',
   coin: 'COIN',
@@ -87,7 +80,6 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   dis: 'DIS',
   uber: 'UBER',
   crm: 'CRM',
-  rty: 'RTY',
 }
 
 export function twelveSymbolFor(instrument: T212Instrument): string | undefined {
@@ -965,8 +957,9 @@ type TwelvePackResponse = {
   skip?: boolean
 }
 
-async function fetchPlaybookViaTwelve(twelveSymbol: string): Promise<PlaybookPack> {
-  const response = await fetch(`/api/twelve-pack?symbol=${encodeURIComponent(twelveSymbol)}`, {
+async function fetchPlaybookViaTwelve(twelveSymbol: string, kind: T212Instrument['kind']): Promise<PlaybookPack> {
+  const params = new URLSearchParams({ symbol: twelveSymbol, kind })
+  const response = await fetch(`/api/twelve-pack?${params}`, {
     signal: AbortSignal.timeout(45_000),
   })
   const payload = (await response.json().catch(() => ({}))) as TwelvePackResponse
@@ -1028,7 +1021,7 @@ export async function getT212PlaybookCandles(
       const twelveSymbol = twelveSymbolFor(instrument)
       if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
         try {
-          data = await enqueueTwelve(() => fetchPlaybookViaTwelve(twelveSymbol))
+          data = await enqueueTwelve(() => fetchPlaybookViaTwelve(twelveSymbol, instrument.kind))
           source = 'twelve'
         } catch (error) {
           const err = error as { twelveQuota?: boolean; twelveSkip?: boolean }

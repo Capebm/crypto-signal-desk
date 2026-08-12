@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateTo4h, parseYahooChart } from './yahoo-market'
+import { aggregateTo4h, parseYahooChart, T212_TWELVE_SYMBOL } from './yahoo-market'
 
 describe('yahoo-market', () => {
   it('parses yahoo chart payload into candles', () => {
@@ -38,5 +38,20 @@ describe('yahoo-market', () => {
     expect(four.length).toBeGreaterThanOrEqual(2)
     expect(four[0].open).toBe(10)
     expect(four[0].close).toBe(13.5)
+  })
+
+  it('uses verified Twelve commodity symbols and excludes ambiguous futures tickers', () => {
+    expect(T212_TWELVE_SYMBOL).toMatchObject({
+      oil: 'WTI/USD',
+      brent: 'XBR/USD',
+      copper: 'HG1',
+      xauusd: 'XAU/USD',
+      xagusd: 'XAG/USD',
+      platinum: 'XPT/USD',
+      dot: 'PDOTN/USD',
+    })
+    for (const id of ['ngas', 'es', 'nq', 'ym', 'rty']) {
+      expect(T212_TWELVE_SYMBOL[id]).toBeUndefined()
+    }
   })
 })

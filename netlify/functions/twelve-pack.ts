@@ -26,6 +26,11 @@ type TwelveSeries = {
   status?: string
   code?: number
   message?: string
+  meta?: {
+    symbol?: string
+    type?: string
+    exchange?: string
+  }
   values?: TwelveValue[]
 }
 
@@ -42,6 +47,26 @@ const isQuota = (status: number, body: TwelveSeries) =>
   status === 429
   || body.code === 429
   || /credit|quota|limit|rate/i.test(body.message ?? '')
+
+const typeMatchesKind = (type: string | undefined, kind: string | undefined) => {
+  if (!kind) return true
+  const normalized = (type ?? '').toLowerCase()
+  if (kind === 'forex') return normalized.includes('currency')
+  if (kind === 'crypto') return normalized.includes('digital') || normalized.includes('crypto')
+  if (kind === 'index') return normalized.includes('index')
+  if (kind === 'stock') {
+    return normalized.includes('stock')
+      || normalized.includes('common')
+      || normalized.includes('depositary')
+      || normalized.includes('reit')
+  }
+  if (kind === 'metal' || kind === 'energy') {
+    return normalized.includes('metal')
+      || normalized.includes('energy')
+      || normalized.includes('commodity')
+  }
+  return false
+}
 
 function parseSeries(body: TwelveSeries): CandleDto[] {
   if (!body.values?.length) throw new Error(body.message || 'Twelve sem candles')
@@ -99,6 +124,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
   }
 
   const symbol = event.queryStringParameters?.symbol?.trim()
+  const expectedKind = event.queryStringParameters?.kind?.trim()
   if (!symbol || symbol.length > 40) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'symbol inválido' }) }
   }
@@ -123,6 +149,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
       }
       if (body.status === 'error' || !response.ok) {
         errors.push(`${spec.key}: ${body.message || `HTTP ${response.status}`}`)
+        continue
+      }
+      if (!typeMatchesKind(body.meta?.type, expectedKind)) {
+        errors.push(`${spec.key}: Twelve resolveu ${symbol} como ${body.meta?.type ?? 'tipo desconhecido'} — esperado ${expectedKind}`)
         continue
       }
       try {
