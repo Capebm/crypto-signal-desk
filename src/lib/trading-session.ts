@@ -282,3 +282,34 @@ export function getMarketClocks(date = new Date()): MarketClocksSnapshot {
     ],
   }
 }
+
+/**
+ * Instrument-level market status (medium accuracy).
+ * - `crypto` => open 24/7
+ * - `stock`  => US cash hours (09:30–16:00 ET), closed on weekend
+ * - `forex|metal|energy|index|future` => use CFD calendar (weekend closures / Fri after close)
+ *
+ * This is intentionally conservative and avoids external APIs; good enough for gating scans.
+ */
+export function getInstrumentMarketStatus(kind: 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock', date = new Date()) {
+  const ny = zoneParts('America/New_York', date)
+
+  if (kind === 'crypto') {
+    return { open: true, reason: 'Crypto — exchange open 24/7' }
+  }
+
+  if (kind === 'stock') {
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(date)
+    if (weekday === 'Sat' || weekday === 'Sun') {
+      return { open: false, reason: 'US market closed (weekend)' }
+    }
+    if (ny.mins >= 9 * 60 + 30 && ny.mins < 16 * 60) {
+      return { open: true, reason: 'US stocks open (09:30–16:00 ET)' }
+    }
+    return { open: false, reason: 'US market closed (pre/post-market)' }
+  }
+
+  // For forex, metals, energy, indices and futures rely on CFD calendar rules
+  const cfd = getCfdMarketStatus(date)
+  return { open: cfd.open, reason: cfd.reason || (cfd.open ? 'Open (CFD calendar)' : 'Closed (CFD calendar)') }
+}

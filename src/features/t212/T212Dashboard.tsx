@@ -27,7 +27,7 @@ import {
   tjrScoreColor,
   type TjrDecision,
 } from '../../lib/tjr-engine'
-import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
+import { getCfdMarketStatus, getMarketClocks, getTradingSessionStatus, getInstrumentMarketStatus } from '../../lib/trading-session'
 import type { Direction, Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
@@ -565,6 +565,7 @@ export default function T212Dashboard() {
     .sort((a, b) => b.score - a.score || (b.riskReward ?? 0) - (a.riskReward ?? 0))
 
   const selected = rows.find((row) => row.instrument.id === selectedId)
+  const selectedInstrumentMarket = selected ? getInstrumentMarketStatus(selected.instrument.kind) : undefined
 
   const closeDetail = () => {
     const id = selectedId
@@ -673,7 +674,11 @@ export default function T212Dashboard() {
         </article>
         <article className={session.inIdealWindow ? 'kpi-hot' : ''}>
           <span>Sessão</span>
-          <strong>{!cfdMarket.open && !hasCryptoWatch ? 'Fechado' : session.inIdealWindow ? 'NY open' : session.window.replace('_', ' ')}</strong>
+          <strong>
+            {selectedInstrumentMarket
+              ? (selectedInstrumentMarket.open ? `OPEN · ${selectedInstrumentMarket.reason}` : `CLOSED · ${selectedInstrumentMarket.reason}`)
+              : (!cfdMarket.open && !hasCryptoWatch ? 'Fechado' : session.inIdealWindow ? 'NY open' : session.window.replace('_', ' '))}
+          </strong>
           <small>killzone</small>
         </article>
       </section>
