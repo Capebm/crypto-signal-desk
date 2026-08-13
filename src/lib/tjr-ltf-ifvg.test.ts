@@ -54,6 +54,30 @@ describe('ltfEntryConfirmation', () => {
     const result = ltfEntryConfirmation(candles, 'short', 45)
     expect(result.ready).toBe(false)
   })
+
+  it('does not arm a strict entry when the opposite signal misses the continuation zone', () => {
+    const result = ltfEntryConfirmation(
+      shortEntrySeries(),
+      'short',
+      45,
+      { low: 110, high: 111, kind: 'fair-value-gap' },
+    )
+    expect(result.retraceSeen).toBe(false)
+    expect(result.retraceInZone).toBe(false)
+    expect(result.ready).toBe(false)
+  })
+
+  it('confirms after the opposite signal trades inside the continuation zone', () => {
+    const result = ltfEntryConfirmation(
+      shortEntrySeries(),
+      'short',
+      45,
+      { low: 97, high: 100, kind: 'fair-value-gap' },
+    )
+    expect(result.retraceSeen).toBe(true)
+    expect(result.retraceInZone).toBe(true)
+    expect(result.ready).toBe(true)
+  })
 })
 
 describe('ltfConfirmSignal', () => {

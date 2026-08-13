@@ -1,4 +1,5 @@
 import { structureSnapshot } from './tjr-structure'
+import { computeEsNqLiquiditySmt, type EsNqLiquiditySmt } from './t212-es-nq-smt'
 import type { Candle, Direction } from './types'
 import { instrumentById, type T212Instrument } from './yahoo-market'
 
@@ -19,13 +20,17 @@ export type EsNqAlignment = {
   note: string
 }
 
+export type EsNqContext = EsNqAlignment & {
+  smt: EsNqLiquiditySmt
+}
+
 /** Ambos bullish ou ambos bearish. Neutral / divergência = não alinhado. */
 export function trendsEsNqAligned(esTrend: Direction, nqTrend: Direction): boolean {
   return (esTrend === 'bullish' && nqTrend === 'bullish')
     || (esTrend === 'bearish' && nqTrend === 'bearish')
 }
 
-/** Ambos bullish ou ambos bearish no 5m. Neutral / divergência = bloqueia. */
+/** Tendência comparada no 5m; contexto informativo, não é SMT de liquidez. */
 export function computeEsNqAlignment(es5m: Candle[], nq5m: Candle[]): EsNqAlignment {
   const esTrend = structureSnapshot(es5m).trend
   const nqTrend = structureSnapshot(nq5m).trend
@@ -36,7 +41,18 @@ export function computeEsNqAlignment(es5m: Candle[], nq5m: Candle[]): EsNqAlignm
     nqTrend,
     note: aligned
       ? `ES+NQ 5m ${esTrend}`
-      : `ES 5m ${esTrend} ≠ NQ 5m ${nqTrend} — sem trade (gate TJR)`,
+      : `ES 5m ${esTrend} ≠ NQ 5m ${nqTrend} — tendência divergente`,
+  }
+}
+
+export function computeEsNqContext(
+  es5m: Candle[],
+  nq5m: Candle[],
+  options?: Parameters<typeof computeEsNqLiquiditySmt>[2],
+): EsNqContext {
+  return {
+    ...computeEsNqAlignment(es5m, nq5m),
+    smt: computeEsNqLiquiditySmt(es5m, nq5m, options),
   }
 }
 

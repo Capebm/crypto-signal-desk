@@ -4,13 +4,14 @@ import { computeLongStop, computeShortStop } from './trade-levels'
 import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
-  activeFairValueGap,
   hasDisplacement,
   isReactiveSweep,
   ltfEntryConfirmation,
+  permissiveInverseFvg,
   priceInDiscount,
   priceInPremium,
   recentDrawLiquiditySweepDetailed,
+  selectContinuationZone,
   smtDivergence,
   structureSnapshot,
   findTjrSwings,
@@ -19,6 +20,7 @@ import {
 } from './tjr-structure'
 import { getTradingSessionStatus, sessionHardBlocksEntry, usIndexPrimeWindow } from './trading-session'
 import { tpModeMeta, tpModes, type TpMode } from './tp-mode'
+import type { EsNqLiquiditySmt } from './t212-es-nq-smt'
 import type { Candle, Direction, PriceZone } from './types'
 
 export type EntryTiming = 'AGORA' | 'RETRACE' | 'NENHUM'
@@ -114,13 +116,12 @@ export type EvaluateOptions = {
    * mesmo com Agressivo / Malha larga. Default false no motor; Agente liga por defeito.
    */
   avoidNyMidEnter?: boolean
-  /**
-   * T212 índices US: ES e NQ alinhados no 5m (ambos bullish ou ambos bearish).
-   * `false` bloqueia setup; `undefined` = não aplica (forex/crypto/etc.).
-   */
+  /** Tendência ES/NQ 5m comparada; informativa após Phase 2. */
   esNqAligned?: boolean
-  /** Nota do gate ES↔NQ para checklist. */
+  /** Nota da tendência ES↔NQ para checklist. */
   esNqNote?: string
+  /** Divergência real de liquidez ES↔NQ no 5m. */
+  esNqSmt?: EsNqLiquiditySmt
   /**
    * T212 índices US (ES/NQ/US500…): retrace→BOS só no 1m (sem atalho 5m),
    * entradas AGORA só 09:30–10:30 ET.
@@ -162,12 +163,15 @@ const inferSide = (h4Trend: Direction, h1Trend: Direction, sweep?: Direction): T
   return undefined
 }
 
-const confirmationHit = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) => {
+const confirmationHit = (
+  snap: ReturnType<typeof structureSnapshot>,
+  side: TradeSide,
+  allowPermissiveIfvg = false,
+) => {
   if (isAligned(snap.bos, side)) return true
   if (isAligned(snap.inverse, side)) return true
-  const last = snap.gaps.filter((g) => g.disrespected).at(-1)
-  if (!last) return false
-  return (side === 'long' && !last.bullish) || (side === 'short' && last.bullish)
+  if (!allowPermissiveIfvg) return false
+  return isAligned(permissiveInverseFvg(snap.gaps, snap.candleIndex), side)
 }
 
 const opposingBos = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide) =>
@@ -186,18 +190,25 @@ const continuationHit = (snap: ReturnType<typeof structureSnapshot>, side: Trade
   return snap.price >= zone.low - pad && snap.price <= zone.high + pad
 }
 
-const continuationEntryZone = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide): { low: number; high: number } | undefined => {
+const continuationEntryZone = (snap: ReturnType<typeof structureSnapshot>, side: TradeSide): PriceZone | undefined => {
   const trend = side === 'long' ? 'bullish' : 'bearish'
-  const gap = activeFairValueGap(snap.gaps, trend)
-  if (gap) return { low: gap.low, high: gap.high }
-  if (snap.eq !== undefined) return { low: snap.eq * 0.9995, high: snap.eq * 1.0005 }
-  return undefined
+  return selectContinuationZone(snap.gaps, trend, snap.eq, snap.orderBlock, snap.breakerBlock)
 }
 
 const zoneMid = (zone: { low: number; high: number }) => (zone.low + zone.high) / 2
 
 const priceZoneLabel = (zone: { low: number; high: number }) =>
   `${zone.low.toPrecision(4)}–${zone.high.toPrecision(4)}`
+
+const priceZoneKindLabel = (zone: PriceZone) => ({
+  'liquidity-sweep': 'Sweep',
+  'fair-value-gap': 'FVG',
+  equilibrium: 'EQ',
+  'order-block': 'OB',
+  'breaker-block': 'BB',
+  'balanced-range': 'BPR',
+  'session-range': 'Sessão',
+}[zone.kind])
 
 type LiquidityLevel = { price: number; priority: number; label: string }
 
@@ -346,6 +357,8 @@ const collectZones = (...snaps: ReturnType<typeof structureSnapshot>[]): PriceZo
   for (const snap of snaps) {
     if (snap.fvg) zones.push({ low: snap.fvg.low, high: snap.fvg.high, kind: 'fair-value-gap' })
     if (snap.eq !== undefined) zones.push({ low: snap.eq * 0.9995, high: snap.eq * 1.0005, kind: 'equilibrium' })
+    if (snap.orderBlock) zones.push(snap.orderBlock)
+    if (snap.breakerBlock) zones.push(snap.breakerBlock)
   }
   return zones
 }
@@ -473,8 +486,9 @@ function evaluate(
   )
 
   const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !blockOpposed)
-  const confirmExec = confirmationHit(exec, side)
-  const confirmHtf = confirmationHit(h1, side)
+  const allowPermissiveIfvg = !tjrVideoStrict && cfdPractical
+  const confirmExec = confirmationHit(exec, side, allowPermissiveIfvg)
+  const confirmHtf = confirmationHit(h1, side, allowPermissiveIfvg)
   const displaceCandles = execCandles ?? primary1h
   const displacementOk = flexible || tjrVideoStrict || hasDisplacement(displaceCandles)
   // Disciplina: confirmação no 5m (exec) BOS/iFVG — 1h opcional (não bloqueia).
@@ -484,18 +498,28 @@ function evaluate(
       ? (confirmExec || confirmHtf) && displacementOk
       : confirmExec && confirmHtf && displacementOk
 
-  const continueTouch = continuationHit(exec, side) || continuationHit(h1, side)
-  const entryZone = continuationEntryZone(exec, side) ?? continuationEntryZone(h1, side)
+  const usIndexPlaybook = Boolean(options.usIndexPlaybook)
+  const strictLtfSequence = tjrVideoStrict || usIndexPlaybook
+  const continueTouch = continuationHit(exec, side) || (!strictLtfSequence && continuationHit(h1, side))
+  const execEntryZone = continuationEntryZone(exec, side)
+  const entryZone = strictLtfSequence
+    ? execEntryZone
+    : execEntryZone ?? continuationEntryZone(h1, side)
   const continuationOk = !gates.requireContinuationTouch || Boolean(entryZone)
 
-  const usIndexPlaybook = Boolean(options.usIndexPlaybook)
   const ltf1m = candles1m && candles1m.length >= 12
-    ? ltfEntryConfirmation(candles1m, side)
+    ? ltfEntryConfirmation(
+      candles1m,
+      side,
+      45,
+      strictLtfSequence ? entryZone : undefined,
+      allowPermissiveIfvg,
+    )
     : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
   // Índices US / Disciplina: sem atalho 5m — exige retrace→BOS/iFVG no 1m.
   const allowLtf5m = !tjrVideoStrict && !usIndexPlaybook && cfdPractical
   const ltf5m = allowLtf5m && candles5m && candles5m.length >= 12
-    ? ltfEntryConfirmation(candles5m, side, 36)
+    ? ltfEntryConfirmation(candles5m, side, 36, undefined, true)
     : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
   const ltfReady = (usIndexPlaybook || tjrVideoStrict) ? ltf1m.ready : (ltf1m.ready || Boolean(ltf5m.ready))
   const ltfEntryPrice = ltf1m.entryPrice ?? ltf5m.entryPrice
@@ -524,8 +548,15 @@ function evaluate(
     || smt === undefined
     || isAligned(smt, side)
 
-  const esNqBlocked = options.esNqAligned === false
-  const esNqOk = options.esNqAligned !== false
+  const esNqSmt = options.esNqSmt
+  const esNqSmtAligned = esNqSmt?.direction
+    ? isAligned(esNqSmt.direction, side)
+    : undefined
+  const esNqFeedUnavailable = esNqSmt?.feedValid === false
+  const esNqFeedBlocked = tjrVideoStrict && esNqFeedUnavailable
+  const esNqSmtOpposed = Boolean(esNqSmt?.fresh && esNqSmt.direction && esNqSmtAligned === false)
+  const esNqSmtBlocked = esNqFeedBlocked || (tjrVideoStrict && esNqSmtOpposed)
+  const esNqOk = !esNqSmtBlocked
 
   const sweepGate = !gates.requireSweep || sweepOk
   const setupReady = liquidityOk && sweepGate && confirmOk && continuationOk && locationOk && smtOk && !smtBlocked && !structureBroken && indexAligned && biasOk && !blockOpposed && esNqOk
@@ -672,18 +703,20 @@ function evaluate(
       complete: confirmOk,
       note: confirmOk
         ? (tjrVideoStrict
-          ? `BOS/iFVG no ${execLabel}${confirmHtf ? ' (+1h ok)' : ''}.`
+          ? `BOS ou iFVG estrito (stack controladora) no ${execLabel}${confirmHtf ? ' (+1h ok)' : ''}.`
           : cfdPractical && !(confirmExec && confirmHtf)
             ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
             : `BOS/IFVG no ${execLabel}+1h com displacement.`)
         : tjrVideoStrict
-          ? `Precisa BOS ou iFVG no ${execLabel}.`
+          ? `Precisa BOS ou fecho além da stack iFVG no ${execLabel}; pavio não conta.`
           : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.`,
     },
     {
-      label: tjrVideoStrict ? '3. Continuação (EQ / FVG)' : '3. Continuação (FVG / EQ)',
+      label: tjrVideoStrict ? '3. Continuação (FVG / EQ / OB / BB)' : '3. Continuação (FVG / EQ / OB / BB)',
       complete: continuationOk && Boolean(entryZone),
-      note: entryZone ? `Zona ${priceZoneLabel(entryZone)}.` : gates.requireContinuationTouch ? 'Sem FVG/EQ — bloqueado.' : 'Sem zona.',
+      note: entryZone
+        ? `Zona ${strictLtfSequence ? `${execLabel} ` : ''}${priceZoneKindLabel(entryZone)} ${priceZoneLabel(entryZone)}.`
+        : gates.requireContinuationTouch ? 'Sem FVG/EQ/OB/BB — bloqueado.' : 'Sem zona.',
     },
     {
       label: tjrVideoStrict ? '4. Entrada 1m BOS ou iFVG' : '4. Entrada LTF (retrace→BOS)',
@@ -693,11 +726,11 @@ function evaluate(
         : ltfReady
           ? (ltfVia5m
             ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
-            : `Retrace→${ltfVia === 'ifvg' ? 'iFVG' : 'BOS'} 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
+            : `${strictLtfSequence ? 'Retrace na zona' : 'Retrace'}→${ltfVia === 'ifvg' ? 'iFVG' : 'BOS'} 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
           : (usIndexPlaybook || tjrVideoStrict)
             ? (ltf1m.retraceSeen
               ? 'Retrace 1m ok — à espera BOS/iFVG 1m a favor.'
-              : 'À espera retrace 1m (BOS/iFVG oposto) → depois BOS/iFVG a favor.')
+              : `À espera retrace 1m dentro da zona ${entryZone ? priceZoneLabel(entryZone) : '5m'} → depois BOS/iFVG a favor.`)
             : 'À espera do BOS/iFVG 1m (ou 5m em CFD prático).',
     },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
@@ -708,10 +741,19 @@ function evaluate(
       : symbol === BTC_REFERENCE_SYMBOL ? 'Referência.' : !indexAligned ? 'Desalinhado — sem trade.' : smt ? `SMT ${smt}.` : 'Ok.' },
     ...(options.esNqAligned !== undefined
       ? [{
-          label: 'ES↔NQ 5m (TJR)',
-          complete: !esNqBlocked,
+          label: 'ES↔NQ tendência 5m',
+          complete: true,
+          partial: !options.esNqAligned,
           note: options.esNqNote
-            ?? (esNqBlocked ? 'ES e NQ desalinhados no 5m — sem trade.' : 'ES+NQ alinhados no 5m.'),
+            ?? (options.esNqAligned ? 'ES+NQ alinhados no 5m.' : 'Tendência divergente — informativo.'),
+        }]
+      : []),
+    ...(esNqSmt
+      ? [{
+          label: 'ES↔NQ SMT liquidez 5m',
+          complete: !esNqSmtBlocked,
+          partial: !esNqSmtBlocked && (esNqFeedUnavailable || !esNqSmt.fresh || esNqSmtAligned !== true),
+          note: esNqSmt.note,
         }]
       : []),
     { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
@@ -789,7 +831,8 @@ function evaluate(
     if (h4Opposed) reasons.push('4h contrário.')
     if (!locationOk) reasons.push(side === 'long' ? 'Fora de discount.' : 'Fora de premium.')
     if (!indexAligned && gates.requireSmtAlign) reasons.push(`Alt vs ${referenceLabel} desalinhados.`)
-    if (esNqBlocked) reasons.push(options.esNqNote ?? 'ES↔NQ 5m desalinhados — sem trade.')
+    if (esNqFeedBlocked) reasons.push(esNqSmt?.note ?? 'ES↔NQ 5m sem dados fiáveis.')
+    else if (tjrVideoStrict && esNqSmtOpposed) reasons.push(`SMT ES↔NQ contrário ao ${side === 'long' ? 'long' : 'short'} — Disciplina bloqueia.`)
     if (usIndexCutoff) reasons.push('Índices US: após 10:30 ET — sem novas entradas (TJR).')
     else if (usIndexPreRth) reasons.push('Índices US: só RTH após 09:30 ET.')
     if (instrumentClosed) reasons.push('Instrumento CLOSED — sem LONG/SHORT JÁ.')

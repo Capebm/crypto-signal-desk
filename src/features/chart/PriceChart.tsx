@@ -153,6 +153,14 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
         if (zone.kind === 'equilibrium') {
           addLine((zone.low + zone.high) / 2, '#5d7390', 'EQ', { lineStyle: 0, showLabel: !narrow })
         }
+        if (zone.kind === 'order-block') {
+          addLine(zone.low, 'rgba(255,138,31,0.7)', 'OB ↓', { showLabel: !narrow })
+          addLine(zone.high, 'rgba(255,138,31,0.7)', 'OB ↑', { showLabel: !narrow })
+        }
+        if (zone.kind === 'breaker-block') {
+          addLine(zone.low, 'rgba(180,111,255,0.7)', 'BB ↓', { lineStyle: 2, showLabel: !narrow })
+          addLine(zone.high, 'rgba(180,111,255,0.7)', 'BB ↑', { lineStyle: 2, showLabel: !narrow })
+        }
       }
       if (showSessions && sessionIntervals.includes(interval)) {
         for (const line of sessionLinesForChart(rows)) {

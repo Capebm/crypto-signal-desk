@@ -32,10 +32,11 @@ import {
   type SavedT212OpenPosition,
 } from '../../lib/t212-open-position-store'
 import {
-  computeEsNqAlignment,
+  computeEsNqContext,
   t212EsInstrument,
   t212NeedsEsNqGate,
   t212NqInstrument,
+  type EsNqContext,
 } from '../../lib/t212-es-nq'
 import { getInstrumentMarketStatus } from '../../lib/trading-session'
 import {
@@ -164,7 +165,7 @@ export default function PositionsDashboard() {
     ? (_symbol: string, interval: Interval) => fetchYahooCandlesRaw(instrument.yahooSymbol, interval)
     : undefined
 
-  const optionsFor = (item: T212Instrument, esNqAligned?: boolean, esNqNote?: string) => {
+  const optionsFor = (item: T212Instrument, esNq?: EsNqContext) => {
     const usIndex = t212NeedsEsNqGate(item)
     const market = getInstrumentMarketStatus(item.kind)
     return {
@@ -178,7 +179,9 @@ export default function PositionsDashboard() {
       instrumentMarketNote: market.reason,
       ...(item.kind === 'index' || item.kind === 'future' ? {} : { requireSmtAlign: false as const }),
       ...(usIndex ? { usIndexPlaybook: true as const } : {}),
-      ...(usIndex && esNqAligned !== undefined ? { esNqAligned, esNqNote } : {}),
+      ...(usIndex && esNq
+        ? { esNqAligned: esNq.aligned, esNqNote: esNq.note, esNqSmt: esNq.smt }
+        : {}),
     }
   }
 
@@ -245,16 +248,13 @@ export default function PositionsDashboard() {
     saveT212OpenPosition(next)
     setLoading(true)
     try {
-      let esNqAligned: boolean | undefined
-      let esNqNote: string | undefined
+      let esNq: EsNqContext | undefined
       if (t212NeedsEsNqGate(instrument)) {
         const [esPack, nqPack] = await Promise.all([
           getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed }),
           getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed }),
         ])
-        const gate = computeEsNqAlignment(esPack['5m'], nqPack['5m'])
-        esNqAligned = gate.aligned
-        esNqNote = gate.note
+        esNq = computeEsNqContext(esPack['5m'], nqPack['5m'])
       }
       const refInstrument = instrument.kind === 'crypto'
         ? T212_BTC_INSTRUMENT
@@ -273,7 +273,7 @@ export default function PositionsDashboard() {
         () => getT212PlaybookCandles(refInstrument, { feed: dataFeed }),
         instrument.short,
         tpMode,
-        optionsFor(instrument, esNqAligned, esNqNote),
+        optionsFor(instrument, esNq),
       )
       setResult(advice)
     } catch (err) {

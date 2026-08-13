@@ -47,7 +47,7 @@ export function explainNoAgora(rows: RowLike[], opts?: {
     parts.push(`${aguardar.length} em Aguardar (setup quase pronto)`)
   }
 
-  if (opts?.esNqBlocked) parts.push('ES↔NQ 5m desalinhados')
+  if (opts?.esNqBlocked) parts.push('ES↔NQ SMT 5m sem dados fiáveis ou contrário')
   if (opts?.tjrVideoStrict) parts.push('Disciplina activa (filtro mais apertado)')
   if (opts?.cfdPractical === false) parts.push('CFD prático off')
 

@@ -50,11 +50,11 @@ import {
   type T212Instrument,
 } from '../../lib/yahoo-market'
 import {
-  computeEsNqAlignment,
+  computeEsNqContext,
   t212EsInstrument,
   t212NeedsEsNqGate,
   t212NqInstrument,
-  type EsNqAlignment,
+  type EsNqContext,
 } from '../../lib/t212-es-nq'
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
@@ -129,7 +129,7 @@ export default function T212Dashboard() {
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
 
-  const optionsFor = (instrument: T212Instrument, esNq?: EsNqAlignment) => {
+  const optionsFor = (instrument: T212Instrument, esNq?: EsNqContext) => {
     const usIndex = t212NeedsEsNqGate(instrument)
     const market = getInstrumentMarketStatus(instrument.kind)
     return {
@@ -144,7 +144,7 @@ export default function T212Dashboard() {
       ...(instrument.kind === 'index' || instrument.kind === 'future' ? {} : { requireSmtAlign: false as const }),
       ...(usIndex ? { usIndexPlaybook: true as const } : {}),
       ...(usIndex && esNq
-        ? { esNqAligned: esNq.aligned, esNqNote: esNq.note }
+        ? { esNqAligned: esNq.aligned, esNqNote: esNq.note, esNqSmt: esNq.smt }
         : {}),
     }
   }
@@ -178,7 +178,7 @@ export default function T212Dashboard() {
     instrument: T212Instrument,
     data: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
     reference: Awaited<ReturnType<typeof getT212PlaybookCandles>>,
-    esNq?: EsNqAlignment,
+    esNq?: EsNqContext,
     opts?: { allSetups?: boolean },
   ): T212Row => {
     const evalOptions = optionsFor(instrument, esNq)
@@ -221,20 +221,21 @@ export default function T212Dashboard() {
     T212_CATALOG.find((item) => item.id === 'us500') ?? T212_BTC_INSTRUMENT
 
   const refineRow = async (instrument: T212Instrument, bypassCache = true) => {
-    let esNq: EsNqAlignment | undefined
+    let esNq: EsNqContext | undefined
     if (t212NeedsEsNqGate(instrument)) {
       try {
         const [esPack, nqPack] = await Promise.all([
           getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed, bypassCache }),
           getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed, bypassCache }),
         ])
-        esNq = computeEsNqAlignment(esPack['5m'], nqPack['5m'])
+        esNq = computeEsNqContext(esPack['5m'], nqPack['5m'])
       } catch {
         esNq = {
           aligned: false,
           esTrend: 'neutral',
           nqTrend: 'neutral',
-          note: 'ES/NQ sem dados — gate bloqueia índices US',
+          note: 'ES/NQ sem dados.',
+          smt: { fresh: false, feedValid: false, note: 'ES/NQ sem dados fiáveis.' },
         }
       }
     }
@@ -446,7 +447,7 @@ export default function T212Dashboard() {
       resetT212FeedStats()
 
       const needsEsNq = scanList.some(t212NeedsEsNqGate)
-      let esNq: EsNqAlignment | undefined
+      let esNq: EsNqContext | undefined
       if (needsEsNq) {
         setScanProgress({ pct: 3, label: 'Gate ES↔NQ 5m…' })
         try {
@@ -454,13 +455,14 @@ export default function T212Dashboard() {
             getT212PlaybookCandles(t212EsInstrument(), { feed: dataFeed }),
             getT212PlaybookCandles(t212NqInstrument(), { feed: dataFeed }),
           ])
-          esNq = computeEsNqAlignment(esPack['5m'], nqPack['5m'])
+          esNq = computeEsNqContext(esPack['5m'], nqPack['5m'])
         } catch {
           esNq = {
             aligned: false,
             esTrend: 'neutral',
             nqTrend: 'neutral',
-            note: 'ES/NQ sem dados — gate bloqueia índices US',
+            note: 'ES/NQ sem dados.',
+            smt: { fresh: false, feedValid: false, note: 'ES/NQ sem dados fiáveis.' },
           }
         }
       }
@@ -493,7 +495,7 @@ export default function T212Dashboard() {
             // Fase 1: 1 eval (rápido). Os 9 setups vêm depois, em cache.
             results.push(buildRow(refInstrument, data, refFor(refInstrument, data), esNq, { allSetups: false }))
             done += 1
-            publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq && !esNq.aligned ? ' · ES≠NQ' : ''}`)
+            publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq?.smt.fresh ? ` · SMT ${esNq.smt.direction}` : ''}`)
           } catch (error) {
             failed.push(refInstrument.short)
             done += 1
@@ -575,13 +577,13 @@ export default function T212Dashboard() {
         ? ` Feed: Twelve×${feed.twelve}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
         : ''
       const esNqNote = esNq
-        ? (esNq.aligned ? ` ES↔NQ 5m: ${esNq.esTrend}.` : ` ES↔NQ 5m: BLOQUEADO (${esNq.esTrend}≠${esNq.nqTrend}).`)
+        ? ` ES↔NQ: ${esNq.smt.note} Tendência ${esNq.esTrend}/${esNq.nqTrend}.`
         : ''
       const whyNone = buyNow + sellNow === 0
         ? ` ${explainNoAgora(sorted, {
             tjrVideoStrict,
             cfdPractical,
-            esNqBlocked: esNq ? !esNq.aligned : false,
+            esNqBlocked: esNq ? tjrVideoStrict && !esNq.smt.feedValid : false,
           })}`
         : ''
       setStatus(

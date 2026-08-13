@@ -2,6 +2,7 @@ import { evaluateTjrFull, type TjrDecision } from './tjr-engine'
 import type { TpMode } from './tp-mode'
 import type { RiskProfile } from './risk-profile'
 import type { Candle } from './types'
+import type { EsNqLiquiditySmt } from './t212-es-nq-smt'
 
 export type PositionAdvice = 'SAIR' | 'REALIZAR' | 'MANTER' | 'COMPRAR_MAIS'
 
@@ -215,12 +216,17 @@ export async function runPositionAdvice(
 export type T212PositionEvalOptions = {
   wideNet?: boolean
   cfdPractical?: boolean
+  tjrVideoStrict?: boolean
   referenceLabel?: string
   requireSmtAlign?: boolean
   usIndexPlaybook?: boolean
   esNqAligned?: boolean
   esNqNote?: string
+  esNqSmt?: EsNqLiquiditySmt
   sessionMarket?: 'crypto' | 'cfd'
+  killzoneQualityOnly?: boolean
+  instrumentMarketOpen?: boolean
+  instrumentMarketNote?: string
 }
 
 /** CFD T212: long ou short, playbook do instrumento + referência (US500 / BTC). */
@@ -239,11 +245,16 @@ export async function runT212PositionAdvice(
     sessionMarket: options.sessionMarket ?? 'cfd',
     wideNet: options.wideNet,
     cfdPractical: options.cfdPractical,
+    tjrVideoStrict: options.tjrVideoStrict,
     referenceLabel: options.referenceLabel,
     requireSmtAlign: options.requireSmtAlign,
     usIndexPlaybook: options.usIndexPlaybook,
     esNqAligned: options.esNqAligned,
     esNqNote: options.esNqNote,
+    esNqSmt: options.esNqSmt,
+    killzoneQualityOnly: options.killzoneQualityOnly,
+    instrumentMarketOpen: options.instrumentMarketOpen,
+    instrumentMarketNote: options.instrumentMarketNote,
   })
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition({ ...input, side: input.side }, currentPrice, decision)

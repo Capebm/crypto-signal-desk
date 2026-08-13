@@ -35,7 +35,32 @@ export function trendFromSwings(swings: SwingPoint[]): Direction {
   return 'neutral'
 }
 
-export type FairValueGap = PriceZone & { bullish: boolean; index: number; disrespected: boolean }
+export type FairValueGap = PriceZone & {
+  bullish: boolean
+  index: number
+  disrespected: boolean
+  /** Primeiro candle que negociou de volta dentro da gap. */
+  firstTouchAt?: number
+  /** Primeiro fecho além da fronteira externa da gap. */
+  invalidatedAt?: number
+}
+
+export type FairValueGapStack = {
+  bullish: boolean
+  gaps: FairValueGap[]
+  low: number
+  high: number
+  index: number
+  disrespected: boolean
+  invalidatedAt?: number
+}
+
+export type ConfirmedBlock = PriceZone & {
+  direction: 'bullish' | 'bearish'
+  sourceIndex: number
+  createdAt: number
+  invalidatedAt?: number
+}
 
 export function findFairValueGaps(candles: Candle[], lookback = 40): FairValueGap[] {
   const gaps: FairValueGap[] = []
@@ -59,11 +84,167 @@ export function findFairValueGaps(candles: Candle[], lookback = 40): FairValueGa
 
 const makeGap = (low: number, high: number, bullish: boolean, index: number, candles: Candle[], fromIndex: number): FairValueGap => {
   let disrespected = false
-  for (const candle of candles.slice(fromIndex + 1)) {
-    if (bullish && candle.close < low) { disrespected = true; break }
-    if (!bullish && candle.close > high) { disrespected = true; break }
+  let firstTouchAt: number | undefined
+  let invalidatedAt: number | undefined
+  for (let candleIndex = fromIndex + 1; candleIndex < candles.length; candleIndex += 1) {
+    const candle = candles[candleIndex]
+    const touched = bullish ? candle.low <= high : candle.high >= low
+    if (touched && firstTouchAt === undefined) firstTouchAt = candleIndex
+    if ((bullish && candle.close < low) || (!bullish && candle.close > high)) {
+      disrespected = true
+      invalidatedAt = candleIndex
+      break
+    }
   }
-  return { low, high, kind: 'fair-value-gap', bullish, index, disrespected }
+  return { low, high, kind: 'fair-value-gap', bullish, index, disrespected, firstTouchAt, invalidatedAt }
+}
+
+/**
+ * TJR 2026: FVGs consecutivas na mesma expansão, sem retrace entre elas,
+ * formam uma faixa. A inversão só conta após fechar além da gap controladora.
+ */
+export function findFairValueGapStacks(gaps: FairValueGap[]): FairValueGapStack[] {
+  const stacks: FairValueGapStack[] = []
+  for (const gap of [...gaps].sort((a, b) => a.index - b.index)) {
+    const current = stacks.at(-1)
+    const previous = current?.gaps.at(-1)
+    const sameUnretracedExpansion = Boolean(
+      current
+      && previous
+      && current.bullish === gap.bullish
+      && gap.index - previous.index <= 2
+      && (previous.firstTouchAt === undefined || previous.firstTouchAt > gap.index),
+    )
+    if (sameUnretracedExpansion && current) {
+      current.gaps.push(gap)
+      current.low = Math.min(current.low, gap.low)
+      current.high = Math.max(current.high, gap.high)
+      current.index = gap.index
+      const invalidations = current.gaps.map((item) => item.invalidatedAt)
+      current.disrespected = invalidations.every((value) => value !== undefined)
+      current.invalidatedAt = current.disrespected
+        ? Math.max(...invalidations.filter((value): value is number => value !== undefined))
+        : undefined
+      continue
+    }
+    stacks.push({
+      bullish: gap.bullish,
+      gaps: [gap],
+      low: gap.low,
+      high: gap.high,
+      index: gap.index,
+      disrespected: gap.disrespected,
+      invalidatedAt: gap.invalidatedAt,
+    })
+  }
+  return stacks
+}
+
+const bosEventAt = (candles: Candle[], index: number): Direction | undefined => {
+  if (index < 3) return undefined
+  const prior = candles.slice(0, index)
+  const swings = findTjrSwings(prior)
+  const lastHigh = swings.filter((s) => s.type === 'high').at(-1)?.price
+  const lastLow = swings.filter((s) => s.type === 'low').at(-1)?.price
+  const previousClose = candles[index - 1]?.close
+  const close = candles[index]?.close
+  if (lastHigh !== undefined && previousClose <= lastHigh && close > lastHigh) return 'bullish'
+  if (lastLow !== undefined && previousClose >= lastLow && close < lastLow) return 'bearish'
+  return undefined
+}
+
+const confirmationEventAt = (candles: Candle[], index: number): Direction | undefined => {
+  const bos = bosEventAt(candles, index)
+  if (bos === 'bullish' || bos === 'bearish') return bos
+  const slice = candles.slice(0, index + 1)
+  return recentInverseFvg(findFairValueGaps(slice), trendFromSwings(findTjrSwings(slice)), index)
+}
+
+/** Última vela contrária antes de um BOS/iFVG confirmado; não aceita OB aleatório. */
+export function findConfirmedOrderBlocks(candles: Candle[], lookback = 40): ConfirmedBlock[] {
+  const blocks: ConfirmedBlock[] = []
+  const start = Math.max(6, candles.length - lookback)
+  for (let index = start; index < candles.length; index += 1) {
+    const direction = confirmationEventAt(candles, index)
+    if (direction !== 'bullish' && direction !== 'bearish') continue
+    let sourceIndex: number | undefined
+    for (let candidate = index - 1; candidate >= Math.max(0, index - 8); candidate -= 1) {
+      const candle = candles[candidate]
+      const opposite = direction === 'bullish' ? candle.close < candle.open : candle.close > candle.open
+      if (opposite) {
+        sourceIndex = candidate
+        break
+      }
+    }
+    if (sourceIndex === undefined) continue
+    const source = candles[sourceIndex]
+    const low = direction === 'bullish' ? source.low : source.open
+    const high = direction === 'bullish' ? source.open : source.high
+    let invalidatedAt: number | undefined
+    for (let later = index + 1; later < candles.length; later += 1) {
+      if (
+        (direction === 'bullish' && candles[later].close < low)
+        || (direction === 'bearish' && candles[later].close > high)
+      ) {
+        invalidatedAt = later
+        break
+      }
+    }
+    blocks.push({
+      low,
+      high,
+      kind: 'order-block',
+      direction,
+      sourceIndex,
+      createdAt: index,
+      invalidatedAt,
+    })
+  }
+  return blocks
+}
+
+export function activeOrderBlock(
+  blocks: ConfirmedBlock[],
+  direction: 'bullish' | 'bearish',
+): ConfirmedBlock | undefined {
+  return blocks.filter((block) => block.direction === direction && block.invalidatedAt === undefined).at(-1)
+}
+
+/** OB contrário invalidado muda de polaridade; mantém-se até fechar pela outra margem. */
+export function activeBreakerBlock(
+  candles: Candle[],
+  blocks: ConfirmedBlock[],
+  direction: 'bullish' | 'bearish',
+): ConfirmedBlock | undefined {
+  for (const block of [...blocks].reverse()) {
+    if (block.invalidatedAt === undefined || block.direction === direction) continue
+    const breakerDirection = block.direction === 'bullish' ? 'bearish' : 'bullish'
+    if (breakerDirection !== direction) continue
+    const brokenAgain = candles.slice(block.invalidatedAt + 1).some((candle) =>
+      direction === 'bullish' ? candle.close < block.low : candle.close > block.high)
+    if (!brokenAgain) {
+      return { ...block, kind: 'breaker-block', direction }
+    }
+  }
+  return undefined
+}
+
+/** Prioridade determinística TJR para a zona de continuação selecionada. */
+export function selectContinuationZone(
+  gaps: FairValueGap[],
+  trend: 'bullish' | 'bearish',
+  equilibrium: number | undefined,
+  orderBlock?: ConfirmedBlock,
+  breakerBlock?: ConfirmedBlock,
+): PriceZone | undefined {
+  const gap = activeFairValueGap(gaps, trend)
+  if (gap) return gap
+  if (equilibrium !== undefined) {
+    return { low: equilibrium * 0.9995, high: equilibrium * 1.0005, kind: 'equilibrium' }
+  }
+  if (orderBlock?.direction === trend) return orderBlock
+  if (breakerBlock?.direction === trend) return breakerBlock
+  return undefined
 }
 
 const average = (values: number[]) => values.reduce((a, b) => a + b, 0) / (values.length || 1)
@@ -159,25 +340,29 @@ export type LtfEntryResult = {
   entryPrice?: number
   /** Houve BOS/iFVG 1m contrário (retrace 5m) na janela. */
   retraceSeen: boolean
+  /** O sinal contrário negociou dentro da FVG/EQ de continuação selecionada. */
+  retraceInZone?: boolean
   /** Sinal de entrada: BOS ou iFVG. */
   entryVia?: 'bos' | 'ifvg'
 }
 const ltfEntryCache = new WeakMap<Candle[], Map<string, LtfEntryResult>>()
 
 /** BOS ou iFVG no fecho do slice (vídeo TJR: ambos válidos no LTF). */
-export function ltfConfirmSignal(candles: Candle[]): { direction: Direction; via: 'bos' | 'ifvg' } | undefined {
+export function ltfConfirmSignal(
+  candles: Candle[],
+  options: { allowPermissiveIfvg?: boolean } = {},
+): { direction: Direction; via: 'bos' | 'ifvg' } | undefined {
   if (candles.length < 6) return undefined
   const swings = findTjrSwings(candles)
   const bos = breakOfStructure(candles, swings)
   if (bos === 'bullish' || bos === 'bearish') return { direction: bos, via: 'bos' }
   const gaps = findFairValueGaps(candles)
   const trend = trendFromSwings(swings)
-  const inverse = recentInverseFvg(gaps, trend)
+  const inverse = recentInverseFvg(gaps, trend, candles.length - 1)
   if (inverse === 'bullish' || inverse === 'bearish') return { direction: inverse, via: 'ifvg' }
-  const last = gaps.filter((g) => g.disrespected).at(-1)
-  if (!last) return undefined
-  // Bullish FVG disrespected → bearish; bearish FVG disrespected → bullish
-  return { direction: last.bullish ? 'bearish' : 'bullish', via: 'ifvg' }
+  if (!options.allowPermissiveIfvg) return undefined
+  const permissive = permissiveInverseFvg(gaps, candles.length - 1)
+  return permissive ? { direction: permissive, via: 'ifvg' } : undefined
 }
 
 /**
@@ -188,22 +373,30 @@ export function ltfEntryConfirmation(
   candles1m: Candle[],
   side: 'long' | 'short',
   lookback = 45,
+  continuationZone?: PriceZone,
+  allowPermissiveIfvg = false,
 ): LtfEntryResult {
-  const cacheKey = `${side}:${lookback}`
+  const zoneKey = continuationZone ? `${continuationZone.low}:${continuationZone.high}` : 'none'
+  const cacheKey = `${side}:${lookback}:${zoneKey}:${allowPermissiveIfvg ? 'practical' : 'strict'}`
   const cached = ltfEntryCache.get(candles1m)?.get(cacheKey)
   if (cached) return cached
   if (candles1m.length < 12) return { ready: false, retraceSeen: false }
   const window = candles1m.slice(-lookback)
   let sawRetrace = false
+  let retraceInZone = false
   let entryAt: number | undefined
   let entryVia: 'bos' | 'ifvg' | undefined
   for (let end = 6; end <= window.length; end += 1) {
-    const signal = ltfConfirmSignal(window.slice(0, end))
+    const signal = ltfConfirmSignal(window.slice(0, end), { allowPermissiveIfvg })
     if (!signal) continue
     const aligned = (side === 'long' && signal.direction === 'bullish') || (side === 'short' && signal.direction === 'bearish')
     const opposite = (side === 'long' && signal.direction === 'bearish') || (side === 'short' && signal.direction === 'bullish')
     if (opposite) {
-      sawRetrace = true
+      const candle = window[end - 1]
+      const insideZone = !continuationZone
+        || (candle.high >= continuationZone.low && candle.low <= continuationZone.high)
+      sawRetrace = insideZone
+      retraceInZone = insideZone && Boolean(continuationZone)
       entryAt = undefined
       entryVia = undefined
     }
@@ -214,8 +407,8 @@ export function ltfEntryConfirmation(
   }
   const ready = entryAt !== undefined && entryAt >= window.length - 5
   const result: LtfEntryResult = !ready || entryAt === undefined
-    ? { ready: false, retraceSeen: sawRetrace }
-    : { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true, entryVia }
+    ? { ready: false, retraceSeen: sawRetrace, retraceInZone }
+    : { ready: true, entryPrice: window[entryAt - 1]?.close, retraceSeen: true, retraceInZone, entryVia }
   const entries = ltfEntryCache.get(candles1m) ?? new Map<string, LtfEntryResult>()
   entries.set(cacheKey, result)
   ltfEntryCache.set(candles1m, entries)
@@ -244,13 +437,29 @@ export function breakOfStructure(candles: Candle[], swings: SwingPoint[]): Direc
   return undefined
 }
 
-/** Inverse FVG: continuation gap disrespected → confirmation of reversal. */
-export function recentInverseFvg(gaps: FairValueGap[], trend: Direction): Direction | undefined {
-  const recent = gaps.filter((g) => g.disrespected).at(-1)
+/** Inverse FVG: fecho além da fronteira controladora da stack; wick não conta. */
+export function recentInverseFvg(
+  gaps: FairValueGap[],
+  _trend: Direction,
+  currentIndex?: number,
+): Direction | undefined {
+  const recent = findFairValueGapStacks(gaps)
+    .filter((stack) =>
+      stack.disrespected
+      && (currentIndex === undefined || stack.invalidatedAt === currentIndex))
+    .at(-1)
   if (!recent) return undefined
-  if (trend === 'bullish' && !recent.bullish) return 'bearish'
-  if (trend === 'bearish' && recent.bullish) return 'bullish'
-  return undefined
+  return recent.bullish ? 'bearish' : 'bullish'
+}
+
+/** Compatibilidade Prático: qualquer gap individual invalidada no candle atual. */
+export function permissiveInverseFvg(
+  gaps: FairValueGap[],
+  currentIndex: number,
+): Direction | undefined {
+  const recent = gaps.filter((gap) => gap.invalidatedAt === currentIndex).at(-1)
+  if (!recent) return undefined
+  return recent.bullish ? 'bearish' : 'bullish'
 }
 
 /** 50% between most recent swing low and high in the active leg. */
@@ -319,11 +528,28 @@ function computeStructureSnapshot(candles: Candle[]) {
   const gaps = findFairValueGaps(candles)
   const sweep = recentLiquiditySweep(candles, swings)
   const bos = breakOfStructure(candles, swings)
-  const inverse = recentInverseFvg(gaps, trend)
+  const inverse = recentInverseFvg(gaps, trend, candles.length - 1)
   const eq = equilibriumPrice(swings)
   const fvg = activeFairValueGap(gaps, trend)
+  const blocks = findConfirmedOrderBlocks(candles)
+  const blockDirection = trend === 'bullish' || trend === 'bearish' ? trend : undefined
+  const orderBlock = blockDirection ? activeOrderBlock(blocks, blockDirection) : undefined
+  const breakerBlock = blockDirection ? activeBreakerBlock(candles, blocks, blockDirection) : undefined
   const price = candles.at(-1)?.close ?? 0
-  return { swings, trend, gaps, sweep, bos, inverse, eq, fvg, price }
+  return {
+    swings,
+    trend,
+    gaps,
+    sweep,
+    bos,
+    inverse,
+    eq,
+    fvg,
+    orderBlock,
+    breakerBlock,
+    price,
+    candleIndex: candles.length - 1,
+  }
 }
 
 export function structureSnapshot(candles: Candle[]) {

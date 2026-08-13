@@ -1,3 +1,12 @@
+# TJR 6h40 phase 2
+
+- [x] Add confirmed order-block and breaker lifecycle
+- [x] Integrate OB/BB continuation zones and chart rendering
+- [x] Implement timestamp-aligned ES/NQ liquidity SMT
+- [x] Wire combined ES/NQ context through T212 and positions
+- [x] Add focused OB/BB and SMT tests
+- [x] Update architecture notes
+- [x] Run tests, build, and diff checks
 # TJR video strict — execution checklist
 
 - [x] Extend `ltfEntryConfirmation` for BOS **or** iFVG (retrace + directional)
