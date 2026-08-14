@@ -13,7 +13,7 @@ import {
   permissiveInverseFvg,
   priceInDiscount,
   priceInPremium,
-  recentDrawLiquiditySweepDetailed,
+  recentAsOfHtfDrawSweep,
   resolveControllingDrawHits,
   selectContinuationZone,
   smtDivergence,
@@ -371,47 +371,33 @@ function evaluate(
     requireSmtAlign: options.requireSmtAlign ?? gatesBase.requireSmtAlign,
   }
   const session = getTradingSessionStatus(new Date(), { market: options.sessionMarket ?? 'cfd' })
-  const sessionLines = latestSessionLevels(primary1h)
-  const prevDay = previousDayLevels(primary1h)
   const swings1h = findTjrSwings(primary1h)
-  const allDraws: DrawLevel[] = [
-    ...sessionLines.map((line) => ({
-      price: line.price,
-      source: line.session as SweepSource,
-      label: line.title,
-      kind: line.kind,
-    })),
-    ...prevDay.map((line) => ({
-      price: line.price,
-      source: 'prev_day' as const,
-      label: line.title,
-      kind: line.kind,
-    })),
-    ...swings1h.slice(-6).map((s) => ({
-      price: s.price,
-      source: 'swing_1h' as const,
-      label: s.type === 'high' ? '1h H' : '1h L',
-      kind: s.type,
-    })),
-    ...h4.swings.slice(-4).map((s) => ({
-      price: s.price,
-      source: 'swing_4h' as const,
-      label: s.type === 'high' ? '4h H' : '4h L',
-      kind: s.type,
-    })),
-  ]
-  // Long Spot: só sweeps de LOWS contam a favor; highs são aviso (não short aqui).
-  const alignedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'low' : d.kind === 'high'))
-  const opposedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'high' : d.kind === 'low'))
+  const extraDraws: DrawLevel[] = h4.swings.slice(-4).map((s) => ({
+    price: s.price,
+    source: 'swing_4h' as const,
+    label: s.type === 'high' ? '4h H' : '4h L',
+    kind: s.type,
+  }))
   const drawLookback = options.sessionMarket === 'crypto' ? 18 : 36
-  const rawDrawHit = recentDrawLiquiditySweepDetailed(primary1h, alignedDraws, drawLookback)
-  const rawOpposedHit = recentDrawLiquiditySweepDetailed(primary1h, opposedDraws, drawLookback)
+  const rawDrawHit = recentAsOfHtfDrawSweep(
+    primary1h,
+    extraDraws,
+    side === 'long' ? 'low' : 'high',
+    drawLookback,
+  )
+  const rawOpposedHit = recentAsOfHtfDrawSweep(
+    primary1h,
+    extraDraws,
+    side === 'long' ? 'high' : 'low',
+    drawLookback,
+  )
   // O evento mais recente controla. Um HIGH antigo não pode vetar um LOW posterior (e vice-versa).
   const staleOpposed = isStaleOpposedSweep(rawDrawHit, rawOpposedHit)
   const { aligned: drawHit, opposed: blockingOpposed } = resolveControllingDrawHits(rawDrawHit, rawOpposedHit)
   const opposedHit = blockingOpposed ?? (staleOpposed ? rawOpposedHit : undefined)
   const microSweep = h1.sweep ?? h4.sweep
-  const sweep = drawHit?.direction ?? (flexible && isAligned(microSweep, side) ? microSweep : undefined)
+  const allowMicroSweep = !tjrVideoStrict && wideNet
+  const sweep = drawHit?.direction ?? (allowMicroSweep && isAligned(microSweep, side) ? microSweep : undefined)
   const sweepOk = isAligned(sweep, side)
   const opposedSweep = Boolean(
     blockingOpposed
@@ -445,11 +431,17 @@ function evaluate(
   const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !blockOpposed)
   const allowPermissiveIfvg = !tjrVideoStrict && cfdPractical
   const controllingSweepAt = drawHit?.openTime
+  const execConfirmBars = execLabel === '5m' ? 12 : 6
   const execConfirmationEvent = controllingSweepAt !== undefined
-    ? firstConfirmationAfterSweep(execCandles ?? primary1h, { openTime: controllingSweepAt }, side, { allowPermissiveIfvg })
+    ? firstConfirmationAfterSweep(
+      execCandles ?? primary1h,
+      { openTime: controllingSweepAt },
+      side,
+      { allowPermissiveIfvg, maxBars: execConfirmBars },
+    )
     : latestConfirmationEvent(execCandles ?? primary1h, { allowPermissiveIfvg })
   const htfConfirmationEvent = controllingSweepAt !== undefined
-    ? firstConfirmationAfterSweep(primary1h, { openTime: controllingSweepAt }, side, { allowPermissiveIfvg })
+    ? firstConfirmationAfterSweep(primary1h, { openTime: controllingSweepAt }, side, { allowPermissiveIfvg, maxBars: 6 })
     : latestConfirmationEvent(primary1h, { allowPermissiveIfvg })
   const confirmExec = controllingSweepAt !== undefined
     ? Boolean(execConfirmationEvent)

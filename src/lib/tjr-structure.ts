@@ -1,4 +1,5 @@
 import type { Candle, Direction, PriceZone } from './types'
+import { previousDayLevelsUntil, sessionLevelsUntil } from './sessions'
 
 export type SwingPoint = { type: 'high' | 'low'; price: number; index: number }
 const swingsCache = new WeakMap<Candle[], SwingPoint[]>()
@@ -344,11 +345,16 @@ export function firstConfirmationAfterSweep(
   candles: Candle[],
   after: { openTime?: number },
   side: 'long' | 'short',
-  options: { allowPermissiveIfvg?: boolean } = {},
+  options: { allowPermissiveIfvg?: boolean; maxBars?: number } = {},
 ): ConfirmationEvent | undefined {
   const start = Math.max(3, candles.length - 80)
+  let barsAfter = 0
   for (let index = start; index < candles.length; index += 1) {
     if (after.openTime !== undefined && candles[index].openTime < after.openTime) continue
+    if (after.openTime !== undefined) {
+      barsAfter += 1
+      if (options.maxBars !== undefined && barsAfter > options.maxBars) break
+    }
     const bos = bosEventAt(candles, index)
     const alignedBos = (side === 'long' && bos === 'bullish') || (side === 'short' && bos === 'bearish')
     if (alignedBos && (bos === 'bullish' || bos === 'bearish')) {
@@ -411,6 +417,69 @@ export function recentDrawLiquiditySweepDetailed(
           price: level.price,
           kind: 'low',
           candleIndex: offset + i,
+          openTime: candle.openTime,
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+/** Sweep contra níveis existentes *antes* da vela candidata (sessão em curso não inclui o pavio do raid). */
+export function recentAsOfHtfDrawSweep(
+  candles: Candle[],
+  extraDraws: DrawLevel[],
+  kind: 'high' | 'low',
+  lookback = 36,
+): DrawSweepHit | undefined {
+  const recent = candles.slice(-lookback)
+  const offset = candles.length - recent.length
+  const swings = findTjrSwings(candles)
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    const absIndex = offset + i
+    const candle = candles[absIndex]
+    const draws: DrawLevel[] = [
+      ...sessionLevelsUntil(candles, absIndex).map((line) => ({
+        price: line.price,
+        source: line.session as SweepSource,
+        label: line.title,
+        kind: line.kind,
+      })),
+      ...previousDayLevelsUntil(candles, absIndex).map((line) => ({
+        price: line.price,
+        source: 'prev_day' as const,
+        label: line.title,
+        kind: line.kind,
+      })),
+      ...swings.filter((s) => s.index < absIndex).slice(-6).map((s) => ({
+        price: s.price,
+        source: 'swing_1h' as const,
+        label: s.type === 'high' ? '1h H' : '1h L',
+        kind: s.type,
+      })),
+      ...extraDraws,
+    ].filter((draw) => draw.kind === kind)
+    const ranked = [...draws].sort((a, b) => sourceRank(a.source) - sourceRank(b.source) || a.price - b.price)
+    for (const level of ranked) {
+      if (level.kind === 'high' && candle.high > level.price && candle.close < level.price) {
+        return {
+          direction: 'bearish',
+          source: level.source,
+          label: level.label,
+          price: level.price,
+          kind: 'high',
+          candleIndex: absIndex,
+          openTime: candle.openTime,
+        }
+      }
+      if (level.kind === 'low' && candle.low < level.price && candle.close > level.price) {
+        return {
+          direction: 'bullish',
+          source: level.source,
+          label: level.label,
+          price: level.price,
+          kind: 'low',
+          candleIndex: absIndex,
           openTime: candle.openTime,
         }
       }

@@ -41,7 +41,9 @@
 - `softOpposed` / malha pode manter a direção, mas desce sempre para `RETRACE`.
 - Se o preço já está contra a liquidez oposta, o motor espera retrace na zona em vez de perseguir.
 - Spot: o sweep mais recente manda. Um HIGH antigo não bloqueia um LOW posterior (lookback Crypto 18h).
-- Confirmação tem de ser no mesmo bar ou depois do sweep controlador: liquidez → confirmação → retrace.
+- Confirmação tem de ser no mesmo bar ou depois do sweep controlador, e recente: 12 velas no 5m / 6 velas no 1h.
+- Sweep de sessão usa o high/low *antes* da vela do raid; o pavio em curso não actualiza o próprio nível.
+- Disciplina / Equilibrado / Agressivo exigem draw HTF. Só Malha pode usar micro-swing 1h.
 - `A_AGUARDAR` só aparece em setups executáveis à espera de retrace; progresso parcial com `ESPERAR` fica `BLOQUEADA`.
 
 ## Sessões (America/New_York)

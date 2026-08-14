@@ -102,8 +102,17 @@ const bump = (map: Map<string, Bucket>, key: string, session: SessionName, candl
 export function latestSessionLevels(candles: Candle[]): SessionLine[] {
   const cached = sessionLevelsCache.get(candles)
   if (cached) return cached
+  const lines = sessionLevelsUntil(candles, candles.length)
+  sessionLevelsCache.set(candles, lines)
+  return lines
+}
+
+/** High/low de cada sessão usando só velas `[0, exclusiveEnd)` — o raid não actualiza o próprio nível. */
+export function sessionLevelsUntil(candles: Candle[], exclusiveEnd: number): SessionLine[] {
   const buckets = new Map<string, Bucket>()
-  for (const candle of candles) {
+  const end = Math.max(0, Math.min(exclusiveEnd, candles.length))
+  for (let index = 0; index < end; index += 1) {
+    const candle = candles[index]
     const inst = sessionInstanceKey(candle.openTime)
     if (!inst) continue
     bump(buckets, inst.key, inst.session, candle)
@@ -124,7 +133,6 @@ export function latestSessionLevels(candles: Candle[]): SessionLine[] {
     lines.push({ session, kind: 'high', price: bucket.high, title: `${label} H`, color })
     lines.push({ session, kind: 'low', price: bucket.low, title: `${label} L`, color })
   }
-  sessionLevelsCache.set(candles, lines)
   return lines
 }
 
@@ -133,22 +141,27 @@ export function previousDayLevels(candles: Candle[]): PreviousDayLine[] {
   if (candles.length === 0) return []
   const cached = previousDayCache.get(candles)
   if (cached) return cached
-  const dates = [...new Set(candles.map((c) => dateKey(nyParts(c.openTime))))].sort()
+  const lines = previousDayLevelsUntil(candles, candles.length)
+  previousDayCache.set(candles, lines)
+  return lines
+}
+
+/** PDH/PDL à data da última vela em `[0, exclusiveEnd)`. */
+export function previousDayLevelsUntil(candles: Candle[], exclusiveEnd: number): PreviousDayLine[] {
+  const end = Math.max(0, Math.min(exclusiveEnd, candles.length))
+  if (end === 0) return []
+  const dates = [...new Set(candles.slice(0, end).map((c) => dateKey(nyParts(c.openTime))))].sort()
   if (dates.length < 2) return []
   const yKey = dates.at(-2)!
-
-  const dayCandles = candles.filter((c) => dateKey(nyParts(c.openTime)) === yKey)
+  const dayCandles = candles.slice(0, end).filter((c) => dateKey(nyParts(c.openTime)) === yKey)
   if (dayCandles.length === 0) return []
-
   const high = Math.max(...dayCandles.map((c) => c.high))
   const low = Math.min(...dayCandles.map((c) => c.low))
   const color = '#787b86'
-  const lines: PreviousDayLine[] = [
+  return [
     { kind: 'high', price: high, title: 'Dia ant. H', color },
     { kind: 'low', price: low, title: 'Dia ant. L', color },
   ]
-  previousDayCache.set(candles, lines)
-  return lines
 }
 
 export const sessionLinesForChart = (candles: Candle[], includePreviousDay = true) => [

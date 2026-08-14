@@ -1,6 +1,6 @@
 {
   "name": "crypto-signal-desk",
-  "version": "2.0.48",
+  "version": "2.0.49",
   "description": "Transparent technical-analysis dashboard for Binance Spot markets.",
   "private": true,
   "scripts": {

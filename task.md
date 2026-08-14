@@ -25,3 +25,11 @@
 - [x] T212: default CFD prático OFF; add «Vídeo TJR» preset / toggle
 - [x] Agent: «Vídeo TJR» preset + toggle
 - [x] Tests + bump to 2.0.38 + update implementation_plan.md
+
+# TJR 2026 fidelity follow-up
+
+- [x] Session/PDH draws as-of the raid candle (wick does not become the level)
+- [x] Require HTF sweep outside Malha; drop micro-sweep for Prático/Agressivo
+- [x] Cap confirmation recency (12×5m / 6×1h)
+- [x] Run tests and build
+

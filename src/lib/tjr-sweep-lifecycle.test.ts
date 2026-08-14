@@ -109,6 +109,20 @@ describe('crypto sweep lifecycle', () => {
     expect(afterSweep).toBeUndefined()
   })
 
+  it('rejects a BOS that arrives too long after the sweep', () => {
+    const candles = [
+      c(0, 100, 103, 99, 102),
+      c(H, 102, 104, 99, 100),
+      c(2 * H, 100, 101, 97, 98),
+      c(3 * H, 98, 101, 97, 100),
+      c(4 * H, 100, 102, 99, 101),
+      c(5 * H, 101, 102, 98, 99),
+      c(6 * H, 99, 106, 99, 105),
+    ]
+    expect(firstConfirmationAfterSweep(candles, { openTime: 0 }, 'long', { maxBars: 12 })?.openTime).toBe(6 * H)
+    expect(firstConfirmationAfterSweep(candles, { openTime: 0 }, 'long', { maxBars: 3 })).toBeUndefined()
+  })
+
   it('marks Prático/Malha as softOpposed when the opposed sweep is stale', () => {
     const candles = prevDaySeries('stale-high-fresh-low')
     const decision = evaluateTjrQuick('AAAUSDC', candles, candles, 'agressivo', '1_5r', {

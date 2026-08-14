@@ -3,10 +3,12 @@ import {
   findTjrSwings,
   isReactiveSweep,
   latestConfirmationEvent,
+  recentAsOfHtfDrawSweep,
   recentDrawLiquiditySweepDetailed,
   resolveControllingDrawHits,
   type DrawLevel,
 } from './tjr-structure'
+import { latestSessionLevels } from './sessions'
 import type { Candle } from './types'
 
 const c = (partial: Partial<Candle> & Pick<Candle, 'open' | 'high' | 'low' | 'close'>): Candle => ({
@@ -115,5 +117,32 @@ describe('confirmation after controlling sweep', () => {
     expect(event?.openTime).toBe(6)
     expect(event!.openTime >= 3).toBe(true)
     expect(event!.openTime >= 7).toBe(false)
+  })
+})
+
+describe('as-of session draw levels', () => {
+  it('detects a same-session London High raid that the final session high would hide', () => {
+    const london = Date.UTC(2026, 7, 13, 8, 0)
+    const hour = 3_600_000
+    const candles: Candle[] = [
+      c({ openTime: london, open: 1.168, high: 1.17, low: 1.167, close: 1.169 }),
+      c({ openTime: london + hour, open: 1.169, high: 1.1698, low: 1.168, close: 1.1692 }),
+      c({ openTime: london + 2 * hour, open: 1.1692, high: 1.1695, low: 1.1685, close: 1.169 }),
+      c({ openTime: london + 3 * hour, open: 1.169, high: 1.171, low: 1.1688, close: 1.169 }),
+    ]
+    const finalHigh = latestSessionLevels(candles).find((line) => line.session === 'london' && line.kind === 'high')?.price
+    expect(finalHigh).toBe(1.171)
+    expect(recentDrawLiquiditySweepDetailed(
+      candles,
+      [{ price: 1.171, source: 'london', label: 'Londres H', kind: 'high' }],
+    )).toBeUndefined()
+
+    const hit = recentAsOfHtfDrawSweep(candles, [], 'high')
+    expect(hit).toMatchObject({
+      direction: 'bearish',
+      source: 'london',
+      price: 1.17,
+      kind: 'high',
+    })
   })
 })
