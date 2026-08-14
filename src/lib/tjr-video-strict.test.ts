@@ -23,4 +23,11 @@ describe('tjrVideoStrict policy', () => {
     expect(allowLtf5m(false, false, true)).toBe(true)
     expect(allowLtf5m(false, true, true)).toBe(false)
   })
+
+  it('lets Agent Prático use the same practical confirm as T212 crypto', () => {
+    const agentPractical = (tjrVideoStrict: boolean, scanAllSetups: boolean) => !tjrVideoStrict && scanAllSetups
+    expect(agentPractical(false, true)).toBe(true)
+    expect(allowLtf5m(false, false, agentPractical(false, true))).toBe(true)
+    expect(allowLtf5m(true, false, agentPractical(true, false))).toBe(false)
+  })
 })

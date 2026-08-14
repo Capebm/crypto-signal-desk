@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { agentUsesPracticalConfirm, selectAgentMtfPool } from '../../lib/agent-mtf-pool'
 import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
 import { mapPool } from '../../lib/map-pool'
 import {
@@ -30,6 +31,7 @@ import {
 } from '../../lib/tjr-engine'
 import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { getMarketClocks, getTradingSessionStatus } from '../../lib/trading-session'
+import { t212CryptoAgentSymbols } from '../../lib/yahoo-market'
 import { explainNoAgoraSpot } from '../../lib/no-agora-explain'
 import MarketClocks from './MarketClocks'
 import ActivePositionPin from './ActivePositionPin'
@@ -133,8 +135,9 @@ export default function AgentDashboard() {
       killzoneQualityOnly: true,
       avoidNyMidEnter: avoidNyMid,
       tjrVideoStrict,
+      cfdPractical: agentUsesPracticalConfirm(tjrVideoStrict, scanAllSetups),
     }),
-    [allowHighSweepLong, wideNet, avoidNyMid, tjrVideoStrict],
+    [allowHighSweepLong, wideNet, avoidNyMid, tjrVideoStrict, scanAllSetups],
   )
   const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
@@ -338,6 +341,20 @@ export default function AgentDashboard() {
     })()
   }, [selected?.symbol, riskProfile, tpMode, allowHighSweepLong, scanAllSetups, wideNet, avoidNyMid, tjrVideoStrict])
 
+  useEffect(() => {
+    const needle = query.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (running || !needle) return
+    const matches = rows.filter((row) =>
+      row.symbol.includes(needle) || row.symbol.replace(/USDC$/, '').includes(needle),
+    )
+    if (matches.length !== 1) return
+    const row = matches[0]
+    if (refinedSymbols.has(row.symbol) || loadingFull === row.symbol) return
+    void refineRow(row.symbol, { price: row.price, change24h: row.change24h })
+    // Só dispara ao pesquisar um par exacto ainda não refinado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
+
   const scan = async () => {
     setRunning(true)
     setRows([])
@@ -379,30 +396,12 @@ export default function AgentDashboard() {
       const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
       setRegime(computeMarketRegime(sorted, (btcQuick.bias ?? 'neutral') as Direction))
 
-      // MTF: perfil UI + (se Todos setups) scout para não perder combos Agressivo/outros TP.
-      const comprarQuick = sorted.filter((row) => row.action === 'COMPRAR')
-      const longWatch = sorted.filter(
-        (row) => row.action === 'ESPERAR' && row.bias === 'bullish' && !row.opposedSweep,
-      )
-      const buyCandidates = (() => {
-        const pool: AgentRow[] = []
-        const pushUnique = (row: AgentRow) => {
-          if (pool.length >= AUTO_REFINE_TOP) return
-          if (pool.some((item) => item.symbol === row.symbol)) return
-          pool.push(row)
-        }
-        for (const row of comprarQuick) pushUnique(row)
-        if (scanAllSetups) {
-          for (const row of longWatch) pushUnique(row)
-          for (const row of sorted) {
-            if (scoutSymbols.has(row.symbol)) pushUnique(row)
-          }
-          // Prático testa sempre o top MTF completo; o scout só ordena prioridade.
-          // Assim não parece “instantâneo” por ter refinado apenas 2–3 candidatos.
-          for (const row of sorted) pushUnique(row)
-        }
-        return pool.slice(0, AUTO_REFINE_TOP)
-      })()
+      const buyCandidates = selectAgentMtfPool(sorted, {
+        scanAllSetups,
+        scoutSymbols,
+        prioritySymbols: new Set(t212CryptoAgentSymbols(AGENT_QUOTE_ASSET)),
+        limit: AUTO_REFINE_TOP,
+      })
       if (buyCandidates.length > 0) {
         setStatus(
           scanAllSetups

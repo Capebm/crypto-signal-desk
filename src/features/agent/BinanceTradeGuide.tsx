@@ -255,6 +255,7 @@ export function BinanceOrderPanel({
           : 'Entrada no retrace à zona de discount (limite).'}
         {' '}
         Saída em {tpMode === 'liquidez' ? 'draws HTF (baixa resistência)' : `${tpModeMeta[tpMode].short} fixo`}.
+        {' '}OCO (stop + TP) está sempre visível — também em COMPRAR JÁ.
       </p>
       {stopTooTight ? (
         <p className="binance-order-warn">
@@ -267,8 +268,8 @@ export function BinanceOrderPanel({
         <strong>Time-stop {TIME_STOP_HOURS}h:</strong> se não estiveres perto do TP ou com BOS a favor, considera sair.
       </p>
 
-      {wizard === 'buy' && (
-        <div className="binance-order-groups single">
+      {wizard !== 'done' && (
+        <div className={`binance-order-groups${hasPartialTp ? ' partial-tp' : ''}`}>
           <div className="binance-order-group">
             <p className="binance-group-title buy">1 · Comprar (Spot)</p>
             <CopyField label="Tipo" copyValue={buyType} tone="buy" hint={buyPriceHint} />
@@ -282,15 +283,12 @@ export function BinanceOrderPanel({
             {row.entryTiming === 'RETRACE' && !row.entryZone && (
               <CopyField label={`Preço limite (${AGENT_QUOTE_ASSET})`} copyValue={entryCopy} displayValue={binancePriceDisplay(row.entry)} tone="buy" />
             )}
+            {row.entryTiming === 'AGORA' && (
+              <CopyField label={`Preço (${AGENT_QUOTE_ASSET})`} copyValue={entryCopy} displayValue={binancePriceDisplay(row.entry)} tone="buy" hint="Mercado · COMPRAR JÁ" />
+            )}
             <CopyField label={`Amount (${base})`} copyValue={qtyCopy} displayValue={qtyDisplay} tone="buy" />
             <CopyField label={`Total (${AGENT_QUOTE_ASSET})`} copyValue={orderTotalCopy} displayValue={orderTotalDisplay} tone="buy" hint={Number(orderTotalCopy) < 1 ? 'Mínimo 1 USDC' : undefined} />
           </div>
-          <button type="button" className="binance-wizard-next" onClick={() => setWizard('oco')}>Comprei → passo 2 · OCO</button>
-        </div>
-      )}
-
-      {wizard === 'oco' && (
-        <div className={`binance-order-groups${hasPartialTp ? ' partial-tp' : ''}`}>
           {hasPartialTp ? (
             <>
               <div className="binance-order-group">
@@ -308,7 +306,7 @@ export function BinanceOrderPanel({
             </>
           ) : (
             <div className="binance-order-group">
-              <p className="binance-group-title sell">2 · Proteger — OCO (Vender)</p>
+              <p className="binance-group-title sell">2 · OCO (Vender)</p>
               <CopyField label={`TP Limit (${AGENT_QUOTE_ASSET})`} copyValue={targetCopy} displayValue={binancePriceDisplay(row.target)} tone="sell" hint={row.targetLabel ? row.targetLabel : 'Take Profit'} />
               <CopyField label={`SL Trigger (${AGENT_QUOTE_ASSET})`} copyValue={stopCopy} displayValue={binancePriceDisplay(row.stop)} tone="sell" hint="Stop Loss trigger" />
               <CopyField label={`SL Limit (${AGENT_QUOTE_ASSET})`} copyValue={stopLimitCopy} displayValue={stopLimitDisplay} tone="sell" hint="< trigger (1 tick)" />
@@ -316,13 +314,12 @@ export function BinanceOrderPanel({
             </div>
           )}
           <div className="binance-wizard-footer">
-            <button type="button" className="ghost" onClick={() => setWizard('buy')}>← Compra</button>
-            <button type="button" className="binance-wizard-next" onClick={savePosition}>OCO activo → passo 3</button>
+            <button type="button" className="binance-wizard-next" onClick={savePosition}>OCO activo → guardar posição</button>
           </div>
           <p className="binance-order-foot">
             {hasPartialTp
               ? 'TJR: 50% no 1.º draw HTF (OCO) + 50% no 2.º. Se TP1 executar, sobe stop no resto.'
-              : `Sem OCO: Limit @ ${binancePriceDisplay(row.target)} + Stop-Limit ${binancePriceDisplay(row.stop)}/${stopLimitDisplay}.`}
+              : `Cola TP + SL na Binance OCO. Alternativa: Limit @ ${binancePriceDisplay(row.target)} + Stop-Limit ${binancePriceDisplay(row.stop)}/${stopLimitDisplay}.`}
           </p>
         </div>
       )}

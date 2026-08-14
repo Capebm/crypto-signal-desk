@@ -1339,6 +1339,8 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
   border-radius: 2px;
 }
 .binance-order-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.binance-order-groups > .binance-wizard-footer,
+.binance-order-groups > .binance-order-foot { grid-column: 1 / -1; }
 .binance-order-groups.single { grid-template-columns: 1fr; max-width: 480px; }
 .binance-order-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; align-content: start; }
 .binance-group-title { grid-column: 1 / -1; margin: 0 0 2px; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }

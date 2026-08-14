@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
@@ -698,10 +698,12 @@ export default function T212Dashboard() {
     })
   }
 
-  const loadChartCandles = (symbol: string, interval: Interval) => {
-    const match = T212_CATALOG.find((item) => item.short === symbol) ?? selected?.instrument ?? DEFAULT_T212_INSTRUMENT
+  const loadChartCandles = useCallback((symbol: string, interval: Interval) => {
+    const match = T212_CATALOG.find((item) => item.short === symbol)
+      ?? T212_EXTRA_INSTRUMENTS.find((item) => item.short === symbol)
+      ?? DEFAULT_T212_INSTRUMENT
     return fetchYahooCandlesRaw(match.yahooSymbol, interval)
-  }
+  }, [])
 
   const toggleExtra = (id: string) => {
     setWatchIds((prev) => {

@@ -33,3 +33,10 @@
 - [x] Cap confirmation recency (12×5m / 6×1h)
 - [x] Run tests and build
 
+# Agent ↔ T212 crypto + OCO + chart flicker
+
+- [x] Agent Prático/Malha: same practical confirm as T212 crypto
+- [x] Always MTF-refine T212 overlap cryptos (XRP, BTC, …)
+- [x] Show OCO on Aguardar and COMPRAR/LONG JÁ (Agent + T212)
+- [x] Stop chart remount flicker (create once, overlay updates, resize width-only)
+

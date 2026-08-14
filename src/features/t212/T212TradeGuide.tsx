@@ -125,6 +125,14 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
               : ' idade desconhecida'}
             . Valida no gráfico live do Trading 212.
           </p>
+          {(enterReady || awaitReady) && (
+            <div className="t212-levels">
+              <div><span>Lado</span><strong className={isShort ? 'negative' : 'positive'}>{sideLabel}</strong></div>
+              <div><span>Entrada</span><strong>{fmt(decision.entry)}</strong></div>
+              <div><span>OCO Stop</span><strong className="negative">{fmt(decision.stop)}</strong></div>
+              <div><span>OCO TP</span><strong className="positive">{fmt(decision.target)}</strong></div>
+            </div>
+          )}
           <ol className="t212-steps">
             <li>Abre <strong>{instrument.t212Search}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
             <li>Muda para <strong>1m</strong>: confirma retrace + BOS/iFVG na mesma direcção.</li>
@@ -163,27 +171,35 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
         </div>
       ) : !enterReady && !awaitReady ? (
         <p className="binance-order-wait">Sem níveis — espera LONG JÁ / SHORT JÁ (dias úteis, preferir NY open ~14:30–16:00 Lisboa).</p>
-      ) : awaitReady ? (
-        <p className="binance-order-wait">
-          Setup a formar ({isShort ? 'short' : 'long'}) — <strong>ainda não entres</strong>.
-          Espera BOS 1m → o estado muda para {isShort ? 'SHORT JÁ' : 'LONG JÁ'}.
-        </p>
       ) : (
         <>
+          {awaitReady && (
+            <p className="binance-order-wait">
+              Setup a formar ({isShort ? 'short' : 'long'}) — podes deixar a <strong>OCO</strong> pronta (stop + TP).
+              Só executa a entrada quando passar a {isShort ? 'SHORT JÁ' : 'LONG JÁ'} (BOS 1m).
+            </p>
+          )}
           <div className="t212-levels">
             <div><span>Lado</span><strong className={isShort ? 'negative' : 'positive'}>{sideLabel} ({isShort ? 'short' : 'long'})</strong></div>
             <div><span>Entrada</span><strong>{fmt(decision.entry)}</strong></div>
-            <div><span>Stop</span><strong className="negative">{fmt(decision.stop)}</strong></div>
-            <div><span>TP</span><strong className="positive">{fmt(decision.target)}</strong></div>
+            <div><span>OCO Stop</span><strong className="negative">{fmt(decision.stop)}</strong></div>
+            <div><span>OCO TP</span><strong className="positive">{fmt(decision.target)}</strong></div>
           </div>
           {riskPct !== undefined && (
-            <p className="desk-sub">R:R {decision.riskReward?.toFixed(1) ?? '—'}× · stop ≈ {riskPct.toFixed(2)}% · stake ~{stakeEur} €</p>
+            <p className="desk-sub">
+              R:R {decision.riskReward?.toFixed(1) ?? '—'}× · stop ≈ {riskPct.toFixed(2)}% · stake ~{stakeEur} €
+              {enterReady ? ' · Compra/venda agora + OCO no ticket.' : ' · OCO: Stop Loss + Take Profit no mesmo ticket T212.'}
+            </p>
           )}
           <ol className="t212-steps">
             <li>Abre Trading 212 → conta <strong>CFD</strong>.</li>
             <li>Pesquisa <strong>{instrument.t212Search}</strong>.</li>
-            <li>Toca <strong>{sideLabel}</strong> ({isShort ? 'short' : 'long'}). Ajusta tamanho ~{stakeEur} €.</li>
-            <li>Stop @ {fmt(decision.stop)} · Take profit @ {fmt(decision.target)}.</li>
+            <li>
+              {enterReady
+                ? <>Toca <strong>{sideLabel}</strong> ({isShort ? 'short' : 'long'}). Ajusta tamanho ~{stakeEur} €.</>
+                : <>Prepara {sideLabel} limite na entrada ({fmt(decision.entry)}) — ainda não confirms mercado.</>}
+            </li>
+            <li>OCO no ticket: Stop @ {fmt(decision.stop)} · Take profit @ {fmt(decision.target)}.</li>
             <li>Confirma e regista no Diário ({instrument.short}).</li>
           </ol>
           <div className="binance-wizard-footer">

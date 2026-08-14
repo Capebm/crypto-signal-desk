@@ -3,6 +3,7 @@ import {
   T212_CORE_IDS,
   T212_EXTRA_INSTRUMENTS,
   resolveT212Watchlist,
+  t212CryptoAgentSymbols,
   t212RequireSmtAlign,
 } from './yahoo-market'
 
@@ -40,6 +41,13 @@ describe('t212 watchlist + smt policy', () => {
     const crypto = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'crypto')!
     expect(crypto.yahooSymbol).toMatch(/-USD$/)
     expect(t212RequireSmtAlign(crypto, true)).toBe(false)
+  })
+
+  it('maps T212 cryptos to Agent spot symbols', () => {
+    const symbols = t212CryptoAgentSymbols('USDC')
+    expect(symbols).toContain('XRPUSDC')
+    expect(symbols).toContain('BTCUSDC')
+    expect(symbols.every((symbol) => symbol.endsWith('USDC'))).toBe(true)
   })
 })
 

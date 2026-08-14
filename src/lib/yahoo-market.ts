@@ -699,6 +699,11 @@ export const T212_BTC_INSTRUMENT = T212_EXTRA_INSTRUMENTS.find((item) => item.id
 /** Catálogo completo (core + extras). */
 export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTRA_INSTRUMENTS]
 
+/** Pares Spot do Agente que coincidem com crypto CFD do T212 (ex. XRPUSDC). */
+export function t212CryptoAgentSymbols(quote = 'USDC'): string[] {
+  return T212_CATALOG.filter((item) => item.kind === 'crypto').map((item) => `${item.short}${quote}`)
+}
+
 export const T212_CORE_IDS = T212_INSTRUMENTS.map((item) => item.id)
 
 export const DEFAULT_T212_INSTRUMENT = T212_INSTRUMENTS[0]

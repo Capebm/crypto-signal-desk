@@ -44,6 +44,8 @@
 - Confirmação tem de ser no mesmo bar ou depois do sweep controlador, e recente: 12 velas no 5m / 6 velas no 1h.
 - Sweep de sessão usa o high/low *antes* da vela do raid; o pavio em curso não actualiza o próprio nível.
 - Disciplina / Equilibrado / Agressivo exigem draw HTF. Só Malha pode usar micro-swing 1h.
+- Agente Prático/Malha (`scanAllSetups` e não Disciplina) usa as mesmas regras práticas que o T212 crypto (`cfdPractical`: confirmação 5m **ou** 1h, iFVG permissivo, LTF 5m, opposed stale = aviso).
+- Cryptos do catálogo T212 (XRP, BTC, ETH, …) entram sempre no refine MTF do Agente.
 - `A_AGUARDAR` só aparece em setups executáveis à espera de retrace; progresso parcial com `ESPERAR` fica `BLOQUEADA`.
 
 ## Sessões (America/New_York)

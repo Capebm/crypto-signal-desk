@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type UTCTimestamp } from 'lightweight-charts'
+import {
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  HistogramSeries,
+  LineSeries,
+  type IChartApi,
+  type IPriceLine,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from 'lightweight-charts'
 import { getCandles } from '../../lib/binance'
 import type { Action } from '../../lib/decision-engine'
 import { sessionLinesForChart } from '../../lib/sessions'
@@ -19,15 +29,28 @@ type Props = {
   targetSecondary?: number
   targetLabel?: string
   targetSecondaryLabel?: string
-  /** Fill real da Binance (Cost Price) — separado da entrada TJR. */
   fillPrice?: number
   fillLabel?: string
   zones?: PriceZone[]
-  /** Swings 4h/1h para markup HTF. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
-  /** Override do fetch (ex. Yahoo para T212). Default: Binance. */
   loadCandles?: (symbol: string, interval: Interval, limit?: number) => Promise<Candle[]>
   staleHint?: string
+}
+
+type Overlay = {
+  action: Action
+  entry?: number
+  stop?: number
+  target?: number
+  targetSecondary?: number
+  targetLabel?: string
+  targetSecondaryLabel?: string
+  fillPrice?: number
+  fillLabel: string
+  zones: PriceZone[]
+  htfLevels: { price: number; title: string; kind: 'high' | 'low' }[]
+  showSessions: boolean
+  interval: Interval
 }
 
 const ema = (values: number[], period: number) => {
@@ -39,12 +62,12 @@ const ema = (values: number[], period: number) => {
 }
 
 const sessionIntervals: Interval[] = ['5m', '15m', '1h']
-
 const candleLimit: Record<Interval, number> = { '1m': 300, '5m': 500, '15m': 300, '1h': 200, '4h': 200, '1d': 200 }
+const EMPTY_ZONES: PriceZone[] = []
+const EMPTY_HTF: Overlay['htfLevels'] = []
 
 const isNarrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches
 
-/** Precisão dinâmica — sem isto, altcoins <0.1 colapsam OHLC e as velas somem (só se vê EMA). */
 const priceFormatFor = (price: number) => {
   const p = Math.abs(price) || 1
   if (p >= 1000) return { type: 'price' as const, precision: 2, minMove: 0.01 }
@@ -55,19 +78,132 @@ const priceFormatFor = (price: number) => {
   return { type: 'price' as const, precision: 8, minMove: 0.00000001 }
 }
 
-export default function PriceChart({ symbol, action, interval, onIntervalChange, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel = 'Fill', zones = [], htfLevels = [], loadCandles, staleHint = 'Dados da Binance' }: Props) {
+const overlayKey = (overlay: Overlay) => JSON.stringify({
+  action: overlay.action,
+  entry: overlay.entry,
+  stop: overlay.stop,
+  target: overlay.target,
+  targetSecondary: overlay.targetSecondary,
+  targetLabel: overlay.targetLabel,
+  targetSecondaryLabel: overlay.targetSecondaryLabel,
+  fillPrice: overlay.fillPrice,
+  fillLabel: overlay.fillLabel,
+  zones: overlay.zones.map((zone) => [zone.kind, zone.low, zone.high]),
+  htfLevels: overlay.htfLevels.map((level) => [level.kind, level.price, level.title]),
+  showSessions: overlay.showSessions,
+  interval: overlay.interval,
+})
+
+const paintOverlays = (
+  series: ISeriesApi<'Candlestick'>,
+  rows: Candle[],
+  overlay: Overlay,
+  lines: IPriceLine[],
+) => {
+  for (const line of lines) series.removePriceLine(line)
+  lines.length = 0
+  const narrow = isNarrow()
+  const addLine = (
+    price: number,
+    color: string,
+    title: string,
+    opts?: { lineWidth?: 1 | 2 | 3 | 4; lineStyle?: 0 | 1 | 2 | 3 | 4; showLabel?: boolean },
+  ) => {
+    lines.push(series.createPriceLine({
+      price,
+      color,
+      lineWidth: opts?.lineWidth ?? 1,
+      lineStyle: opts?.lineStyle ?? 2,
+      axisLabelVisible: opts?.showLabel ?? !narrow,
+      title: narrow && !opts?.showLabel ? '' : title,
+    }))
+  }
+  if (overlay.entry) {
+    addLine(overlay.entry, overlay.action === 'COMPRAR' ? '#3dffb5' : overlay.action === 'VENDER' ? '#ff4d6a' : '#6e849e', 'Entrada', { lineWidth: 2, showLabel: true })
+  }
+  if (overlay.fillPrice !== undefined && (overlay.entry === undefined || Math.abs(overlay.fillPrice - overlay.entry) > overlay.entry * 0.0005)) {
+    addLine(overlay.fillPrice, '#ff8a1f', overlay.fillLabel, { lineWidth: 2, lineStyle: 0, showLabel: true })
+  }
+  if (overlay.stop) addLine(overlay.stop, '#ff4d6a', 'Stop', { showLabel: true })
+  if (overlay.target) addLine(overlay.target, '#3dffb5', overlay.targetLabel ? `TP1 ${overlay.targetLabel}` : 'Alvo', { showLabel: true })
+  if (overlay.targetSecondary) {
+    addLine(overlay.targetSecondary, '#3ecbff', overlay.targetSecondaryLabel ? `TP2 ${overlay.targetSecondaryLabel}` : 'Alvo 2', { lineStyle: 0, showLabel: !narrow })
+  }
+  for (const zone of overlay.zones) {
+    if (zone.kind === 'fair-value-gap') {
+      addLine(zone.low, 'rgba(41,98,255,0.55)', 'FVG ↓', { showLabel: !narrow })
+      addLine(zone.high, 'rgba(41,98,255,0.55)', 'FVG ↑', { showLabel: !narrow })
+    }
+    if (zone.kind === 'equilibrium') {
+      addLine((zone.low + zone.high) / 2, '#5d7390', 'EQ', { lineStyle: 0, showLabel: !narrow })
+    }
+    if (zone.kind === 'order-block') {
+      addLine(zone.low, 'rgba(255,138,31,0.7)', 'OB ↓', { showLabel: !narrow })
+      addLine(zone.high, 'rgba(255,138,31,0.7)', 'OB ↑', { showLabel: !narrow })
+    }
+    if (zone.kind === 'breaker-block') {
+      addLine(zone.low, 'rgba(180,111,255,0.7)', 'BB ↓', { lineStyle: 2, showLabel: !narrow })
+      addLine(zone.high, 'rgba(180,111,255,0.7)', 'BB ↑', { lineStyle: 2, showLabel: !narrow })
+    }
+  }
+  if (overlay.showSessions && sessionIntervals.includes(overlay.interval)) {
+    for (const line of sessionLinesForChart(rows)) {
+      addLine(line.price, line.color, 'title' in line ? line.title : '', { showLabel: !narrow })
+    }
+  }
+  const htfCap = narrow ? 4 : 8
+  for (const level of overlay.htfLevels.slice(-htfCap)) {
+    addLine(level.price, level.kind === 'high' ? '#9aadc4' : '#5d7390', level.title, { lineStyle: 3, showLabel: !narrow })
+  }
+}
+
+export default function PriceChart({
+  symbol,
+  action,
+  interval,
+  onIntervalChange,
+  entry,
+  stop,
+  target,
+  targetSecondary,
+  targetLabel,
+  targetSecondaryLabel,
+  fillPrice,
+  fillLabel = 'Fill',
+  zones,
+  htfLevels,
+  loadCandles,
+  staleHint = 'Dados da Binance',
+}: Props) {
   const host = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const ema20Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const ema50Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const linesRef = useRef<IPriceLine[]>([])
+  const rowsRef = useRef<Candle[]>([])
+  const fetchRef = useRef(loadCandles ?? getCandles)
+  fetchRef.current = loadCandles ?? getCandles
+  const overlayRef = useRef<Overlay>({
+    action, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel,
+    fillPrice, fillLabel, zones: zones ?? EMPTY_ZONES, htfLevels: htfLevels ?? EMPTY_HTF, showSessions: false, interval,
+  })
   const [message, setMessage] = useState('A carregar gráfico…')
   const [showSessions, setShowSessions] = useState(() => !isNarrow())
-  const fetchCandles = loadCandles ?? getCandles
+  const overlay: Overlay = {
+    action, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel,
+    fillPrice, fillLabel, zones: zones ?? EMPTY_ZONES, htfLevels: htfLevels ?? EMPTY_HTF, showSessions, interval,
+  }
+  overlayRef.current = overlay
+  const paintedKey = overlayKey(overlay)
 
   useEffect(() => {
     if (!host.current) return
     const narrow = isNarrow()
-    const chartHeight = narrow ? 280 : 420
-    const visibleBars = narrow ? 56 : 96
     const chart = createChart(host.current, {
-      height: chartHeight,
+      width: host.current.clientWidth,
+      height: narrow ? 280 : 420,
       layout: { background: { type: ColorType.Solid, color: '#05070c' }, textColor: '#5d7390', fontSize: narrow ? 10 : 12 },
       grid: { vertLines: { color: '#121c2c' }, horzLines: { color: '#121c2c' } },
       rightPriceScale: {
@@ -100,27 +236,45 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
     const ema20 = chart.addSeries(LineSeries, { color: '#3ecbff', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
     const ema50 = chart.addSeries(LineSeries, { color: '#ff8a1f', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
+    chartRef.current = chart
+    candleSeriesRef.current = candles
+    volumeRef.current = volume
+    ema20Ref.current = ema20
+    ema50Ref.current = ema50
+    let lastWidth = host.current.clientWidth
+    const resize = new ResizeObserver(() => {
+      if (!host.current) return
+      const width = host.current.clientWidth
+      if (width <= 0 || width === lastWidth) return
+      lastWidth = width
+      chart.applyOptions({ width })
+    })
+    resize.observe(host.current)
+    return () => {
+      resize.disconnect()
+      linesRef.current = []
+      chart.remove()
+      chartRef.current = null
+      candleSeriesRef.current = null
+      volumeRef.current = null
+      ema20Ref.current = null
+      ema50Ref.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const candles = candleSeriesRef.current
+    const volume = volumeRef.current
+    const ema20 = ema20Ref.current
+    const ema50 = ema50Ref.current
+    const chart = chartRef.current
+    if (!candles || !volume || !ema20 || !ema50 || !chart) return
     let active = true
     setMessage('A carregar gráfico…')
-
-    const addLine = (
-      price: number,
-      color: string,
-      title: string,
-      opts?: { lineWidth?: 1 | 2 | 3 | 4; lineStyle?: 0 | 1 | 2 | 3 | 4; showLabel?: boolean },
-    ) => {
-      candles.createPriceLine({
-        price,
-        color,
-        lineWidth: opts?.lineWidth ?? 1,
-        lineStyle: opts?.lineStyle ?? 2,
-        axisLabelVisible: opts?.showLabel ?? !narrow,
-        title: narrow && !opts?.showLabel ? '' : title,
-      })
-    }
-
-    void fetchCandles(symbol, interval, candleLimit[interval]).then((rows) => {
-      if (!active) return
+    const narrow = isNarrow()
+    const visibleBars = narrow ? 56 : 96
+    void fetchRef.current(symbol, interval, candleLimit[interval]).then((rows) => {
+      if (!active || candleSeriesRef.current !== candles) return
       if (rows.length === 0) {
         setMessage('Sem candles para este intervalo.')
         return
@@ -136,47 +290,11 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
       const closes = rows.map((row) => row.close)
       ema20.setData(ema(closes, 20).map((value, index) => ({ time: time(rows[index].openTime), value })))
       ema50.setData(ema(closes, 50).map((value, index) => ({ time: time(rows[index].openTime), value })))
-
-      if (entry) addLine(entry, action === 'COMPRAR' ? '#3dffb5' : action === 'VENDER' ? '#ff4d6a' : '#6e849e', 'Entrada', { lineWidth: 2, showLabel: true })
-      if (fillPrice !== undefined && (entry === undefined || Math.abs(fillPrice - entry) > entry * 0.0005)) {
-        addLine(fillPrice, '#ff8a1f', fillLabel, { lineWidth: 2, lineStyle: 0, showLabel: true })
-      }
-      if (stop) addLine(stop, '#ff4d6a', 'Stop', { showLabel: true })
-      if (target) addLine(target, '#3dffb5', targetLabel ? `TP1 ${targetLabel}` : 'Alvo', { showLabel: true })
-      if (targetSecondary) addLine(targetSecondary, '#3ecbff', targetSecondaryLabel ? `TP2 ${targetSecondaryLabel}` : 'Alvo 2', { lineStyle: 0, showLabel: !narrow })
-
-      for (const zone of zones) {
-        if (zone.kind === 'fair-value-gap') {
-          addLine(zone.low, 'rgba(41,98,255,0.55)', 'FVG ↓', { showLabel: !narrow })
-          addLine(zone.high, 'rgba(41,98,255,0.55)', 'FVG ↑', { showLabel: !narrow })
-        }
-        if (zone.kind === 'equilibrium') {
-          addLine((zone.low + zone.high) / 2, '#5d7390', 'EQ', { lineStyle: 0, showLabel: !narrow })
-        }
-        if (zone.kind === 'order-block') {
-          addLine(zone.low, 'rgba(255,138,31,0.7)', 'OB ↓', { showLabel: !narrow })
-          addLine(zone.high, 'rgba(255,138,31,0.7)', 'OB ↑', { showLabel: !narrow })
-        }
-        if (zone.kind === 'breaker-block') {
-          addLine(zone.low, 'rgba(180,111,255,0.7)', 'BB ↓', { lineStyle: 2, showLabel: !narrow })
-          addLine(zone.high, 'rgba(180,111,255,0.7)', 'BB ↑', { lineStyle: 2, showLabel: !narrow })
-        }
-      }
-      if (showSessions && sessionIntervals.includes(interval)) {
-        for (const line of sessionLinesForChart(rows)) {
-          addLine(line.price, line.color, 'title' in line ? line.title : '', { showLabel: !narrow })
-        }
-      }
-      const htfCap = narrow ? 4 : 8
-      for (const level of htfLevels.slice(-htfCap)) {
-        addLine(level.price, level.kind === 'high' ? '#9aadc4' : '#5d7390', level.title, { lineStyle: 3, showLabel: !narrow })
-      }
-
-      // Zoom nas últimas velas — evita fitContent que esmaga corpos em ecrãs estreitos
+      rowsRef.current = rows
+      paintOverlays(candles, rows, overlayRef.current, linesRef.current)
       const last = rows.length - 1
       const from = Math.max(0, last - visibleBars)
       chart.timeScale().setVisibleLogicalRange({ from: from - 0.5, to: last + 3 })
-
       const lastCandle = rows.at(-1)
       const ageHours = lastCandle ? (Date.now() - lastCandle.openTime) / 3_600_000 : 0
       const staleAfterHours = intervalMs[interval] / 3_600_000 * 3
@@ -185,20 +303,17 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
           ? `${staleHint} só até ${new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(lastCandle.openTime)}.`
           : '',
       )
-    }).catch(() => setMessage('Não foi possível carregar o gráfico.'))
-
-    const resize = new ResizeObserver(() => {
-      if (!host.current) return
-      const nowNarrow = host.current.clientWidth < 720
-      chart.applyOptions({
-        width: host.current.clientWidth,
-        height: nowNarrow ? 280 : 420,
-        timeScale: { minBarSpacing: nowNarrow ? 5.5 : 7 },
-      })
+    }).catch(() => {
+      if (active) setMessage('Não foi possível carregar o gráfico.')
     })
-    resize.observe(host.current)
-    return () => { active = false; resize.disconnect(); chart.remove() }
-  }, [symbol, action, interval, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel, fillPrice, fillLabel, showSessions, zones, htfLevels, fetchCandles, staleHint])
+    return () => { active = false }
+  }, [symbol, interval, staleHint])
+
+  useEffect(() => {
+    const candles = candleSeriesRef.current
+    if (!candles || rowsRef.current.length === 0) return
+    paintOverlays(candles, rowsRef.current, overlayRef.current, linesRef.current)
+  }, [paintedKey])
 
   return (
     <div className="chart-host">
@@ -213,7 +328,7 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
               <span className="legend-prev">Dia ant.</span>
             </>
           )}
-          {htfLevels.length > 0 && <span className="legend-prev">4h/1h H·L</span>}
+          {overlay.htfLevels.length > 0 && <span className="legend-prev">4h/1h H·L</span>}
         </div>
         <div className="chart-toolbar-actions">
           {sessionIntervals.includes(interval) && (
@@ -226,11 +341,11 @@ export default function PriceChart({ symbol, action, interval, onIntervalChange,
               Sessões
             </button>
           )}
-        <div className="timeframe-tabs" title="Muda o intervalo das velas. O sinal do agente foi calculado em 1h.">
-          {intervals.map((item) => (
-            <button key={item} className={item === interval ? 'active' : ''} onClick={() => onIntervalChange(item)}>{item}</button>
-          ))}
-        </div>
+          <div className="timeframe-tabs" title="Muda o intervalo das velas. O sinal do agente foi calculado em 1h.">
+            {intervals.map((item) => (
+              <button key={item} className={item === interval ? 'active' : ''} onClick={() => onIntervalChange(item)}>{item}</button>
+            ))}
+          </div>
         </div>
       </div>
       <div ref={host} className="chart-canvas" />
