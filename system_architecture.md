@@ -31,8 +31,18 @@
 - Prático mostra feed/SMT como qualidade; não bloqueia oportunidades apenas por ausência de dados ES/NQ.
 
 ## Preços
-- Stop = 2º swing (+ floor 3.5% / cap 8%)
-- Target = draw com prioridade PDH/PDL > NY > London > Asia, R:R ∈ [min, 3]
+- Stop = 2.º swing de execução com buffer ATR; Crypto só usa o clamp 3.5–8% se não houver ATR.
+- Alvo 1R/1.5R usa esse risco estrutural e nunca atravessa o draw oposto mais próximo.
+- Sem liquidez à frente (preço no extremo) o R:R de espaço é 0 — nunca `JÁ`.
+- Modo liquidez ignora o draw mais próximo se ficar abaixo do R:R mínimo; não inventa um alvo a 1.5%.
+
+## Anti-chase / timing
+- `AGORA` exige toque real na zona de continuação (preço ou retrace LTF dentro da FVG/EQ/OB/BB).
+- `softOpposed` / malha pode manter a direção, mas desce sempre para `RETRACE`.
+- Se o preço já está contra a liquidez oposta, o motor espera retrace na zona em vez de perseguir.
+- Spot: o sweep mais recente manda. Um HIGH antigo não bloqueia um LOW posterior (lookback Crypto 18h).
+- Confirmação tem de ser no mesmo bar ou depois do sweep controlador: liquidez → confirmação → retrace.
+- `A_AGUARDAR` só aparece em setups executáveis à espera de retrace; progresso parcial com `ESPERAR` fica `BLOQUEADA`.
 
 ## Sessões (America/New_York)
 - `ny_open` 09:30–11:00 → allowEnterNow

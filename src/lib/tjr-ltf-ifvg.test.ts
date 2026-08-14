@@ -78,6 +78,18 @@ describe('ltfEntryConfirmation', () => {
     expect(result.retraceInZone).toBe(true)
     expect(result.ready).toBe(true)
   })
+
+  it('Prático still requires the opposite signal inside the continuation zone', () => {
+    const result = ltfEntryConfirmation(
+      shortEntrySeries(),
+      'short',
+      45,
+      { low: 110, high: 111, kind: 'fair-value-gap' },
+      true,
+    )
+    expect(result.retraceSeen).toBe(false)
+    expect(result.ready).toBe(false)
+  })
 })
 
 describe('ltfConfirmSignal', () => {

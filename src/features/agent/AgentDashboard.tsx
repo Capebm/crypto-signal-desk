@@ -126,6 +126,7 @@ export default function AgentDashboard() {
   const riskProfile = profiles[riskIndex]
   const evalOptions = useMemo(
     () => ({
+      instrumentKind: 'crypto' as const,
       allowHighSweepLong,
       wideNet,
       sessionMarket: 'crypto' as const,

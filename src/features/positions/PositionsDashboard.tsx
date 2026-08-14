@@ -169,6 +169,7 @@ export default function PositionsDashboard() {
     const usIndex = t212NeedsEsNqGate(item)
     const market = getInstrumentMarketStatus(item.kind)
     return {
+      instrumentKind: item.kind,
       referenceLabel: item.kind === 'crypto' ? 'BTC' : 'US500',
       wideNet,
       cfdPractical,

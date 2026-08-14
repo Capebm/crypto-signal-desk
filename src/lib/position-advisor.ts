@@ -3,6 +3,7 @@ import type { TpMode } from './tp-mode'
 import type { RiskProfile } from './risk-profile'
 import type { Candle } from './types'
 import type { EsNqLiquiditySmt } from './t212-es-nq-smt'
+import type { InstrumentKind } from './trade-levels'
 
 export type PositionAdvice = 'SAIR' | 'REALIZAR' | 'MANTER' | 'COMPRAR_MAIS'
 
@@ -208,12 +209,14 @@ export async function runPositionAdvice(
   const decision = evaluateTjrFull(input.symbol, data, btc, profile, tpMode, 'long', {
     openPosition: true,
     sessionMarket: 'crypto',
+    instrumentKind: 'crypto',
   })
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition(input, currentPrice, decision)
 }
 
 export type T212PositionEvalOptions = {
+  instrumentKind?: InstrumentKind
   wideNet?: boolean
   cfdPractical?: boolean
   tjrVideoStrict?: boolean
@@ -255,6 +258,7 @@ export async function runT212PositionAdvice(
     killzoneQualityOnly: options.killzoneQualityOnly,
     instrumentMarketOpen: options.instrumentMarketOpen,
     instrumentMarketNote: options.instrumentMarketNote,
+    instrumentKind: options.instrumentKind,
   })
   const currentPrice = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? data['1h'].at(-1)?.close ?? 0
   return adviseOpenPosition({ ...input, side: input.side }, currentPrice, decision)

@@ -28,8 +28,8 @@ export const T212_PRIMARY_PRESETS: Exclude<T212PresetId, 'custom'>[] = ['pratico
 export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, T212PresetMeta> = {
   pratico: {
     label: 'Prático',
-    blurb: 'Dia a dia · fetch rápido · depois 9 setups (mais AGORA)',
-    title: 'Prático · CFD flexível · 9 setups após fetch · mais oportunidades',
+    blurb: 'Mais direções · JÁ só após toque na zona e com espaço',
+    title: 'Prático · CFD flexível · 9 setups · entrada apenas na zona com liquidez livre',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',

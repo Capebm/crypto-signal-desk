@@ -133,6 +133,7 @@ export default function T212Dashboard() {
     const usIndex = t212NeedsEsNqGate(instrument)
     const market = getInstrumentMarketStatus(instrument.kind)
     return {
+      instrumentKind: instrument.kind,
       referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
       wideNet,
       cfdPractical,

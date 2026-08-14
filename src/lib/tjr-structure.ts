@@ -160,6 +160,35 @@ const confirmationEventAt = (candles: Candle[], index: number): Direction | unde
   return recentInverseFvg(findFairValueGaps(slice), trendFromSwings(findTjrSwings(slice)), index)
 }
 
+export type ConfirmationEvent = {
+  direction: Exclude<Direction, 'neutral'>
+  via: 'bos' | 'ifvg'
+  candleIndex: number
+  openTime: number
+}
+
+/** Último BOS/iFVG real, para preservar a ordem temporal sweep → confirmação. */
+export function latestConfirmationEvent(
+  candles: Candle[],
+  options: { lookback?: number; allowPermissiveIfvg?: boolean } = {},
+): ConfirmationEvent | undefined {
+  const start = Math.max(3, candles.length - (options.lookback ?? 80))
+  for (let index = candles.length - 1; index >= start; index -= 1) {
+    const bos = bosEventAt(candles, index)
+    if (bos === 'bullish' || bos === 'bearish') {
+      return { direction: bos, via: 'bos', candleIndex: index, openTime: candles[index].openTime }
+    }
+    const slice = candles.slice(0, index + 1)
+    const gaps = findFairValueGaps(slice)
+    const strict = recentInverseFvg(gaps, trendFromSwings(findTjrSwings(slice)), index)
+    const inverse = strict ?? (options.allowPermissiveIfvg ? permissiveInverseFvg(gaps, index) : undefined)
+    if (inverse === 'bullish' || inverse === 'bearish') {
+      return { direction: inverse, via: 'ifvg', candleIndex: index, openTime: candles[index].openTime }
+    }
+  }
+  return undefined
+}
+
 /** Última vela contrária antes de um BOS/iFVG confirmado; não aceita OB aleatório. */
 export function findConfirmedOrderBlocks(candles: Candle[], lookback = 40): ConfirmedBlock[] {
   const blocks: ConfirmedBlock[] = []
@@ -288,6 +317,53 @@ export type DrawSweepHit = {
   label: string
   price: number
   kind: 'high' | 'low'
+  candleIndex: number
+  openTime: number
+}
+
+/** O sweep mais recente manda; empate fica conservadoramente com o oposto. */
+export function resolveControllingDrawHits(
+  aligned: DrawSweepHit | undefined,
+  opposed: DrawSweepHit | undefined,
+): { aligned?: DrawSweepHit; opposed?: DrawSweepHit } {
+  if (aligned && (!opposed || aligned.openTime > opposed.openTime)) return { aligned }
+  if (opposed) return { opposed }
+  return {}
+}
+
+/** Opposed existe mas é estritamente mais antigo que o sweep alinhado. */
+export function isStaleOpposedSweep(
+  aligned?: DrawSweepHit,
+  opposed?: DrawSweepHit,
+): boolean {
+  return Boolean(aligned && opposed && aligned.openTime > opposed.openTime)
+}
+
+/** Primeira confirmação alinhada no mesmo bar ou depois do sweep controlador. */
+export function firstConfirmationAfterSweep(
+  candles: Candle[],
+  after: { openTime?: number },
+  side: 'long' | 'short',
+  options: { allowPermissiveIfvg?: boolean } = {},
+): ConfirmationEvent | undefined {
+  const start = Math.max(3, candles.length - 80)
+  for (let index = start; index < candles.length; index += 1) {
+    if (after.openTime !== undefined && candles[index].openTime < after.openTime) continue
+    const bos = bosEventAt(candles, index)
+    const alignedBos = (side === 'long' && bos === 'bullish') || (side === 'short' && bos === 'bearish')
+    if (alignedBos && (bos === 'bullish' || bos === 'bearish')) {
+      return { direction: bos, via: 'bos', candleIndex: index, openTime: candles[index].openTime }
+    }
+    const slice = candles.slice(0, index + 1)
+    const gaps = findFairValueGaps(slice)
+    const strict = recentInverseFvg(gaps, trendFromSwings(findTjrSwings(slice)), index)
+    const inverse = strict ?? (options.allowPermissiveIfvg ? permissiveInverseFvg(gaps, index) : undefined)
+    const alignedInverse = (side === 'long' && inverse === 'bullish') || (side === 'short' && inverse === 'bearish')
+    if (alignedInverse && (inverse === 'bullish' || inverse === 'bearish')) {
+      return { direction: inverse, via: 'ifvg', candleIndex: index, openTime: candles[index].openTime }
+    }
+  }
+  return undefined
 }
 
 /** Prioridade: sessões (Ásia→Londres→NY) e dia ant. antes de swings. */
@@ -310,16 +386,33 @@ export function recentDrawLiquiditySweepDetailed(
   if (!draws.length) return undefined
   const ranked = [...draws].sort((a, b) => sourceRank(a.source) - sourceRank(b.source) || a.price - b.price)
   const recent = candles.slice(-lookback)
+  const offset = candles.length - recent.length
   for (let i = recent.length - 1; i >= 0; i -= 1) {
     const candle = recent[i]
     for (const level of ranked) {
       // High levels: only count as high-raid (bearish opportunity)
       if (level.kind === 'high' && candle.high > level.price && candle.close < level.price) {
-        return { direction: 'bearish', source: level.source, label: level.label, price: level.price, kind: 'high' }
+        return {
+          direction: 'bearish',
+          source: level.source,
+          label: level.label,
+          price: level.price,
+          kind: 'high',
+          candleIndex: offset + i,
+          openTime: candle.openTime,
+        }
       }
       // Low levels: only count as low-raid (bullish opportunity)
       if (level.kind === 'low' && candle.low < level.price && candle.close > level.price) {
-        return { direction: 'bullish', source: level.source, label: level.label, price: level.price, kind: 'low' }
+        return {
+          direction: 'bullish',
+          source: level.source,
+          label: level.label,
+          price: level.price,
+          kind: 'low',
+          candleIndex: offset + i,
+          openTime: candle.openTime,
+        }
       }
     }
   }

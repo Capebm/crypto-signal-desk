@@ -7,6 +7,16 @@
 - [x] Add focused OB/BB and SMT tests
 - [x] Update architecture notes
 - [x] Run tests, build, and diff checks
+
+# TJR phase 3 — approved
+
+- [x] Make draw sweeps chronological and fix partial status semantics
+- [x] Add structural ATR stops and liquidity-capped targets per instrument
+- [x] Require continuation-zone interaction and liquidity headroom
+- [x] Propagate instrument kind and selected entry zone through dashboards/charts
+- [x] Add Crypto, Forex, index and anti-chase regressions
+- [x] Update architecture notes and run full verification
+
 # TJR video strict — execution checklist
 
 - [x] Extend `ltfEntryConfirmation` for BOS **or** iFVG (retrace + directional)

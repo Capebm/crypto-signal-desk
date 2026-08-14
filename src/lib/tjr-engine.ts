@@ -1,16 +1,20 @@
 import type { Action, Decision } from './decision-engine'
 import { BTC_REFERENCE_SYMBOL } from './binance'
-import { computeLongStop, computeShortStop } from './trade-levels'
+import { buildTradeLevels, type InstrumentKind, type TradeLevelPlan } from './trade-levels'
 import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   hasDisplacement,
   isReactiveSweep,
+  latestConfirmationEvent,
+  firstConfirmationAfterSweep,
+  isStaleOpposedSweep,
   ltfEntryConfirmation,
   permissiveInverseFvg,
   priceInDiscount,
   priceInPremium,
   recentDrawLiquiditySweepDetailed,
+  resolveControllingDrawHits,
   selectContinuationZone,
   smtDivergence,
   structureSnapshot,
@@ -58,6 +62,8 @@ export type TjrDecision = Decision & {
   reactive?: boolean
   /** Sweep de high (setup de short) — Spot não compra (salvo allowHighSweepLong). */
   opposedSweep?: boolean
+  /** Opposed mais antigo que o sweep alinhado — aviso, não veto. */
+  staleOpposed?: boolean
   /** Malha/CFD: opposed presente mas sweep alinhado manda — não bloqueia. */
   softOpposed?: boolean
   /** Long permitido apesar de sweep de high (arriscado). */
@@ -88,6 +94,8 @@ export type SetupHit = {
 }
 
 export type EvaluateOptions = {
+  /** Classe do instrumento para stops estruturais/ATR e fallback Crypto. */
+  instrumentKind?: InstrumentKind
   /** Spot: permite COMPRAR mesmo com sweep de high (default false). */
   allowHighSweepLong?: boolean
   /** Rótulo do alinhamento SMT (ex. US500 no módulo T212). */
@@ -212,7 +220,7 @@ const priceZoneKindLabel = (zone: PriceZone) => ({
 
 type LiquidityLevel = { price: number; priority: number; label: string }
 
-const liquidityTargets = (candles: Candle[], side: TradeSide): LiquidityLevel[] => {
+const liquidityTargets = (candles: Candle[], side: TradeSide, referencePrice = candles.at(-1)?.close ?? 0): LiquidityLevel[] => {
   const session = latestSessionLevels(candles)
   const prevDay = previousDayLevels(candles)
   const swings = findTjrSwings(candles)
@@ -229,79 +237,35 @@ const liquidityTargets = (candles: Candle[], side: TradeSide): LiquidityLevel[] 
   for (const line of prevDay) scored.push({ price: line.price, priority: 4, label: line.title })
   if (swingHigh !== undefined) scored.push({ price: swingHigh, priority: 0, label: 'Swing H' })
   if (swingLow !== undefined) scored.push({ price: swingLow, priority: 0, label: 'Swing L' })
-  const price = candles.at(-1)?.close ?? 0
   const filtered = side === 'long'
-    ? scored.filter((l) => l.price > price)
-    : scored.filter((l) => l.price < price)
+    ? scored.filter((l) => l.price > referencePrice)
+    : scored.filter((l) => l.price < referencePrice)
   return filtered.sort((a, b) => (side === 'long' ? a.price - b.price : b.price - a.price))
 }
 
-type LevelPlan = {
-  entry: number
-  stop: number
-  target: number
-  riskReward: number
-  targetLabel?: string
-  targetSecondary?: number
-  targetSecondaryLabel?: string
-}
-
-/** Stop no 2º swing; alvo conforme modo TP (1R / 1.5R / liquidez). */
+/** Stop estrutural+ATR; alvo nunca atravessa o draw oposto mais próximo. */
 const buildLevels = (
   side: TradeSide,
   entry: number,
   targetCandles: Candle[],
   exec: ReturnType<typeof structureSnapshot>,
+  execCandles: Candle[],
+  instrumentKind: InstrumentKind,
   minRr: number,
   tpMode: TpMode,
-): LevelPlan => {
+): TradeLevelPlan => {
   const lows = exec.swings.filter((s) => s.type === 'low').map((s) => s.price)
   const highs = exec.swings.filter((s) => s.type === 'high').map((s) => s.price)
-  const rawStop = side === 'long'
-    ? (lows.at(-2) ?? lows.at(-1) ?? entry * 0.99) * 0.998
-    : (highs.at(-2) ?? highs.at(-1) ?? entry * 1.01) * 1.002
-  const stop = side === 'long' ? computeLongStop(entry, rawStop) : computeShortStop(entry, rawStop)
-  const risk = Math.abs(entry - stop)
-
-  const fixedMultiple = tpModeMeta[tpMode].multiple
-  if (fixedMultiple !== undefined) {
-    const target = side === 'long' ? entry + risk * fixedMultiple : entry - risk * fixedMultiple
-    return { entry, stop, target, riskReward: fixedMultiple }
-  }
-
-  const candidates = liquidityTargets(targetCandles, side)
-  const maxRr = 3
-  let best: { price: number; rr: number; priority: number; label: string } | undefined
-  for (const level of candidates) {
-    const reward = Math.abs(level.price - entry)
-    const rr = risk > 0 ? reward / risk : 0
-    if (rr < minRr || rr > maxRr) continue
-    if (!best || level.priority > best.priority || (level.priority === best.priority && Math.abs(rr - 1.5) < Math.abs(best.rr - 1.5))) {
-      best = { price: level.price, rr, priority: level.priority, label: level.label }
-    }
-  }
-  const fallbackLevel = candidates[0]
-  const target = best?.price ?? fallbackLevel?.price ?? (side === 'long' ? entry * 1.015 : entry * 0.985)
-  const targetLabel = best?.label ?? fallbackLevel?.label
-  const reward = Math.abs(target - entry)
-  const riskReward = risk > 0 ? reward / risk : 0
-
-  const minGap = entry * 0.003
-  const secondary = candidates.find((level) => {
-    if (Math.abs(level.price - target) < minGap) return false
-    const rr2 = risk > 0 ? Math.abs(level.price - entry) / risk : 0
-    return side === 'long' ? level.price > target && rr2 <= maxRr + 0.5 : level.price < target && rr2 <= maxRr + 0.5
-  })
-
-  return {
+  return buildTradeLevels({
+    side,
     entry,
-    stop,
-    target,
-    riskReward,
-    targetLabel,
-    targetSecondary: secondary?.price,
-    targetSecondaryLabel: secondary?.label,
-  }
+    swingPrices: side === 'long' ? lows : highs,
+    candles: execCandles,
+    instrumentKind,
+    candidates: liquidityTargets(targetCandles, side, entry),
+    minRr,
+    fixedMultiple: tpModeMeta[tpMode].multiple,
+  })
 }
 
 const buildExitPlan = (
@@ -350,17 +314,6 @@ const buildExitPlan = (
       'Confirmação baixista + preço na zona = momento de reduzir exposição.',
     ],
   }
-}
-
-const collectZones = (...snaps: ReturnType<typeof structureSnapshot>[]): PriceZone[] => {
-  const zones: PriceZone[] = []
-  for (const snap of snaps) {
-    if (snap.fvg) zones.push({ low: snap.fvg.low, high: snap.fvg.high, kind: 'fair-value-gap' })
-    if (snap.eq !== undefined) zones.push({ low: snap.eq * 0.9995, high: snap.eq * 1.0005, kind: 'equilibrium' })
-    if (snap.orderBlock) zones.push(snap.orderBlock)
-    if (snap.breakerBlock) zones.push(snap.breakerBlock)
-  }
-  return zones
 }
 
 function evaluate(
@@ -450,19 +403,23 @@ function evaluate(
   // Long Spot: só sweeps de LOWS contam a favor; highs são aviso (não short aqui).
   const alignedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'low' : d.kind === 'high'))
   const opposedDraws = allDraws.filter((d) => (side === 'long' ? d.kind === 'high' : d.kind === 'low'))
-  const drawHit = recentDrawLiquiditySweepDetailed(primary1h, alignedDraws)
-  const opposedHit = recentDrawLiquiditySweepDetailed(primary1h, opposedDraws)
+  const drawLookback = options.sessionMarket === 'crypto' ? 18 : 36
+  const rawDrawHit = recentDrawLiquiditySweepDetailed(primary1h, alignedDraws, drawLookback)
+  const rawOpposedHit = recentDrawLiquiditySweepDetailed(primary1h, opposedDraws, drawLookback)
+  // O evento mais recente controla. Um HIGH antigo não pode vetar um LOW posterior (e vice-versa).
+  const staleOpposed = isStaleOpposedSweep(rawDrawHit, rawOpposedHit)
+  const { aligned: drawHit, opposed: blockingOpposed } = resolveControllingDrawHits(rawDrawHit, rawOpposedHit)
+  const opposedHit = blockingOpposed ?? (staleOpposed ? rawOpposedHit : undefined)
   const microSweep = h1.sweep ?? h4.sweep
   const sweep = drawHit?.direction ?? (flexible && isAligned(microSweep, side) ? microSweep : undefined)
   const sweepOk = isAligned(sweep, side)
   const opposedSweep = Boolean(
-    opposedHit
-    && ((side === 'long' && opposedHit.direction === 'bearish') || (side === 'short' && opposedHit.direction === 'bullish')),
+    blockingOpposed
+    && ((side === 'long' && blockingOpposed.direction === 'bearish') || (side === 'short' && blockingOpposed.direction === 'bullish')),
   )
   const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
-  // CFD prático / Malha larga: se já há sweep alinhado, o oposto é aviso — não veto (evita chop a matar os dois lados).
-  // Disciplina: opposed continua a bloquear (menos trades, mais qualidade).
-  const softOpposed = !tjrVideoStrict && (cfdPractical || wideNet) && sweepOk && opposedSweep
+  // CFD/Malha: opposed stale = aviso (só malha). Disciplina: só o sweep controlador bloqueia.
+  const softOpposed = !tjrVideoStrict && (cfdPractical || wideNet) && sweepOk && staleOpposed
   const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
   const sweepLabel = sweepOk && drawHit
@@ -487,8 +444,19 @@ function evaluate(
 
   const liquidityOk = gates.requireSweep ? sweepOk : sweepOk || (biasOk && !blockOpposed)
   const allowPermissiveIfvg = !tjrVideoStrict && cfdPractical
-  const confirmExec = confirmationHit(exec, side, allowPermissiveIfvg)
-  const confirmHtf = confirmationHit(h1, side, allowPermissiveIfvg)
+  const controllingSweepAt = drawHit?.openTime
+  const execConfirmationEvent = controllingSweepAt !== undefined
+    ? firstConfirmationAfterSweep(execCandles ?? primary1h, { openTime: controllingSweepAt }, side, { allowPermissiveIfvg })
+    : latestConfirmationEvent(execCandles ?? primary1h, { allowPermissiveIfvg })
+  const htfConfirmationEvent = controllingSweepAt !== undefined
+    ? firstConfirmationAfterSweep(primary1h, { openTime: controllingSweepAt }, side, { allowPermissiveIfvg })
+    : latestConfirmationEvent(primary1h, { allowPermissiveIfvg })
+  const confirmExec = controllingSweepAt !== undefined
+    ? Boolean(execConfirmationEvent)
+    : confirmationHit(exec, side, allowPermissiveIfvg)
+  const confirmHtf = controllingSweepAt !== undefined
+    ? Boolean(htfConfirmationEvent)
+    : confirmationHit(h1, side, allowPermissiveIfvg)
   const displaceCandles = execCandles ?? primary1h
   const displacementOk = flexible || tjrVideoStrict || hasDisplacement(displaceCandles)
   // Disciplina: confirmação no 5m (exec) BOS/iFVG — 1h opcional (não bloqueia).
@@ -512,19 +480,20 @@ function evaluate(
       candles1m,
       side,
       45,
-      strictLtfSequence ? entryZone : undefined,
+      entryZone,
       allowPermissiveIfvg,
     )
     : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
   // Índices US / Disciplina: sem atalho 5m — exige retrace→BOS/iFVG no 1m.
   const allowLtf5m = !tjrVideoStrict && !usIndexPlaybook && cfdPractical
   const ltf5m = allowLtf5m && candles5m && candles5m.length >= 12
-    ? ltfEntryConfirmation(candles5m, side, 36, undefined, true)
+    ? ltfEntryConfirmation(candles5m, side, 36, entryZone, true)
     : { ready: false as const, retraceSeen: false as const, entryVia: undefined as undefined }
   const ltfReady = (usIndexPlaybook || tjrVideoStrict) ? ltf1m.ready : (ltf1m.ready || Boolean(ltf5m.ready))
   const ltfEntryPrice = ltf1m.entryPrice ?? ltf5m.entryPrice
   const ltfVia5m = Boolean(allowLtf5m && !ltf1m.ready && ltf5m.ready)
   const ltfVia = ltf1m.ready ? ltf1m.entryVia : ltf5m.ready ? ltf5m.entryVia : undefined
+  const zoneInteraction = continueTouch || Boolean(ltf1m.retraceInZone || ltf5m.retraceInZone)
 
   const eq = exec.eq ?? h1.eq ?? h4.eq
   const locationPrice = continueTouch ? exec.price : entryZone ? zoneMid(entryZone) : exec.price
@@ -563,7 +532,7 @@ function evaluate(
 
   const entryTiming: EntryTiming = !setupReady
     ? 'NENHUM'
-    : ltfReady && !quickScan
+    : ltfReady && zoneInteraction && !softOpposed && !quickScan
       ? 'AGORA'
       : entryZone || continueTouch
         ? 'RETRACE'
@@ -575,6 +544,46 @@ function evaluate(
       ? zoneMid(entryZone)
       : exec.price
 
+  const instrumentKind = options.instrumentKind ?? (options.sessionMarket === 'crypto' ? 'crypto' : 'forex')
+  const planPasses = (plan: TradeLevelPlan) => {
+    const requiredRr = tpMode === 'liquidez'
+      ? minRr
+      : (tpModeMeta[tpMode].multiple ?? minRr) * 0.99
+    const rrPasses = plan.levelsValid
+      && plan.riskReward >= requiredRr
+      && (tpMode !== 'liquidez' || plan.riskReward <= 3.05)
+    return rrPasses && plan.headroomRr >= minRr
+  }
+  let levelPlan = buildLevels(
+    side,
+    entryRef,
+    primary1h,
+    exec,
+    execCandles ?? primary1h,
+    instrumentKind,
+    minRr,
+    tpMode,
+  )
+  let plannedTiming = entryTiming
+  let antiChaseDowngrade = false
+  if (entryTiming === 'AGORA' && entryZone && !planPasses(levelPlan)) {
+    const retracePlan = buildLevels(
+      side,
+      zoneMid(entryZone),
+      primary1h,
+      exec,
+      execCandles ?? primary1h,
+      instrumentKind,
+      minRr,
+      tpMode,
+    )
+    if (planPasses(retracePlan)) {
+      levelPlan = retracePlan
+      plannedTiming = 'RETRACE'
+      antiChaseDowngrade = true
+    }
+  }
+
   const {
     entry: levelsEntry,
     stop,
@@ -583,9 +592,14 @@ function evaluate(
     targetLabel,
     targetSecondary,
     targetSecondaryLabel,
-  } = buildLevels(side, entryRef, primary1h, exec, minRr, tpMode)
-  const rrOk = tpMode === 'liquidez' ? riskReward >= minRr && riskReward <= 3.05 : riskReward >= (tpModeMeta[tpMode].multiple ?? minRr) * 0.99
-  const setupReadyWithRr = setupReady && rrOk && entryTiming !== 'NENHUM'
+    opposingDraw,
+    headroomRr,
+  } = levelPlan
+  const rrOk = levelPlan.levelsValid
+    && riskReward >= (tpMode === 'liquidez' ? minRr : (tpModeMeta[tpMode].multiple ?? minRr) * 0.99)
+    && (tpMode !== 'liquidez' || riskReward <= 3.05)
+  const headroomOk = headroomRr >= minRr
+  const setupReadyWithRr = setupReady && rrOk && headroomOk && plannedTiming !== 'NENHUM'
 
   let sessionBlocked = false
   let sessionDowngrade = false
@@ -597,21 +611,21 @@ function evaluate(
   if (setupReadyWithRr) {
     if (sessionHardBlocksEntry(session, killzoneQualityOnly)) {
       sessionBlocked = true
-    } else if (entryTiming === 'AGORA' && options.instrumentMarketOpen === false) {
+    } else if (plannedTiming === 'AGORA' && options.instrumentMarketOpen === false) {
       // Acção US pré/pós-market, etc.: setup ok → AGUARDAR, nunca LONG/SHORT JÁ.
       sessionDowngrade = true
       instrumentClosed = true
-    } else if (entryTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter && !killzoneQualityOnly) {
+    } else if (plannedTiming === 'AGORA' && session.window === 'ny' && options.avoidNyMidEnter && !killzoneQualityOnly) {
       // Diário Spot: NY mid concentrava perdas — não COMPRAR JÁ mesmo com malha/agressivo.
       sessionDowngrade = true
       nyMidAvoided = true
-    } else if (entryTiming === 'AGORA' && !session.allowEnterNow && !flexible && !killzoneQualityOnly) {
+    } else if (plannedTiming === 'AGORA' && !session.allowEnterNow && !flexible && !killzoneQualityOnly) {
       // Reactivo (sweep Ásia/Londres/dia ant.): permite COMPRAR JÁ também no NY mid.
       const reactiveNy = reactive && (session.window === 'ny' || session.window === 'ny_open')
       if (!reactiveNy) sessionDowngrade = true
     }
     // T212 índices US: só 09:30–10:30 ET (ignora malha/agressivo).
-    if (usIndexPlaybook && entryTiming === 'AGORA' && !sessionBlocked && !instrumentClosed) {
+    if (usIndexPlaybook && plannedTiming === 'AGORA' && !sessionBlocked && !instrumentClosed) {
       const prime = usIndexPrimeWindow()
       if (prime.beforeOpen) {
         sessionDowngrade = true
@@ -628,7 +642,7 @@ function evaluate(
     ? 'NENHUM'
     : sessionDowngrade
       ? 'RETRACE'
-      : entryTiming
+      : plannedTiming
 
   const entry = finalTiming === 'AGORA'
     ? (ltfEntryPrice ?? exec.price)
@@ -669,23 +683,23 @@ function evaluate(
     invalidationReason = bosInvalidationNote(side, invalidationLabel)
   }
 
-  const sweepNote = opposedSweep && opposedHit
-    ? (riskyHighLong
-      ? `Sweep de HIGH (${opposedHit.label}) — long ARRISCADO (toggle activo). Continuação possível; não é setup TJR clássico.`
-      : softOpposed
+  const sweepNote = riskyHighLong && opposedHit
+    ? `Sweep de HIGH (${opposedHit.label}) — long ARRISCADO (toggle activo). Continuação possível; não é setup TJR clássico.`
+    : softOpposed && opposedHit
+      ? (side === 'long'
+        ? `Sweep de LOW ok; ${opposedHit.label} oposto (stale) = aviso — não bloqueia.`
+        : `Sweep de HIGH ok; ${opposedHit.label} oposto (stale) = aviso — não bloqueia.`)
+      : opposedSweep && opposedHit
         ? (side === 'long'
-          ? `Sweep de LOW ok; ${opposedHit.label} oposto = aviso (malha/CFD) — não bloqueia.`
-          : `Sweep de HIGH ok; ${opposedHit.label} oposto = aviso (malha/CFD) — não bloqueia.`)
-        : side === 'long'
           ? `Sweep de HIGH (${opposedHit.label}) — bloqueia long (opposed). Spot não shorta.`
           : `Sweep de LOW (${opposedHit.label}) — bloqueia short (opposed).`)
-    : !sweepOk
-      ? (gates.requireSweep ? 'Obrigatório: wick além de um LOW HTF (Ásia L / Londres L / 1h L…).' : 'Sem sweep de low — opcional neste perfil, desde que sem sweep de high.')
-      : reactive
-        ? `Reactivo · ${sweepLabel} (low) — sweep pré-NY; não esperes outro raid.`
-        : side === 'short'
-          ? `Sweep de HIGH · ${sweepLabel} (${sweep}).`
-          : `Sweep de LOW · ${sweepLabel} (${sweep}).`
+        : !sweepOk
+          ? (gates.requireSweep ? 'Obrigatório: wick além de um LOW HTF (Ásia L / Londres L / 1h L…).' : 'Sem sweep de low — opcional neste perfil, desde que sem sweep de high.')
+          : reactive
+            ? `Reactivo · ${sweepLabel} (low) — sweep pré-NY; não esperes outro raid.`
+            : side === 'short'
+              ? `Sweep de HIGH · ${sweepLabel} (${sweep}).`
+              : `Sweep de LOW · ${sweepLabel} (${sweep}).`
 
   // Sweep “completo” só no clássico (low alinhado, sem oposto a bloquear).
   // Malha / Long após H: partial — UI âmbar + score capped (não parece setup 100).
@@ -707,9 +721,11 @@ function evaluate(
           : cfdPractical && !(confirmExec && confirmHtf)
             ? `CFD prático · BOS/IFVG no ${confirmExec ? execLabel : '1h'}.`
             : `BOS/IFVG no ${execLabel}+1h com displacement.`)
-        : tjrVideoStrict
-          ? `Precisa BOS ou fecho além da stack iFVG no ${execLabel}; pavio não conta.`
-          : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.`,
+        : controllingSweepAt && !confirmExec && !confirmHtf
+          ? 'Confirmação anterior ao sweep — ordem TJR é liquidez → confirmação → retrace.'
+          : tjrVideoStrict
+            ? `Precisa BOS ou fecho além da stack iFVG no ${execLabel}; pavio não conta.`
+            : !displacementOk ? 'Sem displacement no candle de confirmação.' : `Precisa BOS/IFVG no ${execLabel} e 1h.`,
     },
     {
       label: tjrVideoStrict ? '3. Continuação (FVG / EQ / OB / BB)' : '3. Continuação (FVG / EQ / OB / BB)',
@@ -719,6 +735,13 @@ function evaluate(
         : gates.requireContinuationTouch ? 'Sem FVG/EQ/OB/BB — bloqueado.' : 'Sem zona.',
     },
     {
+      label: 'Interação com zona',
+      complete: zoneInteraction,
+      note: zoneInteraction
+        ? 'Preço/retrace LTF tocou a zona selecionada.'
+        : `Sem toque na zona${entryZone ? ` ${priceZoneLabel(entryZone)}` : ''} — nunca JÁ.`,
+    },
+    {
       label: tjrVideoStrict ? '4. Entrada 1m BOS ou iFVG' : '4. Entrada LTF (retrace→BOS)',
       complete: ltfReady,
       note: quickScan
@@ -726,12 +749,12 @@ function evaluate(
         : ltfReady
           ? (ltfVia5m
             ? `CFD prático · BOS 5m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`
-            : `${strictLtfSequence ? 'Retrace na zona' : 'Retrace'}→${ltfVia === 'ifvg' ? 'iFVG' : 'BOS'} 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
+            : `Retrace na zona→${ltfVia === 'ifvg' ? 'iFVG' : 'BOS'} 1m @ ${ltfEntryPrice?.toPrecision(5) ?? '—'}.`)
           : (usIndexPlaybook || tjrVideoStrict)
             ? (ltf1m.retraceSeen
               ? 'Retrace 1m ok — à espera BOS/iFVG 1m a favor.'
               : `À espera retrace 1m dentro da zona ${entryZone ? priceZoneLabel(entryZone) : '5m'} → depois BOS/iFVG a favor.`)
-            : 'À espera do BOS/iFVG 1m (ou 5m em CFD prático).',
+            : `À espera de retrace dentro da zona → BOS/iFVG 1m${cfdPractical ? ' (ou 5m prático)' : ''}.`,
     },
     { label: 'Bias HTF (4h)', complete: biasOk, note: h4Opposed ? '4h contrário — bloqueado.' : biasOk ? `4h ${h4.trend} / 1h ${h1.trend}.` : 'Sem bias válido.' },
     { label: 'Discount / premium', complete: locationOk, note: !eq ? (locationOk ? `Sem EQ — ${flexible ? 'flexível ok.' : 'agressivo ok.'}` : 'Sem equilibrium.') : locationOk ? (side === 'long' ? (nearEqLong && !inDiscount ? 'Perto do EQ (CFD prático).' : 'Discount.') : (nearEqShort && !inPremium ? 'Perto do EQ (CFD prático).' : 'Premium.')) : 'Fora da zona vs EQ.' },
@@ -756,7 +779,14 @@ function evaluate(
           note: esNqSmt.note,
         }]
       : []),
-    { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente para o modo TP.` },
+    {
+      label: 'Espaço até liquidez',
+      complete: headroomOk,
+      note: opposingDraw
+        ? `${opposingDraw.label}: ${headroomRr.toFixed(2)}R${antiChaseDowngrade ? ' · JÁ→AGUARDAR retrace.' : ''}`
+        : 'Sem liquidez oposta à frente — preço no extremo, nunca JÁ.',
+    },
+    { label: `R:R / TP (${tpModeMeta[tpMode].short})`, complete: rrOk, note: rrOk ? `${riskReward.toFixed(2)}× · modo ${tpModeMeta[tpMode].label}.` : `R:R ${riskReward.toFixed(2)}× insuficiente após respeitar a liquidez oposta.` },
     ...(options.instrumentMarketOpen !== undefined
       ? [{
           label: 'Mercado do instrumento',
@@ -799,9 +829,7 @@ function evaluate(
     ? 'BLOQUEADA'
     : tradeReady
       ? (resolvedTiming === 'AGORA' ? 'CONFIRMADA' : 'A_AGUARDAR')
-      : confirmOk && liquidityOk && !structureBroken
-        ? 'A_AGUARDAR'
-        : 'BLOQUEADA'
+      : 'BLOQUEADA'
 
   const reasons: string[] = []
   if (positionGuidance === 'SAIR' || positionGuidance === 'REALIZAR_ALVO') reasons.push(invalidationReason!)
@@ -824,7 +852,9 @@ function evaluate(
       reasons.push(
         instrumentClosed
           ? `Mercado CLOSED — setup ok, aguarda open (${options.instrumentMarketNote ?? 'sem LONG/SHORT JÁ'}).`
-          : ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS LTF.',
+          : antiChaseDowngrade
+            ? 'Liquidez oposta demasiado próxima ao preço atual — aguarda retrace na zona.'
+            : ltfReady ? 'Aguardar NY open ou zona.' : '3· À espera BOS LTF.',
       )
     }
     if (ltfVia5m) reasons.push('Entrada via BOS 5m (CFD prático — Yahoo 1m fraco).')
@@ -872,7 +902,7 @@ function evaluate(
     invalidationReason,
     checklist,
     executionInterval: execLabel,
-    zones: collectZones(h4, h1, exec),
+    zones: entryZone ? [entryZone] : [],
     targetLabel,
     targetSecondary,
     targetSecondaryLabel,
@@ -880,6 +910,7 @@ function evaluate(
     sweepLabel,
     reactive,
     opposedSweep,
+    staleOpposed,
     softOpposed,
     riskyHighLong,
     htfLevels,
