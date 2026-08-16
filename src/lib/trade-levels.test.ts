@@ -12,9 +12,16 @@ const candles = (base: number, range: number): Candle[] => Array.from({ length: 
 }))
 
 describe('computeLongStop', () => {
-  it('enforces minimum 3.5% stop when structure is too tight', () => {
-    const entry = 0.00211
-    const rawStop = 0.00209081
+  it('widens micro-price stops to 6% so OCO is not 1 tick from entry', () => {
+    const entry = 0.0026
+    const stop = computeLongStop(entry, 0.0025)
+    expect((entry - stop) / entry).toBeCloseTo(0.06)
+    expect(stop).toBeCloseTo(0.002444)
+  })
+
+  it('enforces minimum 3.5% stop on typical crypto prices', () => {
+    const entry = 0.05
+    const rawStop = 0.049
     const stop = computeLongStop(entry, rawStop)
     const pct = ((entry - stop) / entry) * 100
     expect(pct).toBeGreaterThanOrEqual(3.4)
@@ -55,6 +62,17 @@ describe('computeLongStop', () => {
       candles: candles(100, 2),
       instrumentKind: 'index',
     })).toBeCloseTo(102)
+  })
+
+  it('clamps a Crypto structural stop to the micro-price band even with ATR', () => {
+    const stop = computeStructuralStop({
+      side: 'long',
+      entry: 0.0026,
+      swingPrices: [0.0025, 0.00255],
+      candles: candles(0.0026, 0.00004),
+      instrumentKind: 'crypto',
+    })
+    expect((0.0026 - stop!) / 0.0026).toBeCloseTo(0.06)
   })
 
   it('keeps the legacy percentage fallback only for Crypto without ATR', () => {

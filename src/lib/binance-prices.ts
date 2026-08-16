@@ -4,14 +4,16 @@ export function roundForBinance(value: number): number {
   if (value >= 1) return Math.round(value * 100) / 100
   if (value >= 0.1) return Math.round(value * 1000) / 1000
   if (value >= 0.01) return Math.round(value * 10000) / 10000
-  return Math.round(value * 100000) / 100000
+  if (value >= 0.001) return Math.round(value * 1_000_000) / 1_000_000
+  return Math.round(value * 100_000_000) / 100_000_000
 }
 
 export function priceTickSize(value: number): number {
   if (value >= 1) return 0.01
   if (value >= 0.1) return 0.001
   if (value >= 0.01) return 0.0001
-  return 0.00001
+  if (value >= 0.001) return 0.000001
+  return 0.00000001
 }
 
 /** Valor para colar na Binance (ponto decimal). */
@@ -21,7 +23,8 @@ export function binancePriceCopy(value?: number): string {
   if (rounded >= 1) return rounded.toFixed(2)
   if (rounded >= 0.1) return rounded.toFixed(3)
   if (rounded >= 0.01) return rounded.toFixed(4)
-  return rounded.toFixed(5)
+  if (rounded >= 0.001) return rounded.toFixed(6)
+  return rounded.toFixed(8)
 }
 
 /** SL limit must be strictly below trigger on Binance OCO. */

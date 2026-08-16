@@ -157,7 +157,9 @@ export function BinanceOrderPanel({
     row.entry && row.stop && row.entry > row.stop
       ? ((row.entry - row.stop) / row.entry) * 100
       : undefined
-  const stopTooTight = stopDistancePct !== undefined && stopDistancePct < 3.2
+  const minStopPct = row.entry !== undefined && row.entry < 0.01 ? 5.5 : 3.2
+  const stopTooTight = stopDistancePct !== undefined && stopDistancePct < minStopPct
+  const riskUsdc = stopDistancePct !== undefined ? stakeUsdc * (stopDistancePct / 100) : undefined
 
   if (!analysisReady || refining) {
     return (
@@ -259,10 +261,17 @@ export function BinanceOrderPanel({
       </p>
       {stopTooTight ? (
         <p className="binance-order-warn">
-          Stop a apenas {stopDistancePct!.toFixed(1).replace('.', ',')}% da entrada — em altcoins isso dispara em minutos. A app agora usa mínimo 3,5%.
+          Stop a apenas {stopDistancePct!.toFixed(1).replace('.', ',')}% da entrada — em alts baratas isso dispara em minutos. Mínimo {row.entry !== undefined && row.entry < 0.01 ? '6%' : '3,5%'}.
         </p>
       ) : stopDistancePct !== undefined ? (
-        <p className="binance-order-meta">Risco até stop: ~{stopDistancePct.toFixed(1).replace('.', ',')}%</p>
+        <p className="binance-order-meta">
+          Stop −{stopDistancePct.toFixed(1).replace('.', ',')}%
+          {row.target && row.entry
+            ? ` · TP +${(((row.target - row.entry) / row.entry) * 100).toFixed(1).replace('.', ',')}%`
+            : ''}
+          {riskUsdc !== undefined ? ` · com ${stakeUsdc} USDC arriscas ~${riskUsdc.toFixed(2).replace('.', ',')} USDC` : ''}
+          . O montante muda a quantidade, não o preço do OCO.
+        </p>
       ) : null}
       <p className="binance-order-warn time-stop" title={TIME_STOP_NOTE}>
         <strong>Time-stop {TIME_STOP_HOURS}h:</strong> se não estiveres perto do TP ou com BOS a favor, considera sair.

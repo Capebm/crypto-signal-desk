@@ -16,7 +16,9 @@ const fmt = (value?: number, digits = 2) => {
   if (value === undefined || !Number.isFinite(value)) return '—'
   if (value >= 100) return value.toFixed(digits)
   if (value >= 1) return value.toFixed(Math.max(digits, 3))
-  return value.toPrecision(5)
+  if (value >= 0.01) return value.toFixed(4)
+  if (value >= 0.001) return value.toFixed(6)
+  return value.toFixed(8)
 }
 
 const readStakeIndex = () => {

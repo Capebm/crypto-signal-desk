@@ -21,15 +21,21 @@ export function averageTrueRange(candles: Candle[], period = 14): number | undef
   return Number.isFinite(atr) && atr > 0 ? atr : undefined
 }
 
-export function computeLongStop(entry: number, rawStop: number): number {
-  const minStopPct = 0.035
+/** Alts baratas: 3,5% arredonda para 1 tick no OCO. Micro-preço precisa de mais espaço. */
+export function cryptoStopBand(entry: number): { minStopPct: number; maxStopPct: number } {
   const maxStopPct = 0.08
+  if (entry < 0.001) return { minStopPct: 0.08, maxStopPct }
+  if (entry < 0.01) return { minStopPct: 0.06, maxStopPct }
+  return { minStopPct: 0.035, maxStopPct }
+}
+
+export function computeLongStop(entry: number, rawStop: number): number {
+  const { minStopPct, maxStopPct } = cryptoStopBand(entry)
   return Math.max(entry * (1 - maxStopPct), Math.min(rawStop, entry * (1 - minStopPct)))
 }
 
 export function computeShortStop(entry: number, rawStop: number): number {
-  const minStopPct = 0.035
-  const maxStopPct = 0.08
+  const { minStopPct, maxStopPct } = cryptoStopBand(entry)
   return Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
 }
 
@@ -41,7 +47,7 @@ type StructuralStopOptions = {
   instrumentKind: InstrumentKind
 }
 
-/** Stop além do 2.º swing relevante, com buffer ATR; percentagens ficam só como fallback Crypto. */
+/** Stop além do 2.º swing + ATR; Crypto aplica banda 3,5–8% (6% se preço < 0,01). */
 export function computeStructuralStop({
   side,
   entry,
@@ -54,14 +60,17 @@ export function computeStructuralStop({
   const atr = averageTrueRange(candles)
   const buffer = atr !== undefined ? atr * 0.15 : entry * 0.0005
 
+  let stop: number | undefined
   if (structural !== undefined) {
-    return side === 'long' ? structural - buffer : structural + buffer
+    stop = side === 'long' ? structural - buffer : structural + buffer
+  } else if (atr !== undefined) {
+    stop = side === 'long' ? entry - atr : entry + atr
+  } else if (instrumentKind === 'crypto') {
+    stop = side === 'long' ? entry * 0.99 : entry * 1.01
   }
-  if (atr !== undefined) return side === 'long' ? entry - atr : entry + atr
-  if (instrumentKind !== 'crypto') return undefined
-
-  const rawFallback = side === 'long' ? entry * 0.99 : entry * 1.01
-  return side === 'long' ? computeLongStop(entry, rawFallback) : computeShortStop(entry, rawFallback)
+  if (stop === undefined) return undefined
+  if (instrumentKind !== 'crypto') return stop
+  return side === 'long' ? computeLongStop(entry, stop) : computeShortStop(entry, stop)
 }
 
 export type LiquidityCandidate = {
