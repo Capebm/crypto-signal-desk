@@ -2,7 +2,16 @@ import { useMemo, useRef, useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import { parseBinanceCsv } from '../../lib/journal/binance-csv'
 import { parseT212Csv } from '../../lib/journal/t212-csv'
-import { computeJournalStats, dayId, formatDayLabel, formatDuration, pnlForDay } from '../../lib/journal/journal-stats'
+import {
+  computeJournalStats,
+  dayId,
+  DURATION_BUCKETS,
+  formatDayLabel,
+  formatDuration,
+  pnlForDay,
+  WEEKDAY_LABELS,
+} from '../../lib/journal/journal-stats'
+import { collapseFifoFills } from '../../lib/journal/round-trips'
 import {
   addManualClosedTrade,
   clearJournal,
@@ -15,7 +24,7 @@ import {
   setDayNote,
 } from '../../lib/journal/trade-store'
 import { resolvePositionSymbol } from '../../lib/position-advisor'
-import type { ClosedTrade, TradeVenue } from '../../lib/journal/types'
+import type { BucketStats, ClosedTrade, TradeVenue } from '../../lib/journal/types'
 import { signalMetaLabel } from '../../lib/trade-signal-meta'
 
 type VenueFilter = 'all' | TradeVenue
@@ -56,13 +65,25 @@ export default function JournalDashboard() {
   const [manualFees, setManualFees] = useState('')
 
   const allTrades = useMemo(() => getClosedTrades(), [store])
-  const trades = useMemo(
-    () => (venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)),
-    [allTrades, venueFilter],
-  )
+  const trades = useMemo(() => {
+    const filtered = venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)
+    return collapseFifoFills(filtered)
+  }, [allTrades, venueFilter])
   const moneyOpts = venueFilter === 't212' ? 't212' as const : venueFilter === 'spot' ? 'spot' as const : undefined
   const stats = useMemo(() => computeJournalStats(trades), [trades])
-  const today = useMemo(() => pnlForDay(trades, dayId(Date.now())), [trades])
+  const todayKey = dayId(Date.now())
+  const today = useMemo(() => pnlForDay(trades, todayKey), [trades, todayKey])
+  const todaySpot = useMemo(() => pnlForDay(trades.filter((t) => t.venue !== 't212'), todayKey), [trades, todayKey])
+  const todayT212 = useMemo(() => pnlForDay(trades.filter((t) => t.venue === 't212'), todayKey), [trades, todayKey])
+  const symbolRows = useMemo(
+    () => Object.entries(stats.bySymbol).sort(([, a], [, b]) => b.pnl - a.pnl),
+    [stats.bySymbol],
+  )
+  const bestSymbols = symbolRows.filter(([, row]) => row.pnl > 0).slice(0, 8)
+  const worstSymbols = symbolRows
+    .filter(([, row]) => row.pnl < 0)
+    .sort(([, a], [, b]) => a.pnl - b.pnl)
+    .slice(0, 8)
 
   const onImport = async (file: File) => {
     const text = await file.text()
@@ -310,19 +331,93 @@ export default function JournalDashboard() {
       ) : (
         <>
           <section className="journal-kpis">
-            <article><span>PnL hoje</span><strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl, moneyOpts)}</strong><small>{today.trades} trades</small></article>
-            <article><span>PnL total</span><strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc, moneyOpts)}</strong></article>
-            <article><span>Win rate</span><strong>{stats.winRate.toFixed(0)}%</strong><small>{stats.wins}W / {stats.losses}L</small></article>
-            <article><span>Day win %</span><strong>{stats.dayWinRate.toFixed(0)}%</strong><small>{stats.greenDays}/{stats.tradingDays} dias</small></article>
-            <article><span>Profit factor</span><strong>{Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'}</strong></article>
-            <article><span>Avg W / L</span><strong>{Number.isFinite(stats.avgWinLossRatio) ? stats.avgWinLossRatio.toFixed(2) : '∞'}</strong><small>{money(stats.avgWin)} / {money(stats.avgLoss)}</small></article>
-            <article><span>Trades</span><strong>{stats.totalTrades}</strong></article>
+            {venueFilter === 'all' ? (
+              <>
+                <article>
+                  <span>Spot (USDC)</span>
+                  <strong className={stats.spotPnl >= 0 ? 'positive' : 'negative'}>{money(stats.spotPnl, 'spot')}</strong>
+                  <small>hoje {money(todaySpot.pnl, 'spot')} · {todaySpot.trades} trades</small>
+                </article>
+                <article>
+                  <span>T212 (EUR)</span>
+                  <strong className={stats.t212Pnl >= 0 ? 'positive' : 'negative'}>{money(stats.t212Pnl, 't212')}</strong>
+                  <small>hoje {money(todayT212.pnl, 't212')} · {todayT212.trades} trades</small>
+                </article>
+              </>
+            ) : (
+              <>
+                <article>
+                  <span>PnL hoje</span>
+                  <strong className={today.pnl >= 0 ? 'positive' : 'negative'}>{money(today.pnl, moneyOpts)}</strong>
+                  <small>{today.trades} trades</small>
+                </article>
+                <article>
+                  <span>PnL total</span>
+                  <strong className={stats.totalPnlUsdc >= 0 ? 'positive' : 'negative'}>{money(stats.totalPnlUsdc, moneyOpts)}</strong>
+                </article>
+              </>
+            )}
+            <article>
+              <span>Win rate</span>
+              <strong>{stats.winRate.toFixed(0)}%</strong>
+              <small>{stats.wins}W / {stats.losses}L{stats.breakeven > 0 ? ` · ${stats.breakeven} BE` : ''}</small>
+            </article>
+            <article>
+              <span>Day win %</span>
+              <strong>{stats.dayWinRate.toFixed(0)}%</strong>
+              <small>{stats.greenDays}/{stats.tradingDays} dias</small>
+            </article>
+            <article>
+              <span>Profit factor</span>
+              <strong>{Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'}</strong>
+            </article>
+            <article>
+              <span>Avg W / L</span>
+              <strong>{Number.isFinite(stats.avgWinLossRatio) ? stats.avgWinLossRatio.toFixed(2) : '∞'}</strong>
+              <small>{money(stats.avgWin, moneyOpts)} / {money(stats.avgLoss, moneyOpts)}</small>
+            </article>
+            <article>
+              <span>Expectancy</span>
+              <strong className={stats.expectancy >= 0 ? 'positive' : 'negative'}>{money(stats.expectancy, moneyOpts)}</strong>
+              <small>por trade</small>
+            </article>
+            <article>
+              <span>Fees</span>
+              <strong>{venueFilter === 'all'
+                ? `${money(stats.spotFees, 'spot')} / ${money(stats.t212Fees, 't212')}`
+                : money(stats.totalFees, moneyOpts)}</strong>
+            </article>
+            <article>
+              <span>Max DD</span>
+              <strong className="negative">{money(-stats.maxDrawdown, moneyOpts)}</strong>
+              <small>{stats.maxLossStreak} perdas seguidas</small>
+            </article>
+            <article>
+              <span>Melhor</span>
+              <strong className="positive">{stats.bestTrade ? money(stats.bestTrade.pnlUsdc, stats.bestTrade.venue) : '—'}</strong>
+              <small>{stats.bestTrade?.base ?? ''}</small>
+            </article>
+            <article>
+              <span>Pior</span>
+              <strong className="negative">{stats.worstTrade ? money(stats.worstTrade.pnlUsdc, stats.worstTrade.venue) : '—'}</strong>
+              <small>{stats.worstTrade?.base ?? ''}</small>
+            </article>
+            <article>
+              <span>Trades</span>
+              <strong>{stats.totalTrades}</strong>
+              <small>{stats.maxWinStreak} ganhos seguidos</small>
+            </article>
           </section>
+          {venueFilter === 'all' && (
+            <p className="journal-muted journal-kpi-note">
+              Spot em USDC e T212 em EUR não se somam. Filtra um venue para a equity e o Max DD numa só moeda.
+            </p>
+          )}
 
           {stats.equityCurve.length > 1 && (
             <section className="journal-panel journal-equity">
               <h2>Equity curve (PnL acumulado)</h2>
-              <EquitySpark points={stats.equityCurve} />
+              <EquitySpark points={stats.equityCurve} venue={moneyOpts} mixed={venueFilter === 'all'} />
             </section>
           )}
 
@@ -399,7 +494,7 @@ export default function JournalDashboard() {
                   <li key={session}>
                     <span>{sessionLabels[session] ?? session}</span>
                     <span>{row.trades} trades</span>
-                    <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl)}</span>
+                    <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl, moneyOpts)}</span>
                     <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}% WR` : '—'}</span>
                   </li>
                 ))}
@@ -408,20 +503,47 @@ export default function JournalDashboard() {
 
             <article className="journal-panel">
               <h2>Por moeda</h2>
+              <div className="journal-symbol-split">
+                <div>
+                  <h3>Melhores</h3>
+                  <SymbolList rows={bestSymbols} moneyOpts={moneyOpts} empty="Sem ganhos." />
+                </div>
+                <div>
+                  <h3>Piores</h3>
+                  <SymbolList rows={worstSymbols} moneyOpts={moneyOpts} empty="Sem perdas." />
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section className="journal-grid journal-grid-3">
+            <article className="journal-panel">
+              <h2>Por venue</h2>
               <ul className="journal-breakdown">
-                {Object.entries(stats.bySymbol)
-                  .sort(([, a], [, b]) => b.pnl - a.pnl)
-                  .slice(0, 12)
-                  .map(([base, row]) => (
-                    <li key={base}>
-                      <span>{base}</span>
+                {(['Spot', 'T212'] as const).map((key) => {
+                  const row = stats.byVenue[key]
+                  if (!row) return null
+                  const venue: TradeVenue = key === 'T212' ? 't212' : 'spot'
+                  return (
+                    <li key={key}>
+                      <span>{key}</span>
                       <span>{row.trades} trades</span>
-                      <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl)}</span>
+                      <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl, venue)}</span>
                       <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}% WR` : '—'}</span>
                     </li>
-                  ))}
+                  )
+                })}
               </ul>
             </article>
+            <BucketPanel title="Long vs short" rows={stats.bySide} order={['Long', 'Short']} moneyOpts={moneyOpts} />
+            <BucketPanel title="Por duração" rows={stats.byDuration} order={DURATION_BUCKETS} moneyOpts={moneyOpts} />
+            <BucketPanel title="Por dia da semana" rows={stats.byWeekday} order={WEEKDAY_LABELS} moneyOpts={moneyOpts} />
+            <BucketPanel
+              title="Por hora (entrada)"
+              rows={stats.byHour}
+              order={Object.keys(stats.byHour).sort()}
+              moneyOpts={moneyOpts}
+            />
           </section>
 
           <section className="journal-panel">
@@ -477,6 +599,7 @@ export default function JournalDashboard() {
                   <tr>
                     <th>Saída</th>
                     <th>Venue</th>
+                    <th>Lado</th>
                     <th>Par</th>
                     <th>Entrada</th>
                     <th>Saída $</th>
@@ -507,6 +630,7 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
     <tr>
       <td>{new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short' }).format(trade.exitTime)}</td>
       <td>{trade.venue === 't212' ? 'T212' : 'Spot'}</td>
+      <td>{trade.side === 'short' ? 'Short' : 'Long'}</td>
       <td>{formatTradingPair(trade.symbol)}</td>
       <td>{price(trade.entryPrice)}</td>
       <td>{price(trade.exitPrice)}</td>
@@ -522,7 +646,69 @@ function TradeRow({ trade }: { trade: ClosedTrade }) {
   )
 }
 
-function EquitySpark({ points }: { points: { t: number; equity: number }[] }) {
+function BucketPanel({
+  title,
+  rows,
+  order,
+  moneyOpts,
+}: {
+  title: string
+  rows: Record<string, BucketStats>
+  order: readonly string[]
+  moneyOpts?: TradeVenue
+}) {
+  const entries = order.filter((key) => rows[key]).map((key) => [key, rows[key]] as const)
+  if (entries.length === 0) return null
+  return (
+    <article className="journal-panel">
+      <h2>{title}</h2>
+      <ul className="journal-breakdown">
+        {entries.map(([key, row]) => (
+          <li key={key}>
+            <span>{key}</span>
+            <span>{row.trades} trades</span>
+            <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl, moneyOpts)}</span>
+            <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}% WR` : '—'}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  )
+}
+
+function SymbolList({
+  rows,
+  moneyOpts,
+  empty,
+}: {
+  rows: [string, { trades: number; pnl: number; wins: number }][]
+  moneyOpts?: TradeVenue
+  empty: string
+}) {
+  if (rows.length === 0) return <p className="journal-muted">{empty}</p>
+  return (
+    <ul className="journal-breakdown">
+      {rows.map(([base, row]) => (
+        <li key={base}>
+          <span>{base}</span>
+          <span>{row.trades} trades</span>
+          <span className={row.pnl >= 0 ? 'positive' : 'negative'}>{money(row.pnl, moneyOpts)}</span>
+          <span>{row.trades > 0 ? `${Math.round((row.wins / row.trades) * 100)}% WR` : '—'}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function EquitySpark({
+  points,
+  venue,
+  mixed,
+}: {
+  points: { t: number; equity: number }[]
+  venue?: TradeVenue
+  mixed?: boolean
+}) {
   const w = 640
   const h = 120
   const pad = 8
@@ -542,7 +728,10 @@ function EquitySpark({ points }: { points: { t: number; equity: number }[] }) {
         <line x1={pad} y1={zeroY} x2={w - pad} y2={zeroY} className="journal-equity-zero" />
         <path d={d} className={last >= 0 ? 'journal-equity-line up' : 'journal-equity-line down'} />
       </svg>
-      <strong className={last >= 0 ? 'positive' : 'negative'}>{money(last)}</strong>
+      <div className="journal-equity-label">
+        <strong className={last >= 0 ? 'positive' : 'negative'}>{mixed ? last.toFixed(2) : money(last, venue)}</strong>
+        {mixed && <small>misto USD+EUR</small>}
+      </div>
     </div>
   )
 }

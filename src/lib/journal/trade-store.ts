@@ -77,15 +77,27 @@ export function setDayNote(dayKey: string, note: string) {
   return store
 }
 
+function sideFromStore(trade: ClosedTrade, store: JournalStore): 'long' | 'short' {
+  if (trade.side === 'long' || trade.side === 'short') return trade.side
+  if (trade.venue === 't212') {
+    const posId = trade.id.replace(/^t212-pos-/, '')
+    const pos = store.t212ClosedPositions?.find((p) => p.positionId === posId)
+    if (pos?.direction === 'Sell') return 'short'
+  }
+  return 'long'
+}
+
 function getClosedTradesFromStore(store: JournalStore): ClosedTrade[] {
   const fromFills = buildClosedTrades(store.fills).map((trade) => ({
     ...trade,
     venue: store.venueByTradeId?.[trade.id] ?? trade.venue ?? 'spot',
+    side: sideFromStore(trade, store),
     signal: store.signalByTradeId?.[trade.id],
   }))
   const external = (store.externalTrades ?? []).map((trade) => ({
     ...trade,
     venue: trade.venue ?? 't212',
+    side: sideFromStore({ ...trade, venue: trade.venue ?? 't212' }, store),
     signal: store.signalByTradeId?.[trade.id] ?? trade.signal,
   }))
   return [...fromFills, ...external].sort((a, b) => b.exitTime - a.exitTime)

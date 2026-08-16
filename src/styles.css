@@ -807,7 +807,12 @@ body.desk-mode { overflow: hidden; }
 .journal-empty { padding: 28px; border: 1px dashed var(--tv-border); border-radius: 4px; color: var(--tv-text-secondary); text-align: center; }
 .journal-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
 .journal-filters button { padding: 7px 12px; font-size: .78rem; }
-.journal-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.journal-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.journal-kpi-note { margin: 0 0 14px; }
+.journal-symbol-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.journal-symbol-split h3 { margin: 0 0 8px; font-size: .78rem; color: var(--tv-text-secondary); text-transform: uppercase; letter-spacing: .04em; }
+.journal-equity-label { display: grid; justify-items: end; gap: 2px; }
+.journal-equity-label small { color: var(--tv-text-muted); font-size: .68rem; }
 .journal-equity { margin-bottom: 14px; }
 .journal-equity-wrap { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
 .journal-equity-svg { width: 100%; height: 120px; display: block; }
@@ -1416,6 +1421,7 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
   .journal-header-actions { width: 100%; }
   .journal-header-actions button { flex: 1; }
   .journal-kpis { grid-template-columns: repeat(2, 1fr); }
+  .journal-symbol-split { grid-template-columns: 1fr; }
   .journal-manual-grid { grid-template-columns: 1fr 1fr; }
   .journal-manual-grid button { grid-column: 1 / -1; }
   .journal-grid { grid-template-columns: 1fr; }

@@ -17,6 +17,7 @@ describe('parseT212Csv', () => {
     expect(result.closedTrades[0].base).toBe('GER40')
     expect(result.closedTrades[0].pnlUsdc).toBeCloseTo(0.11, 2)
     expect(result.closedTrades[0].id).toBe('t212-pos-POS55200123248')
+    expect(result.closedTrades[0].side).toBe('long')
     expect(result.executions).toHaveLength(3) // open+close GER40 + open META
     expect(result.openExecutions).toHaveLength(1)
     expect(result.openExecutions[0].instrument).toBe('META')

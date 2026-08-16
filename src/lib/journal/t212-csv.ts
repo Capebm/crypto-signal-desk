@@ -163,6 +163,7 @@ export function closedPositionToTrade(p: T212ClosedPosition): ClosedTrade {
     exitSessionBadge: exitSession.badge,
     durationMs: p.closedAt - p.openedAt,
     venue: 't212',
+    side: p.direction === 'Sell' ? 'short' : 'long',
   }
 }
 

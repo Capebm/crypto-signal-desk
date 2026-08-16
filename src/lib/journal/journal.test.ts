@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parseBinanceCsv } from './binance-csv'
-import { buildClosedTrades } from './round-trips'
+import { buildClosedTrades, collapseFifoFills } from './round-trips'
 import { computeJournalStats } from './journal-stats'
+import type { ClosedTrade } from './types'
 
 const sampleCsv = `Date(UTC),Market,Type,Side,Price,Amount,Total,Fee,Fee Coin
 2026-07-14 13:16:02,TOWNSUSDC,MARKET,BUY,0.00211,9478,19.99858,0.00002,BNB
@@ -95,5 +96,67 @@ describe('computeJournalStats', () => {
     expect(stats.dayWinRate).toBe(0)
     expect(stats.equityCurve.length).toBe(1)
     expect(trades[0].venue).toBe('spot')
+    expect(trades[0].side).toBe('long')
+    expect(stats.spotPnl).toBe(trades[0].pnlUsdc)
+    expect(stats.t212Pnl).toBe(0)
+  })
+
+  it('tracks drawdown, streaks, fees and expectancy', () => {
+    const t = (id: string, pnl: number, exit: number, extra: Partial<ClosedTrade> = {}): ClosedTrade => ({
+      id,
+      symbol: 'XRPUSDC',
+      base: 'XRP',
+      entryTime: exit - 3_600_000,
+      exitTime: exit,
+      entryPrice: 1,
+      exitPrice: 1,
+      quantity: 1,
+      pnlUsdc: pnl,
+      pnlPct: pnl,
+      feesUsdc: 0.1,
+      entrySession: 'ny',
+      entrySessionBadge: '',
+      exitSession: 'ny',
+      exitSessionBadge: '',
+      durationMs: 3_600_000,
+      venue: 'spot',
+      side: 'long',
+      ...extra,
+    })
+    const stats = computeJournalStats([
+      t('a', 10, 1_000),
+      t('b', 5, 2_000),
+      t('c', -8, 3_000),
+      t('d', -3, 4_000, { venue: 't212', side: 'short', feesUsdc: 0.4 }),
+    ])
+    expect(stats.maxDrawdown).toBeCloseTo(11, 6)
+    expect(stats.maxWinStreak).toBe(2)
+    expect(stats.maxLossStreak).toBe(2)
+    expect(stats.expectancy).toBeCloseTo(4 / 4, 6)
+    expect(stats.totalFees).toBeCloseTo(0.7, 6)
+    expect(stats.spotPnl).toBe(7)
+    expect(stats.t212Pnl).toBe(-3)
+    expect(stats.bySide.Long.trades).toBe(3)
+    expect(stats.bySide.Short.trades).toBe(1)
+    expect(stats.byDuration['1–4 h']?.trades).toBe(4)
+    expect(stats.bestTrade?.id).toBe('a')
+    expect(stats.worstTrade?.id).toBe('c')
+  })
+})
+
+describe('collapseFifoFills', () => {
+  it('merges spot legs that share the same sell timestamp', () => {
+    const csv = `Date(UTC),Market,Type,Side,Price,Amount,Total,Fee,Fee Coin
+2026-07-14 13:16:02,XRPUSDC,MARKET,BUY,2.00,10,20,0,USDC
+2026-07-14 13:20:00,XRPUSDC,MARKET,BUY,2.10,10,21,0,USDC
+2026-07-14 13:30:00,XRPUSDC,MARKET,SELL,2.20,20,44,0,USDC
+`
+    const legs = buildClosedTrades(parseBinanceCsv(csv))
+    expect(legs).toHaveLength(2)
+    const trades = collapseFifoFills(legs)
+    expect(trades).toHaveLength(1)
+    expect(trades[0].quantity).toBe(20)
+    expect(trades[0].pnlUsdc).toBeCloseTo(legs[0].pnlUsdc + legs[1].pnlUsdc, 8)
+    expect(trades[0].entryPrice).toBeCloseTo(2.05, 8)
   })
 })

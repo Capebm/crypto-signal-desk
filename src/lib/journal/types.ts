@@ -36,6 +36,8 @@ export type ClosedTrade = {
   durationMs: number
   /** Spot Binance vs CFD T212. */
   venue: TradeVenue
+  /** Spot é sempre long; T212 segue Direction (Buy/Sell). */
+  side: 'long' | 'short'
   /** Snapshot do Agente/T212 na entrada (quando registado via Fechou / meta). */
   signal?: TradeSignalMeta
 }
@@ -90,12 +92,27 @@ export type JournalStats = {
   avgLoss: number
   /** avgWin / avgLoss (0 se sem losses). */
   avgWinLossRatio: number
+  /** PnL médio por trade (inclui losses). */
+  expectancy: number
+  totalFees: number
+  /** Queda máxima peak-to-trough na equity curve (mesma unidade que os trades filtrados). */
+  maxDrawdown: number
+  maxWinStreak: number
+  maxLossStreak: number
+  spotPnl: number
+  t212Pnl: number
+  spotFees: number
+  t212Fees: number
   bestTrade: ClosedTrade | null
   worstTrade: ClosedTrade | null
   bySymbol: Record<string, SymbolStats>
   bySession: Partial<Record<SessionWindow, SessionStats>>
   byDay: Record<string, DayStats>
   byVenue: Record<string, BucketStats>
+  bySide: Record<string, BucketStats>
+  byWeekday: Record<string, BucketStats>
+  byHour: Record<string, BucketStats>
+  byDuration: Record<string, BucketStats>
   equityCurve: EquityPoint[]
   /** Só trades com signal meta. */
   signalTrades: number

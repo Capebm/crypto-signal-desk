@@ -86,6 +86,7 @@ export function buildClosedTrades(fills: BinanceFill[]): ClosedTrade[] {
           exitSessionBadge: exitSession.badge,
           durationMs: fill.time - lot.time,
           venue: 'spot',
+          side: 'long',
         })
 
         remaining -= matchedQty
@@ -98,4 +99,47 @@ export function buildClosedTrades(fills: BinanceFill[]): ClosedTrade[] {
   }
 
   return trades.sort((a, b) => b.exitTime - a.exitTime)
+}
+
+/**
+ * Junta pernas FIFO do mesmo sell Spot (mesmo par + mesma saída)
+ * para a tabela e KPIs tratarem ACH/XRP/PYTH como um trade.
+ */
+export function collapseFifoFills(trades: ClosedTrade[]): ClosedTrade[] {
+  const groups = new Map<string, ClosedTrade[]>()
+  for (const trade of trades) {
+    const key =
+      trade.venue === 'spot' ? `${trade.venue}|${trade.symbol}|${trade.exitTime}` : trade.id
+    const list = groups.get(key) ?? []
+    list.push(trade)
+    groups.set(key, list)
+  }
+
+  const collapsed: ClosedTrade[] = []
+  for (const legs of groups.values()) {
+    if (legs.length === 1) {
+      collapsed.push(legs[0])
+      continue
+    }
+    const sorted = [...legs].sort((a, b) => a.entryTime - b.entryTime)
+    const quantity = sorted.reduce((sum, leg) => sum + leg.quantity, 0)
+    const entryNotional = sorted.reduce((sum, leg) => sum + leg.entryPrice * leg.quantity, 0)
+    const exitNotional = sorted.reduce((sum, leg) => sum + leg.exitPrice * leg.quantity, 0)
+    const pnlUsdc = sorted.reduce((sum, leg) => sum + leg.pnlUsdc, 0)
+    const feesUsdc = sorted.reduce((sum, leg) => sum + leg.feesUsdc, 0)
+    const withSignal = sorted.find((leg) => leg.signal)
+    collapsed.push({
+      ...sorted[0],
+      id: sorted.map((leg) => leg.id).join('+'),
+      quantity,
+      entryPrice: quantity > 0 ? entryNotional / quantity : sorted[0].entryPrice,
+      exitPrice: quantity > 0 ? exitNotional / quantity : sorted[0].exitPrice,
+      pnlUsdc,
+      pnlPct: entryNotional > 0 ? (pnlUsdc / entryNotional) * 100 : 0,
+      feesUsdc,
+      durationMs: sorted[sorted.length - 1].exitTime - sorted[0].entryTime,
+      signal: withSignal?.signal,
+    })
+  }
+  return collapsed.sort((a, b) => b.exitTime - a.exitTime)
 }

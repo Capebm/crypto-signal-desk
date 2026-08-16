@@ -1,5 +1,9 @@
 import type { BucketStats, ClosedTrade, DayStats, EquityPoint, JournalStats, SessionStats, SymbolStats } from './types'
 
+export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const
+
+export const DURATION_BUCKETS = ['< 15 min', '15–60 min', '1–4 h', '4–24 h', '> 1 dia'] as const
+
 const bump = (map: Record<string, BucketStats>, key: string, trade: ClosedTrade) => {
   const row = map[key] ?? { trades: 0, pnl: 0, wins: 0 }
   row.trades += 1
@@ -22,18 +26,39 @@ const emptyStats = (): JournalStats => ({
   avgWin: 0,
   avgLoss: 0,
   avgWinLossRatio: 0,
+  expectancy: 0,
+  totalFees: 0,
+  maxDrawdown: 0,
+  maxWinStreak: 0,
+  maxLossStreak: 0,
+  spotPnl: 0,
+  t212Pnl: 0,
+  spotFees: 0,
+  t212Fees: 0,
   bestTrade: null,
   worstTrade: null,
   bySymbol: {},
   bySession: {},
   byDay: {},
   byVenue: {},
+  bySide: {},
+  byWeekday: {},
+  byHour: {},
+  byDuration: {},
   equityCurve: [],
   signalTrades: 0,
   byProfile: {},
   byTpMode: {},
   byMesh: {},
 })
+
+export function durationBucket(ms: number): (typeof DURATION_BUCKETS)[number] {
+  if (ms < 15 * 60_000) return '< 15 min'
+  if (ms < 60 * 60_000) return '15–60 min'
+  if (ms < 4 * 3_600_000) return '1–4 h'
+  if (ms < 24 * 3_600_000) return '4–24 h'
+  return '> 1 dia'
+}
 
 export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   if (trades.length === 0) return emptyStats()
@@ -44,13 +69,22 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   let grossWin = 0
   let grossLoss = 0
   let totalPnlUsdc = 0
+  let totalFees = 0
   let signalTrades = 0
+  let spotPnl = 0
+  let t212Pnl = 0
+  let spotFees = 0
+  let t212Fees = 0
   let bestTrade = trades[0]
   let worstTrade = trades[0]
   const bySymbol: Record<string, SymbolStats> = {}
   const bySession: JournalStats['bySession'] = {}
   const byDay: Record<string, DayStats> = {}
   const byVenue: Record<string, BucketStats> = {}
+  const bySide: Record<string, BucketStats> = {}
+  const byWeekday: Record<string, BucketStats> = {}
+  const byHour: Record<string, BucketStats> = {}
+  const byDuration: Record<string, BucketStats> = {}
   const byProfile: Record<string, BucketStats> = {}
   const byTpMode: Record<string, BucketStats> = {}
   const byMesh: Record<string, BucketStats> = {}
@@ -58,24 +92,48 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   const chronological = [...trades].sort((a, b) => a.exitTime - b.exitTime)
   const equityCurve: EquityPoint[] = []
   let equity = 0
+  let peak = 0
+  let maxDrawdown = 0
+  let winStreak = 0
+  let lossStreak = 0
+  let maxWinStreak = 0
+  let maxLossStreak = 0
 
   for (const trade of chronological) {
     totalPnlUsdc += trade.pnlUsdc
+    totalFees += trade.feesUsdc
     equity += trade.pnlUsdc
+    if (equity > peak) peak = equity
+    const drawdown = peak - equity
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown
     equityCurve.push({ t: trade.exitTime, equity, dayKey: dayId(trade.exitTime) })
 
     if (trade.pnlUsdc > 0.001) {
       wins += 1
       grossWin += trade.pnlUsdc
+      winStreak += 1
+      lossStreak = 0
+      if (winStreak > maxWinStreak) maxWinStreak = winStreak
     } else if (trade.pnlUsdc < -0.001) {
       losses += 1
       grossLoss += Math.abs(trade.pnlUsdc)
+      lossStreak += 1
+      winStreak = 0
+      if (lossStreak > maxLossStreak) maxLossStreak = lossStreak
     } else {
       breakeven += 1
     }
 
     if (trade.pnlUsdc > bestTrade.pnlUsdc) bestTrade = trade
     if (trade.pnlUsdc < worstTrade.pnlUsdc) worstTrade = trade
+
+    if (trade.venue === 't212') {
+      t212Pnl += trade.pnlUsdc
+      t212Fees += trade.feesUsdc
+    } else {
+      spotPnl += trade.pnlUsdc
+      spotFees += trade.feesUsdc
+    }
 
     const symbolStats = bySymbol[trade.base] ?? { trades: 0, pnl: 0, wins: 0 }
     symbolStats.trades += 1
@@ -97,6 +155,10 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     byDay[dayKey] = dayStats
 
     bump(byVenue, trade.venue === 't212' ? 'T212' : 'Spot', trade)
+    bump(bySide, trade.side === 'short' ? 'Short' : 'Long', trade)
+    bump(byWeekday, WEEKDAY_LABELS[new Date(trade.exitTime).getDay()] ?? '—', trade)
+    bump(byHour, `${String(new Date(trade.entryTime).getHours()).padStart(2, '0')}h`, trade)
+    bump(byDuration, durationBucket(trade.durationMs), trade)
 
     if (trade.signal) {
       signalTrades += 1
@@ -131,12 +193,25 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     avgWin,
     avgLoss,
     avgWinLossRatio: avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? Infinity : 0,
+    expectancy: trades.length > 0 ? totalPnlUsdc / trades.length : 0,
+    totalFees,
+    maxDrawdown,
+    maxWinStreak,
+    maxLossStreak,
+    spotPnl,
+    t212Pnl,
+    spotFees,
+    t212Fees,
     bestTrade,
     worstTrade,
     bySymbol,
     bySession,
     byDay,
     byVenue,
+    bySide,
+    byWeekday,
+    byHour,
+    byDuration,
     equityCurve,
     signalTrades,
     byProfile,
