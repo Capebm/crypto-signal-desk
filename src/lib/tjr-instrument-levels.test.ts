@@ -31,6 +31,24 @@ describe('instrument-aware structural levels', () => {
     expect(plan.headroomRr).toBeGreaterThanOrEqual(1)
   })
 
+  it('scales a 1R EURJPY target off the widened stop, not 5 pips', () => {
+    const entry = 184.79
+    const plan = buildTradeLevels({
+      side: 'long',
+      entry,
+      swingPrices: [184.75, 184.76],
+      candles: candles(entry, 0.02),
+      instrumentKind: 'forex',
+      candidates: [{ price: 185.4, priority: 2, label: 'Londres H' }],
+      minRr: 1,
+      fixedMultiple: 1,
+    })
+    expect(entry - plan.stop).toBeGreaterThan(0.2)
+    expect(plan.target - entry).toBeGreaterThan(0.2)
+    expect(plan.riskReward).toBeCloseTo(1)
+    expect(plan.levelsValid).toBe(true)
+  })
+
   it('caps a fixed 1.5R target at the nearer GER40 liquidity draw', () => {
     const plan = buildTradeLevels({
       side: 'long',

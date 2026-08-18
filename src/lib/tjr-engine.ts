@@ -261,6 +261,7 @@ const buildLevels = (
     entry,
     swingPrices: side === 'long' ? lows : highs,
     candles: execCandles,
+    rangeCandles: targetCandles,
     instrumentKind,
     candidates: liquidityTargets(targetCandles, side, entry),
     minRr,

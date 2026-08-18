@@ -25,6 +25,16 @@ describe('t212 watchlist + smt policy', () => {
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'dxy')).toBe(true)
   })
 
+  it('reads US index CFDs from futures so quotes move outside cash hours', () => {
+    const list = resolveT212Watchlist([])
+    const tech = list.find((item) => item.id === 'tech100')
+    const us500 = list.find((item) => item.id === 'us500')
+    const us30 = list.find((item) => item.id === 'us30')
+    expect(tech?.yahooSymbol).toBe('NQ=F')
+    expect(us500?.yahooSymbol).toBe('ES=F')
+    expect(us30?.yahooSymbol).toBe('YM=F')
+  })
+
   it('requires SMT for indices and futures when profile asks', () => {
     const index = resolveT212Watchlist([])[0]
     expect(index.kind).toBe('index')

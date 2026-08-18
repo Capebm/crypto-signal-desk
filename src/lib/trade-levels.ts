@@ -39,21 +39,60 @@ export function computeShortStop(entry: number, rawStop: number): number {
   return Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
 }
 
+/** Mínimo de risco: forex 0,15%; índices 0,20%. Crypto continua 3,5–8%. */
+export function instrumentMinStopPct(kind: InstrumentKind, entry: number): number {
+  if (kind === 'crypto') return cryptoStopBand(entry).minStopPct
+  if (kind === 'forex') return 0.0015
+  if (kind === 'energy') return 0.003
+  if (kind === 'stock') return 0.004
+  if (kind === 'metal') return 0.002
+  return 0.002
+}
+
+/** Alarga um stop de ruído LTF; no cripto também cap a 8%. Nunca puxa o stop para dentro do sweep. */
+export function applyStopFloor(
+  side: 'long' | 'short',
+  entry: number,
+  rawStop: number,
+  instrumentKind: InstrumentKind,
+  rangeAtr?: number,
+): number {
+  const minDist = Math.max(
+    entry * instrumentMinStopPct(instrumentKind, entry),
+    rangeAtr !== undefined && rangeAtr > 0 ? rangeAtr * 0.6 : 0,
+  )
+  if (side === 'long') {
+    let stop = Math.min(rawStop, entry - minDist)
+    if (instrumentKind === 'crypto') {
+      stop = Math.max(entry * (1 - cryptoStopBand(entry).maxStopPct), stop)
+    }
+    return stop
+  }
+  let stop = Math.max(rawStop, entry + minDist)
+  if (instrumentKind === 'crypto') {
+    stop = Math.min(entry * (1 + cryptoStopBand(entry).maxStopPct), stop)
+  }
+  return stop
+}
+
 type StructuralStopOptions = {
   side: 'long' | 'short'
   entry: number
   swingPrices: number[]
   candles: Candle[]
   instrumentKind: InstrumentKind
+  /** HTF (1h) para o chão de ATR — o exec 1m/5m sozinho é ruído. */
+  rangeCandles?: Candle[]
 }
 
-/** Stop além do 2.º swing + ATR; Crypto aplica banda 3,5–8% (6% se preço < 0,01). */
+/** Stop além do 2.º swing + ATR; chão por instrumento para não colar ao 1m. */
 export function computeStructuralStop({
   side,
   entry,
   swingPrices,
   candles,
   instrumentKind,
+  rangeCandles,
 }: StructuralStopOptions): number | undefined {
   const relevant = swingPrices.filter((price) => side === 'long' ? price < entry : price > entry)
   const structural = relevant.at(-2) ?? relevant.at(-1)
@@ -69,8 +108,8 @@ export function computeStructuralStop({
     stop = side === 'long' ? entry * 0.99 : entry * 1.01
   }
   if (stop === undefined) return undefined
-  if (instrumentKind !== 'crypto') return stop
-  return side === 'long' ? computeLongStop(entry, stop) : computeShortStop(entry, stop)
+  const rangeAtr = averageTrueRange(rangeCandles ?? candles)
+  return applyStopFloor(side, entry, stop, instrumentKind, rangeAtr)
 }
 
 export type LiquidityCandidate = {
@@ -102,6 +141,7 @@ export function buildTradeLevels({
   candidates,
   minRr,
   fixedMultiple,
+  rangeCandles,
 }: {
   side: 'long' | 'short'
   entry: number
@@ -111,8 +151,16 @@ export function buildTradeLevels({
   candidates: LiquidityCandidate[]
   minRr: number
   fixedMultiple?: number
+  rangeCandles?: Candle[]
 }): TradeLevelPlan {
-  const stop = computeStructuralStop({ side, entry, swingPrices, candles, instrumentKind })
+  const stop = computeStructuralStop({
+    side,
+    entry,
+    swingPrices,
+    candles,
+    instrumentKind,
+    rangeCandles,
+  })
   const invalid: TradeLevelPlan = {
     entry,
     stop: stop ?? entry,

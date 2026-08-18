@@ -54,6 +54,20 @@ describe('computeLongStop', () => {
     expect((1.17 - stop!) / 1.17).toBeLessThan(0.01)
   })
 
+  it('widens a 1m-noise Forex stop so EURJPY is not a 5-pip OCO', () => {
+    const entry = 184.79
+    const stop = computeStructuralStop({
+      side: 'long',
+      entry,
+      swingPrices: [184.75, 184.76],
+      candles: candles(entry, 0.02),
+      instrumentKind: 'forex',
+    })
+    expect(stop).toBeDefined()
+    expect((entry - stop!) / entry).toBeGreaterThanOrEqual(0.0015)
+    expect(entry - stop!).toBeGreaterThan(0.2)
+  })
+
   it('uses one ATR when no structural swing exists', () => {
     expect(computeStructuralStop({
       side: 'short',

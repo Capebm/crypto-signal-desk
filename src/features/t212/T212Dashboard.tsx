@@ -166,7 +166,7 @@ export default function T212Dashboard() {
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedIds, setRefinedIds] = useState<Set<string>>(() => new Set())
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
-  const [chartInterval, setChartInterval] = useState<Interval>('15m')
+  const [chartInterval, setChartInterval] = useState<Interval>('5m')
   const [session, setSession] = useState(() => getTradingSessionStatus())
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [cfdMarket, setCfdMarket] = useState(() => getCfdMarketStatus())
@@ -353,6 +353,33 @@ export default function T212Dashboard() {
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refine ao abrir asset / mudar setup
+  }, [selectedId, riskProfile, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed])
+
+  useEffect(() => {
+    if (!selectedId) return
+    const row = rows.find((item) => item.instrument.id === selectedId)
+    if (!row) return
+    setChartInterval(isBuyNow(row) || isSellNow(row) || isAwaitingEntry(row) ? '1m' : '5m')
+    // só na escolha do cartão — o utilizador pode mudar o TF à mão
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId])
+
+  useEffect(() => {
+    if (!selectedId) return
+    const instrument =
+      T212_CATALOG.find((item) => item.id === selectedId)
+      ?? T212_EXTRA_INSTRUMENTS.find((item) => item.id === selectedId)
+    if (!instrument) return
+    let cancelled = false
+    const id = window.setInterval(() => {
+      if (cancelled) return
+      void refineRow(instrument, true).catch(() => undefined)
+    }, 15_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, riskProfile, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed])
 
   useEffect(() => {
@@ -1087,7 +1114,7 @@ export default function T212Dashboard() {
                                     <span>
                                       {loadingFull === selected.instrument.id
                                         ? 'A refinar MTF…'
-                                        : `Yahoo · chart ${chartInterval}${refinedIds.has(selected.instrument.id) ? ' · MTF' : ''}`}
+                                        : `${selected.instrument.yahooSymbol} · chart ${chartInterval}${refinedIds.has(selected.instrument.id) ? ' · MTF' : ''} · refresh 15s`}
                                     </span>
                                   </header>
                                   <PriceChart
@@ -1104,7 +1131,7 @@ export default function T212Dashboard() {
                                     zones={selected.zones}
                                     htfLevels={selected.htfLevels}
                                     loadCandles={loadChartCandles}
-                                    staleHint="Dados Yahoo"
+                                    staleHint={`Yahoo ${selected.instrument.yahooSymbol}`}
                                   />
                                 </article>
                                 <aside className="evidence-panel compact">
