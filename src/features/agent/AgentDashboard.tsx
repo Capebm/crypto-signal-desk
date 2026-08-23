@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { agentUsesPracticalConfirm, selectAgentMtfPool } from '../../lib/agent-mtf-pool'
-import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPlaybookCandles } from '../../lib/binance'
+import { addAgentPin, agentPinSymbols, readAgentPins, removeAgentPin } from '../../lib/agent-watchlist'
+import { AGENT_QUOTE_ASSET, BTC_REFERENCE_SYMBOL, formatTradingPair, getCandles, getLiquidMarkets, getPinnedMarkets, getPlaybookCandles, mergeMarketLists } from '../../lib/binance'
 import { mapPool } from '../../lib/map-pool'
 import {
   AGENT_PRESETS,
@@ -124,6 +125,8 @@ export default function AgentDashboard() {
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedSymbols, setRefinedSymbols] = useState<Set<string>>(() => new Set())
   const [scanMeta, setScanMeta] = useState<{ at: Date; profile: RiskProfile; tpMode: TpMode }>()
+  const [pins, setPins] = useState(() => readAgentPins())
+  const [pinDraft, setPinDraft] = useState('')
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
   const riskProfile = profiles[riskIndex]
   const evalOptions = useMemo(
@@ -362,7 +365,13 @@ export default function AgentDashboard() {
     setRefinedSymbols(new Set())
     setScanProgress({ pct: 0, label: 'A iniciar…' })
     try {
-      const [markets, btc1h] = await Promise.all([getLiquidMarkets(10_000), getCandles(BTC_REFERENCE_SYMBOL, '1h')])
+      const pinSymbols = agentPinSymbols(AGENT_QUOTE_ASSET)
+      const [liquid, pinned, btc1h] = await Promise.all([
+        getLiquidMarkets(10_000),
+        getPinnedMarkets(pinSymbols),
+        getCandles(BTC_REFERENCE_SYMBOL, '1h'),
+      ])
+      const markets = mergeMarketLists(liquid, pinned)
       const results: AgentRow[] = []
       /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar; o sinal MTF vem do melhor dos 9. */
       const scoutSymbols = new Set<string>()
@@ -399,7 +408,7 @@ export default function AgentDashboard() {
       const buyCandidates = selectAgentMtfPool(sorted, {
         scanAllSetups,
         scoutSymbols,
-        prioritySymbols: new Set(t212CryptoAgentSymbols(AGENT_QUOTE_ASSET)),
+        prioritySymbols: new Set([...t212CryptoAgentSymbols(AGENT_QUOTE_ASSET), ...pinSymbols]),
         limit: AUTO_REFINE_TOP,
       })
       if (buyCandidates.length > 0) {
@@ -945,6 +954,43 @@ export default function AgentDashboard() {
         </details>
       </section>
 
+      <details className="t212-watchlist-panel">
+        <summary>Pins Spot · {pins.length} (sempre no scan, mesmo fora do top de volume)</summary>
+        <p className="desk-sub">
+          O scan já cobre USDC líquidos. Acrescenta aqui alts (PYTH, ACH, TOWNS…) para forçar o par no Agente.
+        </p>
+        <form
+          className="agent-pin-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const next = addAgentPin(pinDraft)
+            setPins(next)
+            setPinDraft('')
+          }}
+        >
+          <input
+            value={pinDraft}
+            onChange={(event) => setPinDraft(event.target.value)}
+            placeholder="Ex.: PYTH"
+            aria-label="Adicionar pin Spot"
+          />
+          <button type="submit">Adicionar</button>
+        </form>
+        <div className="t212-extra-grid">
+          {pins.map((base) => (
+            <button
+              key={base}
+              type="button"
+              className="t212-extra-chip on"
+              onClick={() => setPins(removeAgentPin(base))}
+            >
+              <span>{base}</span>
+              <small>retirar</small>
+            </button>
+          ))}
+        </div>
+      </details>
+
       <MarketClocks snapshot={marketClocks} compact />
 
       <ActivePositionPin
@@ -967,11 +1013,21 @@ export default function AgentDashboard() {
 
       {rows.length === 0 && !running && (
         <section className="scan-empty scan-welcome">
-          <h2>Watchlist vazia</h2>
-          <p>Define risco · TP na barra de setup e carrega <strong>Analisar mercado</strong>. Melhor na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</p>
+          <p className="eyebrow">COMEÇAR</p>
+          <h2>Encontra oportunidades em 3 passos</h2>
+          <ol className="scan-onboarding-steps">
+            <li><strong>Playbook:</strong> usa Prático para o dia a dia.</li>
+            <li><strong>Sessão:</strong> melhor qualidade na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</li>
+            <li><strong>Decisão:</strong> só executa cartões COMPRAR JÁ; AGUARDAR não é entrada.</li>
+          </ol>
           {nyClock && !session.inIdealWindow && (
             <p className="scan-empty-hint">Agora: <strong>{nyClock.status}</strong> · {session.badge}</p>
           )}
+          <div className="scan-empty-actions">
+            <button type="button" className="primary" onClick={() => void scan()}>
+              Analisar mercado
+            </button>
+          </div>
         </section>
       )}
 

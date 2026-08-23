@@ -125,7 +125,19 @@ export default function T212Dashboard() {
     }
   })
   const [watchIds, setWatchIds] = useState(() => readT212WatchlistIds())
+  const [watchQuery, setWatchQuery] = useState('')
+  const [watchKind, setWatchKind] = useState<'all' | T212Instrument['kind']>('all')
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
+  const visibleWatchExtras = useMemo(() => {
+    const needle = watchQuery.trim().toUpperCase()
+    return T212_EXTRA_INSTRUMENTS.filter((item) => {
+      if (watchKind !== 'all' && item.kind !== watchKind) return false
+      return !needle
+        || item.short.includes(needle)
+        || item.t212Label.toUpperCase().includes(needle)
+        || item.t212Search.toUpperCase().includes(needle)
+    })
+  }, [watchKind, watchQuery])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
 
@@ -928,8 +940,44 @@ export default function T212Dashboard() {
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
         <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT em <strong>índices/futuros</strong>; forex/metal/energia/crypto = informativo. Futuros CME (ES/NQ/YM) = análise → executar no CFD T212. Crypto CFD = long + short.</p>
+        <div className="t212-watchlist-tools">
+          <input
+            type="search"
+            value={watchQuery}
+            onChange={(event) => setWatchQuery(event.target.value)}
+            placeholder="Pesquisar ativo…"
+            aria-label="Pesquisar ativos T212"
+          />
+          <div className="t212-kind-tabs" role="group" aria-label="Filtrar ativos por classe">
+            {([
+              ['all', 'Todos'],
+              ['crypto', 'Crypto'],
+              ['stock', 'Ações'],
+              ['forex', 'Forex'],
+              ['index', 'Índices'],
+              ['future', 'Futuros'],
+              ['metal', 'Metais'],
+              ['energy', 'Energia'],
+            ] as const).map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                className={watchKind === kind ? 'active' : ''}
+                onClick={() => setWatchKind(kind)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="t212-watchlist-actions">
+            <span>{watchIds.length - T212_CORE_IDS.length} extras selecionados</span>
+            <button type="button" className="ghost" onClick={() => setWatchIds([...T212_CORE_IDS])}>
+              Limpar extras
+            </button>
+          </div>
+        </div>
         <div className="t212-extra-grid">
-          {T212_EXTRA_INSTRUMENTS.map((item) => {
+          {visibleWatchExtras.map((item) => {
             const on = watchIds.includes(item.id)
             return (
               <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
@@ -940,6 +988,9 @@ export default function T212Dashboard() {
             )
           })}
         </div>
+        {visibleWatchExtras.length === 0 && (
+          <p className="t212-watchlist-empty">Nenhum ativo corresponde a esta pesquisa.</p>
+        )}
       </details>
 
       <MarketClocks snapshot={marketClocks} compact />

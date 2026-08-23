@@ -71,6 +71,30 @@ export async function getLiquidMarkets(limit = 50, quote: QuoteAsset = AGENT_QUO
     .slice(0, limit)
 }
 
+/** 24h ticker de pins Spot — inclui alts fora do top de volume. */
+export async function getPinnedMarkets(symbols: string[]): Promise<MarketTicker[]> {
+  const unique = [...new Set(symbols.filter((symbol) => /^[A-Z0-9]{5,20}$/.test(symbol)))]
+  const rows = await Promise.all(unique.map(async (symbol) => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}`)
+      if (!response.ok) return undefined
+      const ticker: { symbol: string; quoteVolume: string; priceChangePercent: string } = await response.json()
+      const quoteVolume = Number(ticker.quoteVolume)
+      const priceChangePercent = Number(ticker.priceChangePercent)
+      if (!Number.isFinite(quoteVolume)) return undefined
+      return { symbol: ticker.symbol, quoteVolume, priceChangePercent }
+    } catch {
+      return undefined
+    }
+  }))
+  return rows.filter((row): row is MarketTicker => row !== undefined)
+}
+
+export function mergeMarketLists(liquid: MarketTicker[], pinned: MarketTicker[]): MarketTicker[] {
+  const seen = new Set(liquid.map((row) => row.symbol))
+  return [...liquid, ...pinned.filter((row) => !seen.has(row.symbol))]
+}
+
 /** @deprecated Use getLiquidMarkets — mantido por compatibilidade interna. */
 export const getLiquidUsdtMarkets = (limit = 50) => getLiquidMarkets(limit, AGENT_QUOTE_ASSET)
 

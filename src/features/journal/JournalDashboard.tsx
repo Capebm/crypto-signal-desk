@@ -187,37 +187,41 @@ export default function JournalDashboard() {
               event.target.value = ''
             }}
           />
-          <button type="button" onClick={() => fileRef.current?.click()}>Importar CSV</button>
-          <button type="button" className="ghost" onClick={() => t212CsvRef.current?.click()}>
-            T212 CSV
-          </button>
-          <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>
-            Backup JSON
-          </button>
-          <button type="button" className="ghost" onClick={() => backupRef.current?.click()}>
-            Restaurar
-          </button>
-          <button type="button" className="ghost" onClick={() => setManualOpen((v) => !v)}>
-            {manualOpen ? 'Fechar manual' : 'Trade manual'}
-          </button>
-          {(store.fills.length > 0 ||
-            (store.externalTrades?.length ?? 0) > 0 ||
-            (store.t212Executions?.length ?? 0) > 0 ||
-            (store.t212ClosedPositions?.length ?? 0) > 0) && (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                if (!window.confirm('Apagar todo o diário local?')) return
-                clearJournal()
-                setStore(loadJournalStore())
-                setSelectedDay(undefined)
-                setImportMsg('Diário limpo.')
-              }}
-            >
-              Limpar
-            </button>
-          )}
+          <details className="journal-action-menu">
+            <summary>Adicionar trades</summary>
+            <div>
+              <button type="button" onClick={() => fileRef.current?.click()}>Binance CSV</button>
+              <button type="button" className="ghost" onClick={() => t212CsvRef.current?.click()}>T212 CSV</button>
+              <button type="button" className="ghost" onClick={() => setManualOpen((v) => !v)}>
+                {manualOpen ? 'Fechar manual' : 'Trade manual'}
+              </button>
+            </div>
+          </details>
+          <details className="journal-action-menu secondary">
+            <summary>Dados e backup</summary>
+            <div>
+              <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>Backup JSON</button>
+              <button type="button" className="ghost" onClick={() => backupRef.current?.click()}>Restaurar</button>
+              {(store.fills.length > 0 ||
+                (store.externalTrades?.length ?? 0) > 0 ||
+                (store.t212Executions?.length ?? 0) > 0 ||
+                (store.t212ClosedPositions?.length ?? 0) > 0) && (
+                <button
+                  type="button"
+                  className="ghost danger"
+                  onClick={() => {
+                    if (!window.confirm('Apagar todo o diário local?')) return
+                    clearJournal()
+                    setStore(loadJournalStore())
+                    setSelectedDay(undefined)
+                    setImportMsg('Diário limpo.')
+                  }}
+                >
+                  Limpar diário
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       </header>
 
@@ -321,8 +325,11 @@ export default function JournalDashboard() {
       )}
 
       {allTrades.length === 0 ? (
-        <section className="journal-empty">
-          <p>Ainda sem trades. Importa o CSV da Binance, restaura um <strong>Backup JSON</strong>, ou usa <strong>Trade manual</strong>.</p>
+        <section className="journal-empty journal-empty-onboarding">
+          <p className="eyebrow">PRIMEIRO PASSO</p>
+          <h2>Constrói o diário a partir da corretora</h2>
+          <p>Escolhe <strong>Binance CSV</strong> ou <strong>T212 CSV</strong> em “Adicionar trades”. O ficheiro fica apenas neste browser.</p>
+          <small>Depois do import vais ver PnL, drawdown, fees, sessões e os ativos que funcionam melhor.</small>
         </section>
       ) : trades.length === 0 ? (
         <section className="journal-empty">

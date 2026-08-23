@@ -73,6 +73,35 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
   const riskPct = decision.entry && decision.stop
     ? (Math.abs(decision.entry - decision.stop) / decision.entry) * 100
     : undefined
+  const executionState = invalidated
+    ? {
+        tone: 'blocked',
+        title: 'NÃO ENTRAR',
+        detail: 'Setup invalidado ou alvo já atingido.',
+      }
+    : decision.liveConfirmationRequired
+      ? {
+          tone: 'verify',
+          title: 'CONFIRMAR DADOS LIVE',
+          detail: `Ainda não entrar · candle 1m ${Number.isFinite(decision.ltfDataAgeMinutes) ? `há ~${Math.round(decision.ltfDataAgeMinutes!)} min` : 'sem idade válida'}.`,
+        }
+      : enterReady
+        ? {
+            tone: 'ready',
+            title: `${isShort ? 'VENDER' : 'COMPRAR'} AGORA`,
+            detail: 'Condições TJR confirmadas. Valida o preço atual antes de enviar.',
+          }
+        : awaitReady
+          ? {
+              tone: 'wait',
+              title: 'AGUARDAR CONFIRMAÇÃO',
+              detail: `Não entrar ainda · falta ${isShort ? 'SHORT JÁ' : 'LONG JÁ'} com BOS/iFVG 1m.`,
+            }
+          : {
+              tone: 'blocked',
+              title: 'SEM ENTRADA',
+              detail: 'Não existem níveis executáveis neste momento.',
+            }
 
   return (
     <section className="binance-order-panel t212-guide">
@@ -110,6 +139,11 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
                     : ' (índice CFD).'}
         {' '}Long = <strong>Buy</strong> · Short = <strong>Sell</strong>.
       </p>
+
+      <div className={`t212-execution-state ${executionState.tone}`} role="status">
+        <strong>{executionState.title}</strong>
+        <span>{executionState.detail}</span>
+      </div>
 
       {invalidated ? (
         <p className="binance-order-wait">
@@ -177,8 +211,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
         <>
           {awaitReady && (
             <p className="binance-order-wait">
-              Setup a formar ({isShort ? 'short' : 'long'}) — podes deixar a <strong>OCO</strong> pronta (stop + TP).
-              Só executa a entrada quando passar a {isShort ? 'SHORT JÁ' : 'LONG JÁ'} (BOS 1m).
+              Podes preparar os níveis, mas <strong>não envies a ordem</strong> enquanto o cartão estiver em AGUARDAR.
             </p>
           )}
           <div className="t212-levels">
