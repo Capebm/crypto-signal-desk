@@ -57,6 +57,7 @@ import {
   type EsNqContext,
 } from '../../lib/t212-es-nq'
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
+import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 
 const RISK_KEY = 't212-risk-index'
@@ -174,6 +175,7 @@ export default function T212Dashboard() {
   const [status, setStatus] = useState('Clica «Aplicar + scan» para analisar — índices, forex, metais, energia e crypto CFD.')
   const [running, setRunning] = useState(false)
   useScreenWakeLock(running)
+  const scanAnchorRef = useScrollToScanOnRun(running)
   const [refreshingAguardar, setRefreshingAguardar] = useState(false)
   const [loadingFull, setLoadingFull] = useState<string>()
   const [refinedIds, setRefinedIds] = useState<Set<string>>(() => new Set())
@@ -994,14 +996,16 @@ export default function T212Dashboard() {
       </details>
 
       <MarketClocks snapshot={marketClocks} compact />
-      {scanProgress && (
-        <div className="scan-progress" role="progressbar" aria-valuenow={scanProgress.pct} aria-valuemin={0} aria-valuemax={100}>
-          <div className="scan-progress-fill" style={{ width: `${scanProgress.pct}%` }} />
-          <span>{scanProgress.label}</span>
-        </div>
-      )}
+      <div ref={scanAnchorRef} className="scan-anchor">
+        {scanProgress && (
+          <div className="scan-progress" role="progressbar" aria-valuenow={scanProgress.pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="scan-progress-fill" style={{ width: `${scanProgress.pct}%` }} />
+            <span>{scanProgress.label}</span>
+          </div>
+        )}
+      </div>
       <p className="agent-status">{status}</p>
-      {rows.length > 0 && counts.COMPRAR_JA + counts.VENDER === 0 && (
+      {rows.length > 0 && !running && counts.COMPRAR_JA + counts.VENDER === 0 && (
         <section className="scan-empty" style={{ marginBottom: 12 }}>
           <h3>Nenhum LONG/SHORT JÁ neste scan</h3>
           <p>

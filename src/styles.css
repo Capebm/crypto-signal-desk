@@ -1059,6 +1059,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .setup-help p { margin: 0 0 8px; color: var(--tv-text-secondary); font-size: .84rem; line-height: 1.45; }
 .setup-help p:last-child { margin-bottom: 0; }
 .scan-progress { position: relative; height: 28px; margin: 0 0 12px; border: 1px solid var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); overflow: hidden; }
+.scan-anchor { scroll-margin-top: 12px; }
 .scan-progress-fill { height: 100%; background: var(--tv-green); transition: width .25s ease; opacity: .55; }
 .scan-progress span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: .72rem; font-weight: 600; color: var(--tv-text); }
 .scan-empty { margin: 0 0 18px; padding: 20px 18px; border: 1px dashed var(--tv-border); border-radius: 4px; background: var(--tv-bg-elevated); }

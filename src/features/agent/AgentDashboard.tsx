@@ -43,6 +43,7 @@ import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
 import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
 import type { Direction, Interval } from '../../lib/types'
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
+import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import TpModeModal from './TpModeModal'
 
 const TP_STORAGE_KEY = 'tjr-tp-mode'
@@ -100,6 +101,7 @@ export default function AgentDashboard() {
   const [status, setStatus] = useState('Pronto — analisa na NY open ou vê posição aberta abaixo.')
   const [running, setRunning] = useState(false)
   useScreenWakeLock(running)
+  const scanAnchorRef = useScrollToScanOnRun(running)
   const [refreshingAguardar, setRefreshingAguardar] = useState(false)
   const [scanProgress, setScanProgress] = useState<{ pct: number; label: string }>()
   const [filter, setFilter] = useState<'TODAS' | 'COMPRAR_JA' | 'AGUARDAR_COMPRA' | 'VENDER' | 'ESPERAR'>('TODAS')
@@ -375,6 +377,8 @@ export default function AgentDashboard() {
       const results: AgentRow[] = []
       /** Com Todos setups: scout Agressivo·1R só para escolher quem refinar; o sinal MTF vem do melhor dos 9. */
       const scoutSymbols = new Set<string>()
+      const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
+      const btcBias = (btcQuick.bias ?? 'neutral') as Direction
       for (let index = 0; index < markets.length; index += 10) {
         const done = Math.min(index + 10, markets.length)
         setScanProgress({ pct: Math.round((done / markets.length) * 70), label: `Scan 1h · ${done}/${markets.length}` })
@@ -399,11 +403,11 @@ export default function AgentDashboard() {
           }
         }))
         results.push(...batch.filter((row): row is AgentRow => row !== undefined))
+        const live = sortByScore(results)
+        setRows(live)
+        setRegime(computeMarketRegime(live, btcBias))
       }
       const sorted = sortByScore(results)
-      setRows(sorted)
-      const btcQuick = evaluateTjrQuick(BTC_REFERENCE_SYMBOL, btc1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
-      setRegime(computeMarketRegime(sorted, (btcQuick.bias ?? 'neutral') as Direction))
 
       const buyCandidates = selectAgentMtfPool(sorted, {
         scanAllSetups,
@@ -509,7 +513,7 @@ export default function AgentDashboard() {
     : undefined
 
   const nyClock = marketClocks.clocks.find((clock) => clock.id === 'newyork')
-  const showBuyNowEmpty = rows.length > 0 && filter === 'COMPRAR_JA' && counts.COMPRAR_JA === 0 && visibleRows.length === 0
+  const showBuyNowEmpty = !running && rows.length > 0 && filter === 'COMPRAR_JA' && counts.COMPRAR_JA === 0 && visibleRows.length === 0
 
   const renderExpandedRow = (row: AgentRow) => (
     <section className="desk-workspace-chart desk-row-expand" id={`expand-${row.symbol}`}>
@@ -1002,12 +1006,14 @@ export default function AgentDashboard() {
       />
       <OnboardingModal />
 
-      {scanProgress && (
-        <div className="scan-progress" role="progressbar" aria-valuenow={scanProgress.pct} aria-valuemin={0} aria-valuemax={100}>
-          <div className="scan-progress-fill" style={{ width: `${scanProgress.pct}%` }} />
-          <span>{scanProgress.label}</span>
-        </div>
-      )}
+      <div ref={scanAnchorRef} className="scan-anchor">
+        {scanProgress && (
+          <div className="scan-progress" role="progressbar" aria-valuenow={scanProgress.pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="scan-progress-fill" style={{ width: `${scanProgress.pct}%` }} />
+            <span>{scanProgress.label}</span>
+          </div>
+        )}
+      </div>
 
       <p className="agent-status">{status}</p>
 
