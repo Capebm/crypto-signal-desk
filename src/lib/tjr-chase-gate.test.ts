@@ -105,15 +105,14 @@ describe('engine chase / malha timing', () => {
     expect(decision.positionGuidance).not.toBe('ENTRAR_AGORA')
   })
 
-  it('keeps softOpposed at most RETRACE even with LTF ready', () => {
+  it('lets a stale opposed sweep warn without blocking AGORA', () => {
     const agora = (
       ltfReady: boolean,
       zoneInteraction: boolean,
-      softOpposed: boolean,
       quickScan: boolean,
-    ) => ltfReady && zoneInteraction && !softOpposed && !quickScan
+    ) => ltfReady && zoneInteraction && !quickScan
 
-    expect(agora(true, true, false, false)).toBe(true)
-    expect(agora(true, true, true, false)).toBe(false)
+    expect(agora(true, true, false)).toBe(true)
+    expect(agora(true, true, true)).toBe(false)
   })
 })

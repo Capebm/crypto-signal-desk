@@ -31,6 +31,12 @@ describe('softOpposed policy', () => {
     expect(blockOpposed(false, false, true)).toBe(false)
   })
 
+  it('does not use softOpposed as an AGORA veto', () => {
+    const agora = (ltfReady: boolean, zoneInteraction: boolean, quickScan: boolean) =>
+      ltfReady && zoneInteraction && !quickScan
+    expect(agora(true, true, false)).toBe(true)
+  })
+
   it('does not soften conservador-style or a fresher opposed sweep', () => {
     const aligned = hit(10, 'bullish')
     const opposed = hit(35, 'bearish')

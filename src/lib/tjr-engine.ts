@@ -64,7 +64,7 @@ export type TjrDecision = Decision & {
   opposedSweep?: boolean
   /** Opposed mais antigo que o sweep alinhado — aviso, não veto. */
   staleOpposed?: boolean
-  /** Malha/CFD: opposed presente mas sweep alinhado manda — não bloqueia. */
+  /** Malha/CFD: opposed stale = aviso (score capped); o sweep alinhado manda, incluindo JÁ. */
   softOpposed?: boolean
   /** Long permitido apesar de sweep de high (arriscado). */
   riskyHighLong?: boolean
@@ -405,7 +405,7 @@ function evaluate(
     && ((side === 'long' && blockingOpposed.direction === 'bearish') || (side === 'short' && blockingOpposed.direction === 'bullish')),
   )
   const riskyHighLong = allowHighSweepLong && side === 'long' && opposedSweep
-  // CFD/Malha: opposed stale = aviso (só malha). Disciplina: só o sweep controlador bloqueia.
+  // CFD/Malha: opposed stale = aviso (score capped). Disciplina: só o sweep controlador bloqueia.
   const softOpposed = !tjrVideoStrict && (cfdPractical || wideNet) && sweepOk && staleOpposed
   const blockOpposed = opposedSweep && !riskyHighLong && !softOpposed
   const sweepSource: SweepSource = sweepOk && drawHit ? drawHit.source : sweepOk && microSweep ? 'swing_1h' : 'none'
@@ -525,7 +525,7 @@ function evaluate(
 
   const entryTiming: EntryTiming = !setupReady
     ? 'NENHUM'
-    : ltfReady && zoneInteraction && !softOpposed && !quickScan
+    : ltfReady && zoneInteraction && !quickScan
       ? 'AGORA'
       : entryZone || continueTouch
         ? 'RETRACE'
