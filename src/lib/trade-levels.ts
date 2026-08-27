@@ -21,12 +21,16 @@ export function averageTrueRange(candles: Candle[], period = 14): number | undef
   return Number.isFinite(atr) && atr > 0 ? atr : undefined
 }
 
-/** Alts baratas: 3,5% arredonda para 1 tick no OCO. Micro-preço precisa de mais espaço. */
+/**
+ * Chão de stop cripto: alts baratas precisam de % largo (OCO a 1 tick).
+ * BTC/ETH/SOL (≥ 1) usam estrutura/ATR — 3,5% destruía o R:R vs liquidez próxima.
+ */
 export function cryptoStopBand(entry: number): { minStopPct: number; maxStopPct: number } {
   const maxStopPct = 0.08
   if (entry < 0.001) return { minStopPct: 0.08, maxStopPct }
   if (entry < 0.01) return { minStopPct: 0.06, maxStopPct }
-  return { minStopPct: 0.035, maxStopPct }
+  if (entry < 1) return { minStopPct: 0.035, maxStopPct }
+  return { minStopPct: 0.008, maxStopPct }
 }
 
 export function computeLongStop(entry: number, rawStop: number): number {
@@ -39,7 +43,7 @@ export function computeShortStop(entry: number, rawStop: number): number {
   return Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
 }
 
-/** Mínimo de risco: forex 0,15%; índices 0,20%. Crypto continua 3,5–8%. */
+/** Mínimo de risco: forex 0,15%; índices 0,20%. Crypto: 0,8% líquidos / 3,5–8% alts. */
 export function instrumentMinStopPct(kind: InstrumentKind, entry: number): number {
   if (kind === 'crypto') return cryptoStopBand(entry).minStopPct
   if (kind === 'forex') return 0.0015

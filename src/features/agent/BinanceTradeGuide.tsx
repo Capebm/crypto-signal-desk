@@ -9,6 +9,7 @@ import { saveOpenPosition } from '../../lib/open-position-store'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
+import { cryptoStopBand } from '../../lib/trade-levels'
 import { tpModeMeta, type TpMode } from '../../lib/tp-mode'
 
 type Row = TjrDecision & { symbol: string; price: number }
@@ -157,7 +158,7 @@ export function BinanceOrderPanel({
     row.entry && row.stop && row.entry > row.stop
       ? ((row.entry - row.stop) / row.entry) * 100
       : undefined
-  const minStopPct = row.entry !== undefined && row.entry < 0.01 ? 5.5 : 3.2
+  const minStopPct = row.entry !== undefined ? cryptoStopBand(row.entry).minStopPct * 100 : 3.5
   const stopTooTight = stopDistancePct !== undefined && stopDistancePct < minStopPct
   const riskUsdc = stopDistancePct !== undefined ? stakeUsdc * (stopDistancePct / 100) : undefined
 

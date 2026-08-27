@@ -19,13 +19,20 @@ describe('computeLongStop', () => {
     expect(stop).toBeCloseTo(0.002444)
   })
 
-  it('enforces minimum 3.5% stop on typical crypto prices', () => {
+  it('enforces minimum 3.5% stop on mid-price alts', () => {
     const entry = 0.05
     const rawStop = 0.049
     const stop = computeLongStop(entry, rawStop)
     const pct = ((entry - stop) / entry) * 100
     expect(pct).toBeGreaterThanOrEqual(3.4)
     expect(stop).toBeLessThan(entry)
+  })
+
+  it('keeps a liquid major stop near structure instead of 3.5%', () => {
+    const entry = 100_000
+    const stop = computeLongStop(entry, 99_000)
+    expect((entry - stop) / entry).toBeCloseTo(0.01)
+    expect(stop).toBeCloseTo(99_000)
   })
 
   it('never places stop above entry', () => {
@@ -97,7 +104,7 @@ describe('computeLongStop', () => {
       swingPrices: [],
       candles: one,
       instrumentKind: 'crypto',
-    })).toBeCloseTo(0.965)
+    })).toBeCloseTo(0.99)
     expect(computeStructuralStop({
       side: 'long',
       entry: 1,

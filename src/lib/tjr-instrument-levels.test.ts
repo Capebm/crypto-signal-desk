@@ -93,7 +93,7 @@ describe('instrument-aware structural levels', () => {
       minRr: 1,
       fixedMultiple: 1,
     })
-    expect(plan.stop).toBeCloseTo(0.965)
+    expect(plan.stop).toBeCloseTo(0.99)
     expect(plan.levelsValid).toBe(true)
   })
 })
