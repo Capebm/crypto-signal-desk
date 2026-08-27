@@ -1,4 +1,5 @@
 import type { Candle, Interval } from './types'
+import { getT212BinancePlaybook } from './t212-binance-feed'
 
 /** Instrumentos CFD Trading 212 → símbolo Yahoo (OHLC). */
 export type T212Instrument = {
@@ -97,6 +98,38 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   ondo: 'ONDO/USD',
   wif: 'WIF/USD',
   pyth: 'PYTH/USD',
+  bch: 'BCH/USD',
+  xlm: 'XLM/USD',
+  etc: 'ETC/USD',
+  fil: 'FIL/USD',
+  algo: 'ALGO/USD',
+  vet: 'VET/USD',
+  pol: 'POL/USD',
+  sand: 'SAND/USD',
+  mana: 'MANA/USD',
+  ape: 'APE/USD',
+  ldo: 'LDO/USD',
+  mkr: 'MKR/USD',
+  crv: 'CRV/USD',
+  grt: 'GRT/USD',
+  ftm: 'FTM/USD',
+  egld: 'EGLD/USD',
+  axs: 'AXS/USD',
+  enj: 'ENJ/USD',
+  chz: 'CHZ/USD',
+  rune: 'RUNE/USD',
+  fet: 'FET/USD',
+  rndr: 'RENDER/USD',
+  imx: 'IMX/USD',
+  sei: 'SEI/USD',
+  jup: 'JUP/USD',
+  bonk: 'BONK/USD',
+  floki: 'FLOKI/USD',
+  wld: 'WLD/USD',
+  tia: 'TIA/USD',
+  ena: 'ENA/USD',
+  stx: 'STX/USD',
+  jasmy: 'JASMY/USD',
   avgo: 'AVGO',
   tsm: 'TSM',
   asml: 'ASML',
@@ -116,16 +149,16 @@ export function twelveSymbolFor(instrument: T212Instrument): string | undefined 
   return T212_TWELVE_SYMBOL[instrument.id]
 }
 
-export type T212FeedSource = 'twelve' | 'yahoo'
-/** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). */
+export type T212FeedSource = 'twelve' | 'yahoo' | 'binance'
+/** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). Crypto T212 usa Binance quando o par existe. */
 export type T212FeedPreference = 'yahoo' | 'twelve'
 
-let feedStats = { twelve: 0, yahoo: 0, twelveExhausted: false }
+let feedStats = { twelve: 0, yahoo: 0, binance: 0, twelveExhausted: false }
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
 export function resetT212FeedStats() {
-  feedStats = { twelve: 0, yahoo: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
+  feedStats = { twelve: 0, yahoo: 0, binance: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
 }
 
 export function getT212FeedStats() {
@@ -730,6 +763,38 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'ondo', t212Label: 'Ondo', t212Search: 'ONDO', yahooSymbol: 'ONDO-USD', kind: 'crypto', short: 'ONDO' },
   { id: 'wif', t212Label: 'dogwifhat', t212Search: 'WIF', yahooSymbol: 'WIF-USD', kind: 'crypto', short: 'WIF' },
   { id: 'pyth', t212Label: 'Pyth', t212Search: 'PYTH', yahooSymbol: 'PYTH-USD', kind: 'crypto', short: 'PYTH' },
+  { id: 'bch', t212Label: 'Bitcoin Cash', t212Search: 'BCH', yahooSymbol: 'BCH-USD', kind: 'crypto', short: 'BCH' },
+  { id: 'xlm', t212Label: 'Stellar', t212Search: 'XLM / Stellar', yahooSymbol: 'XLM-USD', kind: 'crypto', short: 'XLM' },
+  { id: 'etc', t212Label: 'Ethereum Classic', t212Search: 'ETC', yahooSymbol: 'ETC-USD', kind: 'crypto', short: 'ETC' },
+  { id: 'fil', t212Label: 'Filecoin', t212Search: 'FIL / Filecoin', yahooSymbol: 'FIL-USD', kind: 'crypto', short: 'FIL' },
+  { id: 'algo', t212Label: 'Algorand', t212Search: 'ALGO', yahooSymbol: 'ALGO-USD', kind: 'crypto', short: 'ALGO' },
+  { id: 'vet', t212Label: 'VeChain', t212Search: 'VET / VeChain', yahooSymbol: 'VET-USD', kind: 'crypto', short: 'VET' },
+  { id: 'pol', t212Label: 'Polygon', t212Search: 'POL / MATIC', yahooSymbol: 'POL-USD', kind: 'crypto', short: 'POL' },
+  { id: 'sand', t212Label: 'The Sandbox', t212Search: 'SAND', yahooSymbol: 'SAND-USD', kind: 'crypto', short: 'SAND' },
+  { id: 'mana', t212Label: 'Decentraland', t212Search: 'MANA', yahooSymbol: 'MANA-USD', kind: 'crypto', short: 'MANA' },
+  { id: 'ape', t212Label: 'ApeCoin', t212Search: 'APE', yahooSymbol: 'APE-USD', kind: 'crypto', short: 'APE' },
+  { id: 'ldo', t212Label: 'Lido', t212Search: 'LDO / Lido', yahooSymbol: 'LDO-USD', kind: 'crypto', short: 'LDO' },
+  { id: 'mkr', t212Label: 'Maker', t212Search: 'MKR / Maker', yahooSymbol: 'MKR-USD', kind: 'crypto', short: 'MKR' },
+  { id: 'crv', t212Label: 'Curve', t212Search: 'CRV / Curve', yahooSymbol: 'CRV-USD', kind: 'crypto', short: 'CRV' },
+  { id: 'grt', t212Label: 'The Graph', t212Search: 'GRT', yahooSymbol: 'GRT-USD', kind: 'crypto', short: 'GRT' },
+  { id: 'ftm', t212Label: 'Fantom', t212Search: 'FTM / Fantom', yahooSymbol: 'FTM-USD', kind: 'crypto', short: 'FTM' },
+  { id: 'egld', t212Label: 'MultiversX', t212Search: 'EGLD / MultiversX', yahooSymbol: 'EGLD-USD', kind: 'crypto', short: 'EGLD' },
+  { id: 'axs', t212Label: 'Axie Infinity', t212Search: 'AXS', yahooSymbol: 'AXS-USD', kind: 'crypto', short: 'AXS' },
+  { id: 'enj', t212Label: 'Enjin', t212Search: 'ENJ', yahooSymbol: 'ENJ-USD', kind: 'crypto', short: 'ENJ' },
+  { id: 'chz', t212Label: 'Chiliz', t212Search: 'CHZ', yahooSymbol: 'CHZ-USD', kind: 'crypto', short: 'CHZ' },
+  { id: 'rune', t212Label: 'THORChain', t212Search: 'RUNE', yahooSymbol: 'RUNE-USD', kind: 'crypto', short: 'RUNE' },
+  { id: 'fet', t212Label: 'Fetch.ai', t212Search: 'FET / ASI', yahooSymbol: 'FET-USD', kind: 'crypto', short: 'FET' },
+  { id: 'rndr', t212Label: 'Render', t212Search: 'RENDER / RNDR', yahooSymbol: 'RENDER-USD', kind: 'crypto', short: 'RENDER' },
+  { id: 'imx', t212Label: 'Immutable', t212Search: 'IMX', yahooSymbol: 'IMX-USD', kind: 'crypto', short: 'IMX' },
+  { id: 'sei', t212Label: 'Sei', t212Search: 'SEI', yahooSymbol: 'SEI-USD', kind: 'crypto', short: 'SEI' },
+  { id: 'jup', t212Label: 'Jupiter', t212Search: 'JUP', yahooSymbol: 'JUP-USD', kind: 'crypto', short: 'JUP' },
+  { id: 'bonk', t212Label: 'Bonk', t212Search: 'BONK', yahooSymbol: 'BONK-USD', kind: 'crypto', short: 'BONK' },
+  { id: 'floki', t212Label: 'FLOKI', t212Search: 'FLOKI', yahooSymbol: 'FLOKI-USD', kind: 'crypto', short: 'FLOKI' },
+  { id: 'wld', t212Label: 'Worldcoin', t212Search: 'WLD / Worldcoin', yahooSymbol: 'WLD-USD', kind: 'crypto', short: 'WLD' },
+  { id: 'tia', t212Label: 'Celestia', t212Search: 'TIA / Celestia', yahooSymbol: 'TIA-USD', kind: 'crypto', short: 'TIA' },
+  { id: 'ena', t212Label: 'Ethena', t212Search: 'ENA', yahooSymbol: 'ENA-USD', kind: 'crypto', short: 'ENA' },
+  { id: 'stx', t212Label: 'Stacks', t212Search: 'STX / Stacks', yahooSymbol: 'STX-USD', kind: 'crypto', short: 'STX' },
+  { id: 'jasmy', t212Label: 'Jasmy', t212Search: 'JASMY', yahooSymbol: 'JASMY-USD', kind: 'crypto', short: 'JASMY' },
   { id: 'avgo', t212Label: 'Broadcom', t212Search: 'AVGO', yahooSymbol: 'AVGO', kind: 'stock', short: 'AVGO' },
   { id: 'tsm', t212Label: 'TSMC', t212Search: 'TSM', yahooSymbol: 'TSM', kind: 'stock', short: 'TSM' },
   { id: 'asml', t212Label: 'ASML', t212Search: 'ASML', yahooSymbol: 'ASML', kind: 'stock', short: 'ASML' },
@@ -1068,7 +1133,7 @@ export async function getT212PlaybookCandles(
   options: { feed?: T212FeedPreference; bypassCache?: boolean } = {},
 ): Promise<PlaybookPack> {
   const feed: T212FeedPreference = options.feed === 'twelve' ? 'twelve' : 'yahoo'
-  const cacheKey = `${instrument.id}:${feed}`
+  const cacheKey = `${instrument.id}:${instrument.kind === 'crypto' ? 'binance' : feed}`
   if (!options.bypassCache) {
     const cached = playbookCache.get(cacheKey)
     if (cached && Date.now() - cached.at < PLAYBOOK_TTL_MS) return cached.data
@@ -1082,7 +1147,19 @@ export async function getT212PlaybookCandles(
     let data: PlaybookPack | undefined
     let source: T212FeedSource = 'yahoo'
 
-    if (feed === 'twelve') {
+    if (instrument.kind === 'crypto') {
+      try {
+        const binance = await getT212BinancePlaybook(instrument.short, { bypassCache: options.bypassCache })
+        if (binance) {
+          data = binance
+          source = 'binance'
+        }
+      } catch {
+        /* Yahoo abaixo */
+      }
+    }
+
+    if (!data && feed === 'twelve') {
       const twelveSymbol = twelveSymbolFor(instrument)
       if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
         try {
@@ -1104,6 +1181,7 @@ export async function getT212PlaybookCandles(
     }
 
     if (source === 'twelve') feedStats.twelve += 1
+    else if (source === 'binance') feedStats.binance += 1
     else feedStats.yahoo += 1
 
     playbookCache.set(cacheKey, { at: Date.now(), data })

@@ -412,7 +412,7 @@ body.desk-mode { overflow: hidden; }
 .t212-kind-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .t212-kind-tabs button { padding: 6px 10px; background: var(--tv-toolbar); color: var(--tv-text-secondary); font-size: .72rem; }
 .t212-kind-tabs button.active { border-color: var(--tv-amber); color: var(--tv-amber); }
-.t212-watchlist-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--tv-text-muted); font-size: .74rem; }
+.t212-watchlist-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--tv-text-muted); font-size: .74rem; flex-wrap: wrap; }
 .t212-watchlist-actions button { padding: 6px 10px; font-size: .72rem; }
 .t212-watchlist-empty { margin: 12px 0 2px; color: var(--tv-text-muted); }
 .t212-extra-grid {

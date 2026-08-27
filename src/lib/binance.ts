@@ -98,15 +98,30 @@ export function mergeMarketLists(liquid: MarketTicker[], pinned: MarketTicker[])
 /** @deprecated Use getLiquidMarkets — mantido por compatibilidade interna. */
 export const getLiquidUsdtMarkets = (limit = 50) => getLiquidMarkets(limit, AGENT_QUOTE_ASSET)
 
-export async function getActiveQuoteSymbols(quote: QuoteAsset = AGENT_QUOTE_ASSET): Promise<string[]> {
+const SPOT_SET_TTL_MS = 10 * 60_000
+let spotSetCache: { at: number; usdc: Set<string>; usdt: Set<string> } | undefined
+
+export async function getActiveSpotSymbolSets(): Promise<{ usdc: Set<string>; usdt: Set<string> }> {
+  if (spotSetCache && Date.now() - spotSetCache.at < SPOT_SET_TTL_MS) {
+    return { usdc: spotSetCache.usdc, usdt: spotSetCache.usdt }
+  }
   const response = await fetch(`${BASE_URL}/api/v3/exchangeInfo`)
   if (!response.ok) throw new Error('Não foi possível obter os pares ativos da Binance.')
-
   const payload: { symbols: { symbol: string; status: string; isSpotTradingAllowed: boolean }[] } = await response.json()
-  return payload.symbols
-    .filter(({ symbol, status, isSpotTradingAllowed }) => status === 'TRADING' && isSpotTradingAllowed && eligibleSymbol(symbol, quote))
-    .map(({ symbol }) => symbol)
-    .sort()
+  const usdc = new Set<string>()
+  const usdt = new Set<string>()
+  for (const row of payload.symbols) {
+    if (row.status !== 'TRADING' || !row.isSpotTradingAllowed) continue
+    if (eligibleSymbol(row.symbol, 'USDC')) usdc.add(row.symbol)
+    if (eligibleSymbol(row.symbol, 'USDT')) usdt.add(row.symbol)
+  }
+  spotSetCache = { at: Date.now(), usdc, usdt }
+  return { usdc, usdt }
+}
+
+export async function getActiveQuoteSymbols(quote: QuoteAsset = AGENT_QUOTE_ASSET): Promise<string[]> {
+  const sets = await getActiveSpotSymbolSets()
+  return [...(quote === 'USDT' ? sets.usdt : sets.usdc)].sort()
 }
 
 /** @deprecated Use getActiveQuoteSymbols */

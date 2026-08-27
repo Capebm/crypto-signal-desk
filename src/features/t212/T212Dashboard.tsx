@@ -59,6 +59,7 @@ import {
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
+import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -128,6 +129,7 @@ export default function T212Dashboard() {
   const [watchIds, setWatchIds] = useState(() => readT212WatchlistIds())
   const [watchQuery, setWatchQuery] = useState('')
   const [watchKind, setWatchKind] = useState<'all' | T212Instrument['kind']>('all')
+  const [binancePairs, setBinancePairs] = useState<Map<string, string>>(() => new Map())
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const visibleWatchExtras = useMemo(() => {
     const needle = watchQuery.trim().toUpperCase()
@@ -139,6 +141,12 @@ export default function T212Dashboard() {
         || item.t212Search.toUpperCase().includes(needle)
     })
   }, [watchKind, watchQuery])
+  useEffect(() => {
+    const cryptos = T212_CATALOG.filter((item) => item.kind === 'crypto')
+    void t212BinanceMatchIds(cryptos)
+      .then(setBinancePairs)
+      .catch(() => setBinancePairs(new Map()))
+  }, [])
   const riskProfile = profiles[riskIndex]
   const tpMode = tpModes[tpIndex]
 
@@ -586,7 +594,7 @@ export default function T212Dashboard() {
       }
 
       if (results.length === 0) {
-        throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Twelve/Yahoo).')
+        throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Binance/Twelve/Yahoo).')
       }
 
       const sorted = sortRows(results)
@@ -615,8 +623,8 @@ export default function T212Dashboard() {
       }
       const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
       const feed = getT212FeedStats()
-      const feedNote = feed.twelve + feed.yahoo > 0
-        ? ` Feed: Twelve×${feed.twelve}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
+      const feedNote = feed.twelve + feed.yahoo + feed.binance > 0
+        ? ` Feed: Binance×${feed.binance}${feed.twelve ? ` + Twelve×${feed.twelve}` : ''}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
         : ''
       const esNqNote = esNq
         ? ` ES↔NQ: ${esNq.smt.note} Tendência ${esNq.esTrend}/${esNq.nqTrend}.`
@@ -739,10 +747,14 @@ export default function T212Dashboard() {
     })
   }
 
-  const loadChartCandles = useCallback((symbol: string, interval: Interval) => {
+  const loadChartCandles = useCallback(async (symbol: string, interval: Interval) => {
     const match = T212_CATALOG.find((item) => item.short === symbol)
       ?? T212_EXTRA_INSTRUMENTS.find((item) => item.short === symbol)
       ?? DEFAULT_T212_INSTRUMENT
+    if (match.kind === 'crypto') {
+      const live = await getT212BinanceCandles(match.short, interval)
+      if (live?.length) return live
+    }
     return fetchYahooCandlesRaw(match.yahooSymbol, interval)
   }, [])
 
@@ -752,6 +764,10 @@ export default function T212Dashboard() {
       const next = on ? prev.filter((item) => item !== id) : [...prev, id]
       return resolveT212Watchlist(next).map((item) => item.id)
     })
+  }
+
+  const selectWatchExtras = (ids: string[]) => {
+    setWatchIds((prev) => resolveT212Watchlist([...prev, ...ids]).map((item) => item.id))
   }
 
   useEffect(() => {
@@ -905,7 +921,7 @@ export default function T212Dashboard() {
                 ))}
               </select>
             </label>
-            <label className="tv-setup-field" title="Yahoo por defeito. Twelve Data usa a key Netlify; se créditos esgotarem, volta a Yahoo.">
+            <label className="tv-setup-field" title="Índices, forex e ações: Yahoo ou Twelve. Crypto CFD usa Binance Spot automaticamente (USDC, senão USDT) quando o par existe.">
               <span>Dados</span>
               <select
                 aria-label="Fonte de dados"
@@ -941,7 +957,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Core sempre ligado. Extras opcionais — mais símbolos = scan mais lento. SMT em <strong>índices/futuros</strong>; forex/metal/energia/crypto = informativo. Futuros CME (ES/NQ/YM) = análise → executar no CFD T212. Crypto CFD = long + short.</p>
+        <p className="desk-sub">Core sempre ligado. Crypto CFD com par Binance usa feed live (1m); o resto Yahoo. Mais símbolos = scan mais lento. SMT em <strong>índices/futuros</strong>. Futuros CME = análise → executar no CFD T212. Crypto CFD = long + short.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"
@@ -973,6 +989,23 @@ export default function T212Dashboard() {
           </div>
           <div className="t212-watchlist-actions">
             <span>{watchIds.length - T212_CORE_IDS.length} extras selecionados</span>
+            <button
+              type="button"
+              className="ghost"
+              title="No filtro Todos liga todos os extras. Em Crypto, se houver pares Binance, liga só esses (feed live)."
+              onClick={() => {
+                if (watchKind === 'crypto' && binancePairs.size > 0) {
+                  selectWatchExtras([...binancePairs.keys()].filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id)))
+                  return
+                }
+                selectWatchExtras(
+                  (watchKind === 'all' ? T212_EXTRA_INSTRUMENTS : T212_EXTRA_INSTRUMENTS.filter((item) => item.kind === watchKind))
+                    .map((item) => item.id),
+                )
+              }}
+            >
+              {watchKind === 'crypto' && binancePairs.size > 0 ? 'Selecionar Binance live' : 'Selecionar todos'}
+            </button>
             <button type="button" className="ghost" onClick={() => setWatchIds([...T212_CORE_IDS])}>
               Limpar extras
             </button>
@@ -985,7 +1018,7 @@ export default function T212Dashboard() {
               <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
                 <input type="checkbox" checked={on} onChange={() => toggleExtra(item.id)} />
                 <span>{item.short}</span>
-                <small>{t212KindLabel(item.kind)}</small>
+                <small>{t212KindLabel(item.kind)}{item.kind === 'crypto' ? (binancePairs.has(item.id) ? ' · live' : ' · yahoo') : ''}</small>
               </label>
             )
           })}
@@ -1023,7 +1056,7 @@ export default function T212Dashboard() {
         </section>
       )}
       <p className="t212-disclaimer">
-        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Feed preferido: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
+        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Crypto com par Binance = feed live Spot; resto: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
         Índices/forex fecham fim de semana; crypto CFD continua.
         Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>
@@ -1169,7 +1202,9 @@ export default function T212Dashboard() {
                                     <span>
                                       {loadingFull === selected.instrument.id
                                         ? 'A refinar MTF…'
-                                        : `${selected.instrument.yahooSymbol} · chart ${chartInterval}${refinedIds.has(selected.instrument.id) ? ' · MTF' : ''} · refresh 15s`}
+                                        : `${selected.instrument.kind === 'crypto' && binancePairs.get(selected.instrument.id)
+                                          ? `Binance ${binancePairs.get(selected.instrument.id)}`
+                                          : selected.instrument.yahooSymbol} · chart ${chartInterval}${refinedIds.has(selected.instrument.id) ? ' · MTF' : ''} · refresh 15s`}
                                     </span>
                                   </header>
                                   <PriceChart
@@ -1186,7 +1221,11 @@ export default function T212Dashboard() {
                                     zones={selected.zones}
                                     htfLevels={selected.htfLevels}
                                     loadCandles={loadChartCandles}
-                                    staleHint={`Yahoo ${selected.instrument.yahooSymbol}`}
+                                    staleHint={
+                                      selected.instrument.kind === 'crypto' && binancePairs.get(selected.instrument.id)
+                                        ? `Binance ${binancePairs.get(selected.instrument.id)}`
+                                        : `Yahoo ${selected.instrument.yahooSymbol}`
+                                    }
                                   />
                                 </article>
                                 <aside className="evidence-panel compact">

@@ -26,6 +26,8 @@ describe('t212 watchlist + smt policy', () => {
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'sui')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'avgo')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'pyth')).toBe(true)
+    expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'bch')).toBe(true)
+    expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'pol')).toBe(true)
   })
 
   it('reads US index CFDs from futures so quotes move outside cash hours', () => {
