@@ -41,14 +41,14 @@ import {
 import { getInstrumentMarketStatus } from '../../lib/trading-session'
 import {
   T212_BTC_INSTRUMENT,
-  T212_CATALOG,
+  T212_EXECUTABLE_CATALOG,
   fetchYahooCandlesRaw,
   getT212PlaybookCandles,
   instrumentById,
   type T212FeedPreference,
   type T212Instrument,
 } from '../../lib/yahoo-market'
-import { t212ExecuteTicker, t212IsCfdListed } from '../../lib/t212-crypto-cfd'
+import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 import type { Interval } from '../../lib/types'
 import CoinSearchInput from '../agent/CoinSearchInput'
 import PriceChart from '../chart/PriceChart'
@@ -124,7 +124,7 @@ export default function PositionsDashboard() {
   const dataFeed = (localStorage.getItem(T212_FEED_KEY) as T212FeedPreference | null) ?? 'yahoo'
 
   const instrument = useMemo(
-    () => instrumentById(instrumentId) ?? T212_CATALOG[0],
+    () => T212_EXECUTABLE_CATALOG.find((item) => item.id === instrumentId) ?? T212_EXECUTABLE_CATALOG[0],
     [instrumentId],
   )
 
@@ -339,7 +339,7 @@ export default function PositionsDashboard() {
               className="ghost"
               style={{ marginRight: 6, marginBottom: 4 }}
               onClick={() => {
-                const match = T212_CATALOG.find((c) => c.short === e.instrument)
+                const match = T212_EXECUTABLE_CATALOG.find((c) => c.short === e.instrument || t212ExecuteTicker(c) === e.instrument)
                 if (match) setInstrumentId(match.id)
                 setSide(e.direction === 'Sell' ? 'short' : 'long')
                 setT212Entry(String(e.price))
@@ -414,7 +414,7 @@ export default function PositionsDashboard() {
               <label>
                 Instrumento
                 <select value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
-                  {T212_CATALOG.filter(t212IsCfdListed).map((item) => (
+                  {T212_EXECUTABLE_CATALOG.map((item) => (
                     <option key={item.id} value={item.id}>{t212ExecuteTicker(item)} — {item.t212Label}</option>
                   ))}
                 </select>

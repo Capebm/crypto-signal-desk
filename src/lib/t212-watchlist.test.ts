@@ -65,6 +65,7 @@ describe('t212 watchlist + smt policy', () => {
     const symbols = t212CryptoAgentSymbols('USDC')
     expect(symbols).toContain('XRPUSDC')
     expect(symbols).toContain('BTCUSDC')
+    expect(symbols).not.toContain('INJUSDC')
     expect(symbols.every((symbol) => symbol.endsWith('USDC'))).toBe(true)
   })
 })

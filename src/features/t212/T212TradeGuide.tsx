@@ -133,7 +133,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
         {instrument.kind === 'forex' ? ' (FOREX).'
           : instrument.kind === 'metal' ? ' (metal).'
             : instrument.kind === 'energy' ? ' (energia / crude).'
-              : instrument.kind === 'crypto' ? ' (crypto CFD).'
+              : instrument.kind === 'crypto' ? ' (crypto CFD — Buy/Sell na T212, velas Binance).'
                 : instrument.kind === 'stock' ? ' (acção US CFD).'
                   : instrument.kind === 'future' ? ' (futuro · executar no CFD índice).'
                     : ' (índice CFD).'}

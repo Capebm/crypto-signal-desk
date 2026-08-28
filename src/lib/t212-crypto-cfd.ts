@@ -1,9 +1,7 @@
 /**
- * Crypto CFDs que a T212 realmente lista (conta Markets Ltd / EU GmbH).
- * O catálogo interno misturava pares Binance; SHORT JÁ nesses nomes não é executável.
- *
- * Fonte: páginas oficiais /trading-instruments/cfd/{TICKER} com categoria Cryptocurrencies.
- * POL na T212 continua MATIC (não POL). ATOM/JUP colidem com acções — ficam de fora.
+ * Cryptos que existem como CFD na T212 (execução Buy/Sell). O feed é Binance Spot
+ * porque a T212 não tem API de preços — não é um modo «só análise».
+ * POL na T212 continua MATIC. ATOM/JUP colidem com acções e ficam de fora.
  */
 export const T212_CRYPTO_CFD_TICKER: Record<string, string> = {
   btc: 'BTC',

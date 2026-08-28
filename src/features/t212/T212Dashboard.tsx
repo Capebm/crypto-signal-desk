@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties
 import PriceChart from '../chart/PriceChart'
 import MarketClocks from '../agent/MarketClocks'
 import T212TradeGuide from './T212TradeGuide'
-import { mapPool } from '../../lib/map-pool'
+import { agentUsesPracticalConfirm } from '../../lib/agent-mtf-pool'
 import { alertsEnabled, ensureNotificationPermission, notifyActionNow, setAlertsEnabled } from '../../lib/desk-alerts'
 import { biasLabel, computeMarketRegime, type MarketRegime } from '../../lib/market-regime'
 import { riskProfiles, type RiskProfile } from '../../lib/risk-profile'
@@ -37,7 +37,9 @@ import {
   T212_BTC_INSTRUMENT,
   T212_CATALOG,
   T212_CORE_IDS,
+  T212_EXECUTABLE_CATALOG,
   T212_EXTRA_INSTRUMENTS,
+  T212_WATCH_EXTRAS,
   fetchYahooCandlesRaw,
   getT212FeedStats,
   getT212PlaybookCandles,
@@ -60,7 +62,7 @@ import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
-import { t212ExecuteTicker, t212IsCfdListed } from '../../lib/t212-crypto-cfd'
+import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -134,17 +136,17 @@ export default function T212Dashboard() {
   const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const visibleWatchExtras = useMemo(() => {
     const needle = watchQuery.trim().toUpperCase()
-    return T212_EXTRA_INSTRUMENTS.filter((item) => {
-      if (!t212IsCfdListed(item)) return false
+    return T212_WATCH_EXTRAS.filter((item) => {
       if (watchKind !== 'all' && item.kind !== watchKind) return false
       return !needle
         || item.short.includes(needle)
         || item.t212Label.toUpperCase().includes(needle)
         || item.t212Search.toUpperCase().includes(needle)
+        || t212ExecuteTicker(item).includes(needle)
     })
   }, [watchKind, watchQuery])
   useEffect(() => {
-    const cryptos = T212_CATALOG.filter((item) => item.kind === 'crypto' && t212IsCfdListed(item))
+    const cryptos = T212_EXECUTABLE_CATALOG.filter((item) => item.kind === 'crypto')
     void t212BinanceMatchIds(cryptos)
       .then(setBinancePairs)
       .catch(() => setBinancePairs(new Map()))
@@ -159,7 +161,9 @@ export default function T212Dashboard() {
       instrumentKind: instrument.kind,
       referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
       wideNet,
-      cfdPractical,
+      cfdPractical: instrument.kind === 'crypto'
+        ? agentUsesPracticalConfirm(tjrVideoStrict, scanAllSetups)
+        : cfdPractical,
       tjrVideoStrict,
       sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
       killzoneQualityOnly: instrument.kind === 'forex' || instrument.kind === 'crypto',
@@ -959,7 +963,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Core sempre ligado. Crypto = só CFDs que existem na T212 (pesquisa o ticker da app, ex. Polygon = MATIC). Feed Binance 1m quando o par Spot existe. SMT em <strong>índices/futuros</strong>. Futuros CME = análise → executar no CFD T212. Crypto CFD = long + short.</p>
+        <p className="desk-sub">Só activos que dão para executar na T212. Crypto: velas Binance Spot, mesmo TJR do Agente, long e short (Sell na T212). Polygon pesquisa MATIC. Alts sem CFD (INJ, SUI, …) não entram — não dá para shortar lá.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"
@@ -994,17 +998,14 @@ export default function T212Dashboard() {
             <button
               type="button"
               className="ghost"
-              title="No filtro Todos liga todos os extras. Em Crypto, se houver pares Binance, liga só esses (feed live)."
+              title="No filtro Todos liga todos os extras executáveis na T212. Em Crypto liga os CFDs com feed Binance live."
               onClick={() => {
                 if (watchKind === 'crypto' && binancePairs.size > 0) {
-                  selectWatchExtras(
-                    [...binancePairs.keys()].filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id && t212IsCfdListed(item))),
-                  )
+                  selectWatchExtras([...binancePairs.keys()].filter((id) => T212_WATCH_EXTRAS.some((item) => item.id === id)))
                   return
                 }
                 selectWatchExtras(
-                  (watchKind === 'all' ? T212_EXTRA_INSTRUMENTS : T212_EXTRA_INSTRUMENTS.filter((item) => item.kind === watchKind))
-                    .filter(t212IsCfdListed)
+                  (watchKind === 'all' ? T212_WATCH_EXTRAS : T212_WATCH_EXTRAS.filter((item) => item.kind === watchKind))
                     .map((item) => item.id),
                 )
               }}
@@ -1023,7 +1024,11 @@ export default function T212Dashboard() {
               <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
                 <input type="checkbox" checked={on} onChange={() => toggleExtra(item.id)} />
                 <span>{t212ExecuteTicker(item)}</span>
-                <small>{t212KindLabel(item.kind)}{item.kind === 'crypto' ? (binancePairs.has(item.id) ? ' · live' : ' · yahoo') : ''}{item.kind === 'crypto' && t212ExecuteTicker(item) !== item.short ? ` · ${item.short}` : ''}</small>
+                <small>
+                  {t212KindLabel(item.kind)}
+                  {item.kind === 'crypto' ? (binancePairs.has(item.id) ? ' · Binance' : ' · yahoo') : ''}
+                  {item.kind === 'crypto' && t212ExecuteTicker(item) !== item.short ? ` · ${item.short}` : ''}
+                </small>
               </label>
             )
           })}
@@ -1061,7 +1066,7 @@ export default function T212Dashboard() {
         </section>
       )}
       <p className="t212-disclaimer">
-        CFD: long (Buy) e short (Sell), incluindo crypto CFD. Crypto com par Binance = feed live Spot; resto: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
+        Execução na T212: long (Buy) e short (Sell). Crypto CFD usa velas Binance Spot (não dá para shortar na Binance Spot). Resto: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
         Índices/forex fecham fim de semana; crypto CFD continua.
         Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>
@@ -1116,7 +1121,10 @@ export default function T212Dashboard() {
                       >
                         <td className="col-symbol">
                           {t212ExecuteTicker(row.instrument)}
-                          <small className="desk-sub">{t212KindLabel(row.instrument.kind)}{row.instrument.kind === 'crypto' && t212ExecuteTicker(row.instrument) !== row.instrument.short ? ` · ${row.instrument.short}` : ''}</small>
+                          <small className="desk-sub">
+                            {t212KindLabel(row.instrument.kind)}
+                            {row.instrument.kind === 'crypto' && t212ExecuteTicker(row.instrument) !== row.instrument.short ? ` · ${row.instrument.short}` : ''}
+                          </small>
                           {/* per-row market-open badge */}
                           {(() => {
                             const m = getInstrumentMarketStatus(row.instrument.kind)

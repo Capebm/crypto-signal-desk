@@ -825,12 +825,17 @@ export const T212_BTC_INSTRUMENT = T212_EXTRA_INSTRUMENTS.find((item) => item.id
 /** Catálogo completo (core + extras). */
 export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTRA_INSTRUMENTS]
 
-/** Pares Spot do Agente que coincidem com crypto CFD do T212 (ex. XRPUSDC). */
+/** Pares Spot do Agente que coincidem com crypto CFD executável na T212 (ex. XRPUSDC). */
 export function t212CryptoAgentSymbols(quote = 'USDC'): string[] {
-  return T212_CATALOG
-    .filter((item) => item.kind === 'crypto' && t212IsCfdListed(item))
-    .map((item) => `${item.short}${quote}`)
+  return T212_CATALOG.filter((item) => item.kind === 'crypto' && t212IsCfdListed(item)).map((item) => `${item.short}${quote}`)
 }
+
+/** Extras que dá para executar na T212 (crypto sem CFD fica de fora). */
+export const T212_WATCH_EXTRAS = T212_EXTRA_INSTRUMENTS.filter((item) => t212IsCfdListed(item))
+
+export const T212_EXECUTABLE_CATALOG = T212_CATALOG.filter((item) => t212IsCfdListed(item))
+
+const listedExtraIds = () => T212_WATCH_EXTRAS.map((item) => item.id)
 
 export const T212_CORE_IDS = T212_INSTRUMENTS.map((item) => item.id)
 
@@ -845,6 +850,7 @@ export function instrumentById(id: string): T212Instrument | undefined {
 const CRYPTO_SEED_KEY = 't212-crypto-seeded-v1'
 const FUTURE_SEED_KEY = 't212-future-seeded-v1'
 const STOCK_SEED_KEY = 't212-stock-seeded-v1'
+const ALL_EXTRAS_SEED_KEY = 't212-all-extras-v1'
 
 const markSeed = (key: string) => {
   try {
@@ -861,46 +867,43 @@ const markSeed = (key: string) => {
 /** Core sempre activo; extras = ids guardados que existem no catálogo. */
 export function readT212WatchlistIds(): string[] {
   const core = [...T212_CORE_IDS]
-  const defaults = [...T212_DEFAULT_CRYPTO_IDS, ...T212_DEFAULT_FUTURE_IDS, ...T212_DEFAULT_STOCK_IDS]
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY)
     const seedCrypto = () => markSeed(CRYPTO_SEED_KEY)
     const seedFutures = () => markSeed(FUTURE_SEED_KEY)
     const seedStocks = () => markSeed(STOCK_SEED_KEY)
+    const seedAllExtras = () => markSeed(ALL_EXTRAS_SEED_KEY)
 
     if (!raw) {
       seedCrypto()
       seedFutures()
       seedStocks()
-      return [...core, ...defaults]
+      seedAllExtras()
+      return [...core, ...listedExtraIds()]
     }
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) {
       seedCrypto()
       seedFutures()
       seedStocks()
-      return [...core, ...defaults]
+      seedAllExtras()
+      return [...core, ...listedExtraIds()]
     }
     let extras = parsed
       .filter((id): id is string => typeof id === 'string')
-      .filter((id) => {
-        const item = T212_EXTRA_INSTRUMENTS.find((row) => row.id === id)
-        return Boolean(item && t212IsCfdListed(item))
-      })
+      .filter((id) => T212_WATCH_EXTRAS.some((item) => item.id === id))
     if (seedCrypto()) extras = [...extras, ...T212_DEFAULT_CRYPTO_IDS]
     if (seedFutures()) extras = [...extras, ...T212_DEFAULT_FUTURE_IDS]
     if (seedStocks()) extras = [...extras, ...T212_DEFAULT_STOCK_IDS]
+    if (seedAllExtras()) extras = [...extras, ...listedExtraIds()]
     return [...core, ...extras.filter((id, index, all) => all.indexOf(id) === index)]
   } catch {
-    return [...core, ...defaults]
+    return [...core, ...listedExtraIds()]
   }
 }
 
 export function writeT212WatchlistIds(ids: string[]) {
-  const extras = ids.filter((id) => {
-    const item = T212_EXTRA_INSTRUMENTS.find((row) => row.id === id)
-    return Boolean(item && t212IsCfdListed(item))
-  })
+  const extras = ids.filter((id) => T212_WATCH_EXTRAS.some((item) => item.id === id))
   try {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(extras))
   } catch {
@@ -912,7 +915,7 @@ export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
   const unique = [...new Set([...T212_CORE_IDS, ...ids])]
   return unique
     .map((id) => instrumentById(id))
-    .filter((item): item is T212Instrument => Boolean(item && t212IsCfdListed(item)))
+    .filter((item): item is T212Instrument => Boolean(item) && t212IsCfdListed(item))
 }
 
 /** SMT obrigatório em índices/futuros (Conservador/Equilibrado); resto informativo. */
