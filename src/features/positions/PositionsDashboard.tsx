@@ -48,6 +48,7 @@ import {
   type T212FeedPreference,
   type T212Instrument,
 } from '../../lib/yahoo-market'
+import { t212ExecuteTicker, t212IsCfdListed } from '../../lib/t212-crypto-cfd'
 import type { Interval } from '../../lib/types'
 import CoinSearchInput from '../agent/CoinSearchInput'
 import PriceChart from '../chart/PriceChart'
@@ -413,8 +414,8 @@ export default function PositionsDashboard() {
               <label>
                 Instrumento
                 <select value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
-                  {T212_CATALOG.map((item) => (
-                    <option key={item.id} value={item.id}>{item.short} — {item.t212Label}</option>
+                  {T212_CATALOG.filter(t212IsCfdListed).map((item) => (
+                    <option key={item.id} value={item.id}>{t212ExecuteTicker(item)} — {item.t212Label}</option>
                   ))}
                 </select>
               </label>

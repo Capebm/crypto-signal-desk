@@ -6,6 +6,7 @@ import {
   t212CryptoAgentSymbols,
   t212RequireSmtAlign,
 } from './yahoo-market'
+import { t212IsCfdListed } from './t212-crypto-cfd'
 
 describe('t212 watchlist + smt policy', () => {
   it('always keeps core instruments when resolving watchlist', () => {
@@ -28,6 +29,8 @@ describe('t212 watchlist + smt policy', () => {
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'pyth')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'bch')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'pol')).toBe(true)
+    expect(t212IsCfdListed(T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'sui')!)).toBe(false)
+    expect(t212IsCfdListed(T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'bch')!)).toBe(true)
   })
 
   it('reads US index CFDs from futures so quotes move outside cash hours', () => {
@@ -53,7 +56,7 @@ describe('t212 watchlist + smt policy', () => {
     const forex = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'forex')!
     expect(t212RequireSmtAlign(forex, true)).toBe(false)
 
-    const crypto = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'crypto')!
+    const crypto = T212_EXTRA_INSTRUMENTS.find((item) => item.kind === 'crypto' && t212IsCfdListed(item))!
     expect(crypto.yahooSymbol).toMatch(/-USD$/)
     expect(t212RequireSmtAlign(crypto, true)).toBe(false)
   })

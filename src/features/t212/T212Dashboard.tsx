@@ -60,6 +60,7 @@ import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
+import { t212ExecuteTicker, t212IsCfdListed } from '../../lib/t212-crypto-cfd'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -134,6 +135,7 @@ export default function T212Dashboard() {
   const visibleWatchExtras = useMemo(() => {
     const needle = watchQuery.trim().toUpperCase()
     return T212_EXTRA_INSTRUMENTS.filter((item) => {
+      if (!t212IsCfdListed(item)) return false
       if (watchKind !== 'all' && item.kind !== watchKind) return false
       return !needle
         || item.short.includes(needle)
@@ -142,7 +144,7 @@ export default function T212Dashboard() {
     })
   }, [watchKind, watchQuery])
   useEffect(() => {
-    const cryptos = T212_CATALOG.filter((item) => item.kind === 'crypto')
+    const cryptos = T212_CATALOG.filter((item) => item.kind === 'crypto' && t212IsCfdListed(item))
     void t212BinanceMatchIds(cryptos)
       .then(setBinancePairs)
       .catch(() => setBinancePairs(new Map()))
@@ -957,7 +959,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Core sempre ligado. Crypto CFD com par Binance usa feed live (1m); o resto Yahoo. Mais símbolos = scan mais lento. SMT em <strong>índices/futuros</strong>. Futuros CME = análise → executar no CFD T212. Crypto CFD = long + short.</p>
+        <p className="desk-sub">Core sempre ligado. Crypto = só CFDs que existem na T212 (pesquisa o ticker da app, ex. Polygon = MATIC). Feed Binance 1m quando o par Spot existe. SMT em <strong>índices/futuros</strong>. Futuros CME = análise → executar no CFD T212. Crypto CFD = long + short.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"
@@ -995,11 +997,14 @@ export default function T212Dashboard() {
               title="No filtro Todos liga todos os extras. Em Crypto, se houver pares Binance, liga só esses (feed live)."
               onClick={() => {
                 if (watchKind === 'crypto' && binancePairs.size > 0) {
-                  selectWatchExtras([...binancePairs.keys()].filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id)))
+                  selectWatchExtras(
+                    [...binancePairs.keys()].filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id && t212IsCfdListed(item))),
+                  )
                   return
                 }
                 selectWatchExtras(
                   (watchKind === 'all' ? T212_EXTRA_INSTRUMENTS : T212_EXTRA_INSTRUMENTS.filter((item) => item.kind === watchKind))
+                    .filter(t212IsCfdListed)
                     .map((item) => item.id),
                 )
               }}
@@ -1017,8 +1022,8 @@ export default function T212Dashboard() {
             return (
               <label key={item.id} className={`t212-extra-chip${on ? ' on' : ''}`}>
                 <input type="checkbox" checked={on} onChange={() => toggleExtra(item.id)} />
-                <span>{item.short}</span>
-                <small>{t212KindLabel(item.kind)}{item.kind === 'crypto' ? (binancePairs.has(item.id) ? ' · live' : ' · yahoo') : ''}</small>
+                <span>{t212ExecuteTicker(item)}</span>
+                <small>{t212KindLabel(item.kind)}{item.kind === 'crypto' ? (binancePairs.has(item.id) ? ' · live' : ' · yahoo') : ''}{item.kind === 'crypto' && t212ExecuteTicker(item) !== item.short ? ` · ${item.short}` : ''}</small>
               </label>
             )
           })}
@@ -1110,8 +1115,8 @@ export default function T212Dashboard() {
                         onClick={() => (open ? closeDetail() : setSelectedId(row.instrument.id))}
                       >
                         <td className="col-symbol">
-                          {row.instrument.short}
-                          <small className="desk-sub">{t212KindLabel(row.instrument.kind)}</small>
+                          {t212ExecuteTicker(row.instrument)}
+                          <small className="desk-sub">{t212KindLabel(row.instrument.kind)}{row.instrument.kind === 'crypto' && t212ExecuteTicker(row.instrument) !== row.instrument.short ? ` · ${row.instrument.short}` : ''}</small>
                           {/* per-row market-open badge */}
                           {(() => {
                             const m = getInstrumentMarketStatus(row.instrument.kind)

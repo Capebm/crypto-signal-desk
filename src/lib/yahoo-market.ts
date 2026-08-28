@@ -1,5 +1,6 @@
 import type { Candle, Interval } from './types'
 import { getT212BinancePlaybook } from './t212-binance-feed'
+import { t212IsCfdListed } from './t212-crypto-cfd'
 
 /** Instrumentos CFD Trading 212 → símbolo Yahoo (OHLC). */
 export type T212Instrument = {
@@ -769,7 +770,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'fil', t212Label: 'Filecoin', t212Search: 'FIL / Filecoin', yahooSymbol: 'FIL-USD', kind: 'crypto', short: 'FIL' },
   { id: 'algo', t212Label: 'Algorand', t212Search: 'ALGO', yahooSymbol: 'ALGO-USD', kind: 'crypto', short: 'ALGO' },
   { id: 'vet', t212Label: 'VeChain', t212Search: 'VET / VeChain', yahooSymbol: 'VET-USD', kind: 'crypto', short: 'VET' },
-  { id: 'pol', t212Label: 'Polygon', t212Search: 'POL / MATIC', yahooSymbol: 'POL-USD', kind: 'crypto', short: 'POL' },
+  { id: 'pol', t212Label: 'Polygon', t212Search: 'MATIC', yahooSymbol: 'POL-USD', kind: 'crypto', short: 'POL' },
   { id: 'sand', t212Label: 'The Sandbox', t212Search: 'SAND', yahooSymbol: 'SAND-USD', kind: 'crypto', short: 'SAND' },
   { id: 'mana', t212Label: 'Decentraland', t212Search: 'MANA', yahooSymbol: 'MANA-USD', kind: 'crypto', short: 'MANA' },
   { id: 'ape', t212Label: 'ApeCoin', t212Search: 'APE', yahooSymbol: 'APE-USD', kind: 'crypto', short: 'APE' },
@@ -826,7 +827,9 @@ export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTR
 
 /** Pares Spot do Agente que coincidem com crypto CFD do T212 (ex. XRPUSDC). */
 export function t212CryptoAgentSymbols(quote = 'USDC'): string[] {
-  return T212_CATALOG.filter((item) => item.kind === 'crypto').map((item) => `${item.short}${quote}`)
+  return T212_CATALOG
+    .filter((item) => item.kind === 'crypto' && t212IsCfdListed(item))
+    .map((item) => `${item.short}${quote}`)
 }
 
 export const T212_CORE_IDS = T212_INSTRUMENTS.map((item) => item.id)
@@ -880,7 +883,10 @@ export function readT212WatchlistIds(): string[] {
     }
     let extras = parsed
       .filter((id): id is string => typeof id === 'string')
-      .filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
+      .filter((id) => {
+        const item = T212_EXTRA_INSTRUMENTS.find((row) => row.id === id)
+        return Boolean(item && t212IsCfdListed(item))
+      })
     if (seedCrypto()) extras = [...extras, ...T212_DEFAULT_CRYPTO_IDS]
     if (seedFutures()) extras = [...extras, ...T212_DEFAULT_FUTURE_IDS]
     if (seedStocks()) extras = [...extras, ...T212_DEFAULT_STOCK_IDS]
@@ -891,7 +897,10 @@ export function readT212WatchlistIds(): string[] {
 }
 
 export function writeT212WatchlistIds(ids: string[]) {
-  const extras = ids.filter((id) => T212_EXTRA_INSTRUMENTS.some((item) => item.id === id))
+  const extras = ids.filter((id) => {
+    const item = T212_EXTRA_INSTRUMENTS.find((row) => row.id === id)
+    return Boolean(item && t212IsCfdListed(item))
+  })
   try {
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(extras))
   } catch {
@@ -903,7 +912,7 @@ export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
   const unique = [...new Set([...T212_CORE_IDS, ...ids])]
   return unique
     .map((id) => instrumentById(id))
-    .filter((item): item is T212Instrument => Boolean(item))
+    .filter((item): item is T212Instrument => Boolean(item && t212IsCfdListed(item)))
 }
 
 /** SMT obrigatório em índices/futuros (Conservador/Equilibrado); resto informativo. */
