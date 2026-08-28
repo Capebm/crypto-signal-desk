@@ -1,34 +1,16 @@
 /**
- * Cryptos que existem como CFD na T212 (execução Buy/Sell). O feed é Binance Spot
- * porque a T212 não tem API de preços — não é um modo «só análise».
- * POL na T212 continua MATIC. ATOM/JUP colidem com acções e ficam de fora.
+ * Nome a pesquisar na T212 quando o ticker Binance é outro (mesma moeda).
+ * Feed = API Binance; execução = Buy/Sell manual na T212.
  */
 export const T212_CRYPTO_CFD_TICKER: Record<string, string> = {
-  btc: 'BTC',
-  eth: 'ETH',
-  sol: 'SOL',
-  xrp: 'XRP',
-  doge: 'DOGE',
-  ada: 'ADA',
-  link: 'LINK',
-  avax: 'AVAX',
-  ltc: 'LTC',
-  bnb: 'BNB',
-  dot: 'DOT',
-  xlm: 'XLM',
-  trx: 'TRX',
-  shib: 'SHIB',
-  uni: 'UNI',
-  aave: 'AAVE',
-  algo: 'ALGO',
   pol: 'MATIC',
-  etc: 'ETC',
-  bch: 'BCH',
+  rndr: 'RENDER',
+  atom: 'Cosmos',
+  jup: 'Jupiter',
 }
 
-export function t212IsCfdListed(item: { id: string; kind: string }): boolean {
-  if (item.kind !== 'crypto') return true
-  return item.id in T212_CRYPTO_CFD_TICKER
+export function t212IsCfdListed(_item: { id: string; kind: string }): boolean {
+  return true
 }
 
 /** Ticker a pesquisar na app T212 (CFD → Crypto). */

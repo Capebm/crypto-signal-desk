@@ -18,6 +18,7 @@ describe('t212 Binance crypto mapping', () => {
     expect(t212CryptoBaseAliases('RENDER')).toEqual(['RENDER', 'RNDR'])
     expect(t212CryptoBaseAliases('FET')).toEqual(['FET', 'ASI'])
     expect(pickBinanceCryptoSymbol(t212CryptoBaseAliases('POL'), usdc, usdt)).toBe('POLUSDC')
+    expect(pickBinanceCryptoSymbol(t212CryptoBaseAliases('MATIC'), usdc, usdt)).toBe('POLUSDC')
     expect(pickBinanceCryptoSymbol(t212CryptoBaseAliases('RENDER'), new Set(), usdt)).toBe('RNDRUSDT')
     expect(pickBinanceCryptoSymbol(t212CryptoBaseAliases('FET'), usdc, usdt)).toBe('FETUSDT')
   })

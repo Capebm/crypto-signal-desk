@@ -3,8 +3,11 @@ import type { Candle, Interval } from './types'
 
 const ALIASES: Record<string, string[]> = {
   POL: ['POL', 'MATIC'],
+  MATIC: ['POL', 'MATIC'],
   RENDER: ['RENDER', 'RNDR'],
+  RNDR: ['RENDER', 'RNDR'],
   FET: ['FET', 'ASI'],
+  ASI: ['FET', 'ASI'],
 }
 
 export function t212CryptoBaseAliases(short: string): string[] {

@@ -318,16 +318,16 @@ export default function T212Dashboard() {
           if (isBuyNow(refined)) {
             buyNow += 1
             void notifyActionNow({
-              title: `LONG JÁ · ${refined.instrument.short}`,
+              title: `LONG JÁ · ${t212ExecuteTicker(refined.instrument)}`,
               body: `Score ${refined.score} · ${session.badge}`,
-              symbol: refined.instrument.short,
+              symbol: t212ExecuteTicker(refined.instrument),
             })
           } else if (isSellNow(refined)) {
             sellNow += 1
             void notifyActionNow({
-              title: `SHORT JÁ · ${refined.instrument.short}`,
+              title: `SHORT JÁ · ${t212ExecuteTicker(refined.instrument)}`,
               body: `Score ${refined.score} · ${session.badge}`,
-              symbol: refined.instrument.short,
+              symbol: t212ExecuteTicker(refined.instrument),
             })
           } else if (isAguardar(refined)) stillWait += 1
           else toEsperar += 1
@@ -616,13 +616,13 @@ export default function T212Dashboard() {
       for (const row of sorted) {
         if (isBuyNow(row)) {
           void notifyActionNow({
-            title: `LONG JÁ · ${row.instrument.short}`,
+            title: `LONG JÁ · ${t212ExecuteTicker(row.instrument)}`,
             body: `Score ${row.score} · T212`,
             symbol: `t212-L-${row.instrument.id}`,
           })
         } else if (isSellNow(row)) {
           void notifyActionNow({
-            title: `SHORT JÁ · ${row.instrument.short}`,
+            title: `SHORT JÁ · ${t212ExecuteTicker(row.instrument)}`,
             body: `Score ${row.score} · T212`,
             symbol: `t212-S-${row.instrument.id}`,
           })
@@ -755,8 +755,8 @@ export default function T212Dashboard() {
   }
 
   const loadChartCandles = useCallback(async (symbol: string, interval: Interval) => {
-    const match = T212_CATALOG.find((item) => item.short === symbol)
-      ?? T212_EXTRA_INSTRUMENTS.find((item) => item.short === symbol)
+    const match = T212_CATALOG.find((item) => item.short === symbol || t212ExecuteTicker(item) === symbol)
+      ?? T212_EXTRA_INSTRUMENTS.find((item) => item.short === symbol || t212ExecuteTicker(item) === symbol)
       ?? DEFAULT_T212_INSTRUMENT
     if (match.kind === 'crypto') {
       const live = await getT212BinanceCandles(match.short, interval)
@@ -928,7 +928,7 @@ export default function T212Dashboard() {
                 ))}
               </select>
             </label>
-            <label className="tv-setup-field" title="Índices, forex e ações: Yahoo ou Twelve. Crypto CFD usa Binance Spot automaticamente (USDC, senão USDT) quando o par existe.">
+            <label className="tv-setup-field" title="Índices, forex e ações: Yahoo ou Twelve. Crypto: API Binance (USDC, senão USDT) para avaliar; execução manual na T212.">
               <span>Dados</span>
               <select
                 aria-label="Fonte de dados"
@@ -964,7 +964,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Só activos que dão para executar na T212. Crypto: velas Binance Spot, mesmo TJR do Agente, long e short (Sell na T212). Polygon pesquisa MATIC. Alts sem CFD (INJ, SUI, …) não entram — não dá para shortar lá.</p>
+        <p className="desk-sub">Crypto: a API Binance avalia o setup; tu executas Buy/Sell na T212 (nome da app, Polygon = MATIC). Resto: índices, FX, acções, metais, energia — long e short no CFD.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"
@@ -1067,7 +1067,7 @@ export default function T212Dashboard() {
         </section>
       )}
       <p className="t212-disclaimer">
-        Execução na T212: long (Buy) e short (Sell). Crypto CFD usa velas Binance Spot (não dá para shortar na Binance Spot). Resto: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
+        Crypto: Binance avalia (API Spot) → tu Buy/Sell na T212. Índices/FX/acções: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
         Índices/forex fecham fim de semana; crypto CFD continua.
         Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>
@@ -1199,7 +1199,7 @@ export default function T212Dashboard() {
                                 <button type="button" className="desk-expand-close" onClick={closeDetail}>
                                   ← Fechar · voltar à lista
                                 </button>
-                                <span className="desk-sub">{selected.instrument.short} · {tjrActionLabel(selected, { cfd: true })}</span>
+                                <span className="desk-sub">{t212ExecuteTicker(selected.instrument)} · {tjrActionLabel(selected, { cfd: true })}</span>
                               </div>
                               <T212TradeGuide
                                 instrument={selected.instrument}
