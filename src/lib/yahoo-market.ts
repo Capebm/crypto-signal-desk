@@ -915,7 +915,7 @@ export function resolveT212Watchlist(ids: string[]): T212Instrument[] {
   const unique = [...new Set([...T212_CORE_IDS, ...ids])]
   return unique
     .map((id) => instrumentById(id))
-    .filter((item): item is T212Instrument => Boolean(item) && t212IsCfdListed(item))
+    .filter((item): item is T212Instrument => Boolean(item && t212IsCfdListed(item)))
 }
 
 /** SMT obrigatório em índices/futuros (Conservador/Equilibrado); resto informativo. */
