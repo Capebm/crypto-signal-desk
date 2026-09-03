@@ -615,8 +615,18 @@ body.desk-mode { overflow: hidden; }
 }
 .t212-print-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
+}
+.t212-print-pack-btn {
+  justify-self: start;
+}
+.t212-print-frame header em {
+  margin-left: auto;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--tv-amber);
 }
 .t212-print-frame {
   margin: 0;
@@ -640,12 +650,6 @@ body.desk-mode { overflow: hidden; }
   text-transform: none;
   letter-spacing: 0;
   color: var(--tv-text);
-}
-.t212-print-frame header em {
-  margin-left: auto;
-  font-style: normal;
-  font-weight: 800;
-  color: var(--tv-amber);
 }
 .t212-print-frame .chart-host { margin-top: 4px; }
 .t212-print-frame .chart-message { margin: 4px 0 0; font-size: .62rem; }

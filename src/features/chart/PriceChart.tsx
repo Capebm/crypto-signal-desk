@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import {
   CandlestickSeries,
   ColorType,
@@ -36,6 +36,10 @@ type Props = {
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
   loadCandles?: (symbol: string, interval: Interval, limit?: number) => Promise<Candle[]>
   staleHint?: string
+}
+
+export type PriceChartHandle = {
+  capture: () => Promise<HTMLCanvasElement>
 }
 
 type Overlay = {
@@ -158,7 +162,7 @@ const paintOverlays = (
   }
 }
 
-export default function PriceChart({
+const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart({
   symbol,
   action,
   interval,
@@ -176,7 +180,7 @@ export default function PriceChart({
   htfLevels,
   loadCandles,
   staleHint = 'Dados da Binance',
-}: Props) {
+}: Props, ref) {
   const host = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -318,6 +322,23 @@ export default function PriceChart({
     paintOverlays(candles, rowsRef.current, overlayRef.current, linesRef.current)
   }, [paintedKey])
 
+  useImperativeHandle(ref, () => ({
+    capture: async () => {
+      const chart = chartRef.current
+      const hostEl = host.current
+      if (!chart || !hostEl) throw new Error('Gráfico ainda a carregar')
+      const restoreW = Math.max(1, hostEl.clientWidth)
+      const restoreH = compact ? 200 : isNarrow() ? 280 : 420
+      chart.applyOptions({ width: 720, height: 280 })
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+      const shot = chart.takeScreenshot()
+      chart.applyOptions({ width: restoreW, height: restoreH })
+      return shot
+    },
+  }), [compact])
+
   return (
     <div className={`chart-host${compact ? ' compact' : ''}`}>
       {!compact && (
@@ -363,4 +384,6 @@ export default function PriceChart({
       {message && <p className="chart-message">{message}</p>}
     </div>
   )
-}
+})
+
+export default PriceChart

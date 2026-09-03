@@ -86,9 +86,6 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive, st
     stakeEur,
     livePrice: validLivePrice ? livePrice : undefined,
   })
-  const copyPaste = () => {
-    void navigator.clipboard.writeText(pasteText).catch(() => undefined)
-  }
   const riskPct = decision.entry && decision.stop
     ? (Math.abs(decision.entry - decision.stop) / decision.entry) * 100
     : undefined
@@ -200,17 +197,18 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive, st
             zones={decision.zones}
             htfLevels={decision.htfLevels}
             staleHint={staleHint}
+            pasteText={pasteText}
+            stakeEur={stakeEur}
             loadCandles={loadCandles}
           />
           <label className="t212-print-paste">
-            <span>Cola no Claude com os 4 prints</span>
-            <textarea readOnly value={pasteText} rows={8} />
-            <button type="button" className="ghost" onClick={copyPaste}>Copiar texto</button>
+            <span>Texto do pack (já vai no botão)</span>
+            <textarea readOnly value={pasteText} rows={10} />
           </label>
           <ol className="t212-steps">
-            <li>Print <strong>5m + 1m neste desk</strong> agora — não esperes pelo :00.</li>
-            <li>Print <strong>5m + 1m na T212</strong> agora, ticker <strong>{ticker}</strong>.</li>
-            <li>Copia o last da T212 e cola os 4 prints + este texto no Claude.</li>
+            <li>Carrega <strong>Copiar pack Claude</strong> — gera a imagem 5m+1m e copia o texto.</li>
+            <li>Cola no Claude o pack. Depois fotos T212: <strong>5m</strong> e a seguir <strong>1m</strong>, agora. T212 não tem desenhos.</li>
+            <li>Copia o last da T212 para o campo abaixo.</li>
           </ol>
           <label className="t212-live-check">
             <input type="checkbox" checked={confirmed5m} onChange={(event) => setConfirmed5m(event.target.checked)} />
