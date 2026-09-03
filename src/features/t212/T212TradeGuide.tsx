@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { T212Instrument } from '../../lib/yahoo-market'
+import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 
 const STAKE_KEY = 't212-stake-eur'
 const STAKE_OPTIONS = [20, 50, 100, 200] as const
@@ -129,7 +130,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
       </header>
 
       <p className="t212-guide-plan">
-        Conta <strong>CFD</strong> → pesquisa <strong>{instrument.t212Search}</strong>
+        Conta <strong>CFD</strong> → pesquisa <strong>{t212ExecuteTicker(instrument)}</strong>
         {instrument.kind === 'forex' ? ' (FOREX).'
           : instrument.kind === 'metal' ? ' (metal).'
             : instrument.kind === 'energy' ? ' (energia / crude).'
@@ -170,7 +171,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
             </div>
           )}
           <ol className="t212-steps">
-            <li>Abre <strong>{instrument.t212Search}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
+            <li>Abre <strong>{t212ExecuteTicker(instrument)}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
             <li>Muda para <strong>1m</strong>: confirma retrace + BOS/iFVG na mesma direcção.</li>
             <li>Copia o preço actual exactamente como aparece no T212.</li>
           </ol>
@@ -228,7 +229,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
           )}
           <ol className="t212-steps">
             <li>Abre Trading 212 → conta <strong>CFD</strong>.</li>
-            <li>Pesquisa <strong>{instrument.t212Search}</strong>.</li>
+            <li>Pesquisa <strong>{t212ExecuteTicker(instrument)}</strong>.</li>
             <li>
               {enterReady
                 ? <>Toca <strong>{sideLabel}</strong> ({isShort ? 'short' : 'long'}). Ajusta tamanho ~{stakeEur} €.</>

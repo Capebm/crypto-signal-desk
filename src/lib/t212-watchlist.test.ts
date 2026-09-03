@@ -23,7 +23,7 @@ describe('t212 watchlist + smt policy', () => {
     expect(T212_EXTRA_INSTRUMENTS.every((item) => !T212_CORE_IDS.includes(item.id))).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.kind === 'stock')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'nvda')).toBe(true)
-    expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'dxy')).toBe(true)
+    expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'dxy')).toBe(false)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'sui')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'avgo')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'pyth')).toBe(true)

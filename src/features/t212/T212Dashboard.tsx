@@ -143,7 +143,7 @@ export default function T212Dashboard() {
         || item.short.includes(needle)
         || item.t212Label.toUpperCase().includes(needle)
         || item.t212Search.toUpperCase().includes(needle)
-        || t212ExecuteTicker(item).includes(needle)
+        || t212ExecuteTicker(item).toUpperCase().includes(needle)
     })
   }, [watchKind, watchQuery])
   useEffect(() => {
@@ -964,7 +964,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Crypto: a API Binance avalia o setup; tu executas Buy/Sell na T212 (nome da app, Polygon = MATIC). Resto: índices, FX, acções, metais, energia — long e short no CFD.</p>
+        <p className="desk-sub">Crypto: Binance avalia → pesquisa na T212 o ticker da chip (MATIC, Cosmos, Jupiter — nunca POL/ATOM/JUP). Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"
@@ -1067,7 +1067,7 @@ export default function T212Dashboard() {
         </section>
       )}
       <p className="t212-disclaimer">
-        Crypto: Binance avalia (API Spot) → tu Buy/Sell na T212. Índices/FX/acções: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'} · cada linha mostra a frescura LTF.
+        Crypto: Binance avalia (API Spot) → tu short/long na T212 (em PT o Spot Binance não deixa shortar). Índices: ticker da app (FR40, NL25). Resto: {dataFeed === 'twelve' ? 'Twelve Data' : 'Yahoo'}.
         Índices/forex fecham fim de semana; crypto CFD continua.
         Gestão de posição aberta → tab <strong>Posições</strong>. Acções US CLOSED = sem JÁ (aguarda 09:30 ET).
       </p>

@@ -50,7 +50,7 @@ describe('yahoo-market', () => {
       platinum: 'XPT/USD',
       dot: 'PDOTN/USD',
     })
-    for (const id of ['ngas', 'es', 'nq', 'ym', 'rty']) {
+    for (const id of ['ngas', 'es', 'nq', 'ym']) {
       expect(T212_TWELVE_SYMBOL[id]).toBeUndefined()
     }
   })

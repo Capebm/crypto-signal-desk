@@ -4,7 +4,7 @@ import type { Candle, Direction } from './types'
 import { instrumentById, type T212Instrument } from './yahoo-market'
 
 /** Índices/futuros US: gate ES↔NQ + retrace 1m estrito + janela 09:30–10:30 ET. */
-const ES_NQ_GATE_IDS = new Set(['us500', 'tech100', 'us30', 'us2000', 'es', 'nq', 'ym', 'rty'])
+const ES_NQ_GATE_IDS = new Set(['us500', 'tech100', 'us30', 'es', 'nq', 'ym'])
 
 export function t212NeedsEsNqGate(instrument: T212Instrument): boolean {
   return ES_NQ_GATE_IDS.has(instrument.id)
