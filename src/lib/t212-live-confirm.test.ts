@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { requireLiveConfirmationForStaleLtf } from './t212-live-confirm'
+import { buildT212LivePrintPaste, requireLiveConfirmationForStaleLtf } from './t212-live-confirm'
 import type { TjrDecision } from './tjr-engine'
 import type { Candle } from './types'
 
@@ -57,5 +57,22 @@ describe('requireLiveConfirmationForStaleLtf', () => {
 
     expect(result.liveConfirmationRequired).toBe(true)
     expect(result.checklist.at(-1)?.label).toBe('Dados LTF live')
+  })
+
+  it('builds the Claude paste with T212 ticker and levels', () => {
+    const text = buildT212LivePrintPaste({
+      ticker: 'MATIC',
+      sideLabel: 'Sell',
+      entry: 0.19,
+      stop: 0.2,
+      target: 0.17,
+      stakeEur: 50,
+      livePrice: 0.185,
+    })
+    expect(text).toContain('SHORT (Sell)')
+    expect(text).toContain('Ticker T212: MATIC')
+    expect(text).toContain('Stop: 0.2000')
+    expect(text).toContain('Preço live T212: 0.1850')
+    expect(text).toContain('Ignorar a vela da extrema direita')
   })
 })

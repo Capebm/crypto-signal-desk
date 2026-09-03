@@ -3,6 +3,8 @@ import { goToCryptoTab } from '../../lib/crypto-tabs'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { T212Instrument } from '../../lib/yahoo-market'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
+import { buildT212LivePrintPaste } from '../../lib/t212-live-confirm'
+import T212LivePrintMock from './T212LivePrintMock'
 
 const STAKE_KEY = 't212-stake-eur'
 const STAKE_OPTIONS = [20, 50, 100, 200] as const
@@ -71,6 +73,19 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
       ? livePrice < decision.stop && livePrice > decision.target
       : livePrice > decision.stop && livePrice < decision.target)
   const canConfirmLive = confirmed5m && confirmed1m && livePriceInsideLevels && Boolean(onConfirmLive)
+  const ticker = t212ExecuteTicker(instrument)
+  const pasteText = buildT212LivePrintPaste({
+    ticker,
+    sideLabel,
+    entry: decision.entry,
+    stop: decision.stop,
+    target: decision.target,
+    stakeEur,
+    livePrice: validLivePrice ? livePrice : undefined,
+  })
+  const copyPaste = () => {
+    void navigator.clipboard.writeText(pasteText).catch(() => undefined)
+  }
   const riskPct = decision.entry && decision.stop
     ? (Math.abs(decision.entry - decision.stop) / decision.entry) * 100
     : undefined
@@ -130,7 +145,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
       </header>
 
       <p className="t212-guide-plan">
-        Conta <strong>CFD</strong> → pesquisa <strong>{t212ExecuteTicker(instrument)}</strong>
+        Conta <strong>CFD</strong> → pesquisa <strong>{ticker}</strong>
         {instrument.kind === 'forex' ? ' (FOREX).'
           : instrument.kind === 'metal' ? ' (metal).'
             : instrument.kind === 'energy' ? ' (energia / crude).'
@@ -170,8 +185,21 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
               <div><span>OCO TP</span><strong className="positive">{fmt(decision.target)}</strong></div>
             </div>
           )}
+          <T212LivePrintMock
+            ticker={ticker}
+            sideLabel={sideLabel}
+            isShort={isShort}
+            stop={decision.stop}
+            target={decision.target}
+            livePrice={validLivePrice ? livePrice : decision.entry}
+          />
+          <label className="t212-print-paste">
+            <span>Cola no Claude com os dois prints</span>
+            <textarea readOnly value={pasteText} rows={8} />
+            <button type="button" className="ghost" onClick={copyPaste}>Copiar texto</button>
+          </label>
           <ol className="t212-steps">
-            <li>Abre <strong>{t212ExecuteTicker(instrument)}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
+            <li>Abre <strong>{ticker}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
             <li>Muda para <strong>1m</strong>: confirma retrace + BOS/iFVG na mesma direcção.</li>
             <li>Copia o preço actual exactamente como aparece no T212.</li>
           </ol>
@@ -229,7 +257,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
           )}
           <ol className="t212-steps">
             <li>Abre Trading 212 → conta <strong>CFD</strong>.</li>
-            <li>Pesquisa <strong>{t212ExecuteTicker(instrument)}</strong>.</li>
+            <li>Pesquisa <strong>{ticker}</strong>.</li>
             <li>
               {enterReady
                 ? <>Toca <strong>{sideLabel}</strong> ({isShort ? 'short' : 'long'}). Ajusta tamanho ~{stakeEur} €.</>

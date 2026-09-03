@@ -1,6 +1,39 @@
 import type { TjrDecision } from './tjr-engine'
 import type { Candle } from './types'
 
+const fmtPrint = (value?: number) => {
+  if (value === undefined || !Number.isFinite(value)) return '—'
+  if (value >= 100) return value.toFixed(2)
+  if (value >= 1) return value.toFixed(3)
+  if (value >= 0.01) return value.toFixed(4)
+  return value.toFixed(6)
+}
+
+/** Texto a colar no Claude junto com os dois prints T212 (5m + 1m). */
+export function buildT212LivePrintPaste(input: {
+  ticker: string
+  sideLabel: 'Buy' | 'Sell'
+  entry?: number
+  stop?: number
+  target?: number
+  stakeEur: number
+  livePrice?: number
+}): string {
+  const live = input.livePrice !== undefined && Number.isFinite(input.livePrice) && input.livePrice > 0
+    ? fmtPrint(input.livePrice)
+    : '[copia o last da T212]'
+  return [
+    `Lado: ${input.sideLabel === 'Sell' ? 'SHORT (Sell)' : 'LONG (Buy)'}`,
+    `Ticker T212: ${input.ticker}`,
+    `Entrada desk: ${fmtPrint(input.entry)}`,
+    `Stop: ${fmtPrint(input.stop)}`,
+    `TP: ${fmtPrint(input.target)}`,
+    `Stake: ${input.stakeEur} €`,
+    `Preço live T212: ${live}`,
+    'Prints: 5m + 1m da conta CFD, depois do close. Ignorar a vela da extrema direita.',
+  ].join('\n')
+}
+
 type LtfPack = {
   '1m': Candle[]
   '5m': Candle[]
