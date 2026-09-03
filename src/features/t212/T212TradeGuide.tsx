@@ -4,6 +4,7 @@ import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { T212Instrument } from '../../lib/yahoo-market'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 import { buildT212LivePrintPaste } from '../../lib/t212-live-confirm'
+import type { Candle, Interval } from '../../lib/types'
 import T212LivePrintMock from './T212LivePrintMock'
 
 const STAKE_KEY = 't212-stake-eur'
@@ -13,6 +14,8 @@ type Props = {
   instrument: T212Instrument
   decision: TjrDecision
   onConfirmLive?: (instrumentId: string, livePrice: number) => void
+  staleHint?: string
+  loadCandles?: (symbol: string, interval: Interval, limit?: number) => Promise<Candle[]>
 }
 
 const fmt = (value?: number, digits = 2) => {
@@ -33,7 +36,7 @@ const readStakeIndex = () => {
   }
 }
 
-export default function T212TradeGuide({ instrument, decision, onConfirmLive }: Props) {
+export default function T212TradeGuide({ instrument, decision, onConfirmLive, staleHint, loadCandles }: Props) {
   const [stakeIndex, setStakeIndex] = useState(readStakeIndex)
   const [confirmed5m, setConfirmed5m] = useState(false)
   const [confirmed1m, setConfirmed1m] = useState(false)
@@ -187,21 +190,27 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive }: 
           )}
           <T212LivePrintMock
             ticker={ticker}
+            symbol={instrument.short}
+            action={decision.action}
             sideLabel={sideLabel}
-            isShort={isShort}
+            entry={decision.entry}
             stop={decision.stop}
             target={decision.target}
             livePrice={validLivePrice ? livePrice : decision.entry}
+            zones={decision.zones}
+            htfLevels={decision.htfLevels}
+            staleHint={staleHint}
+            loadCandles={loadCandles}
           />
           <label className="t212-print-paste">
-            <span>Cola no Claude com os dois prints</span>
+            <span>Cola no Claude com os 4 prints</span>
             <textarea readOnly value={pasteText} rows={8} />
             <button type="button" className="ghost" onClick={copyPaste}>Copiar texto</button>
           </label>
           <ol className="t212-steps">
-            <li>Abre <strong>{ticker}</strong> em candles de <strong>5m</strong>: confirma BOS/iFVG {isShort ? 'bearish' : 'bullish'}.</li>
-            <li>Muda para <strong>1m</strong>: confirma retrace + BOS/iFVG na mesma direcção.</li>
-            <li>Copia o preço actual exactamente como aparece no T212.</li>
+            <li>Print <strong>5m + 1m neste desk</strong> agora — não esperes pelo :00.</li>
+            <li>Print <strong>5m + 1m na T212</strong> agora, ticker <strong>{ticker}</strong>.</li>
+            <li>Copia o last da T212 e cola os 4 prints + este texto no Claude.</li>
           </ol>
           <label className="t212-live-check">
             <input type="checkbox" checked={confirmed5m} onChange={(event) => setConfirmed5m(event.target.checked)} />

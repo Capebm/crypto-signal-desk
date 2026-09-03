@@ -22,7 +22,8 @@ type Props = {
   symbol: string
   action: Action
   interval: Interval
-  onIntervalChange: (interval: Interval) => void
+  onIntervalChange?: (interval: Interval) => void
+  compact?: boolean
   entry?: number
   stop?: number
   target?: number
@@ -162,6 +163,7 @@ export default function PriceChart({
   action,
   interval,
   onIntervalChange,
+  compact = false,
   entry,
   stop,
   target,
@@ -193,7 +195,8 @@ export default function PriceChart({
   const [showSessions, setShowSessions] = useState(() => !isNarrow())
   const overlay: Overlay = {
     action, entry, stop, target, targetSecondary, targetLabel, targetSecondaryLabel,
-    fillPrice, fillLabel, zones: zones ?? EMPTY_ZONES, htfLevels: htfLevels ?? EMPTY_HTF, showSessions, interval,
+    fillPrice, fillLabel, zones: zones ?? EMPTY_ZONES, htfLevels: htfLevels ?? EMPTY_HTF,
+    showSessions: compact ? false : showSessions, interval,
   }
   overlayRef.current = overlay
   const paintedKey = overlayKey(overlay)
@@ -203,7 +206,7 @@ export default function PriceChart({
     const narrow = isNarrow()
     const chart = createChart(host.current, {
       width: host.current.clientWidth,
-      height: narrow ? 280 : 420,
+      height: compact ? 200 : narrow ? 280 : 420,
       layout: { background: { type: ColorType.Solid, color: '#05070c' }, textColor: '#5d7390', fontSize: narrow ? 10 : 12 },
       grid: { vertLines: { color: '#121c2c' }, horzLines: { color: '#121c2c' } },
       rightPriceScale: {
@@ -260,7 +263,7 @@ export default function PriceChart({
       ema20Ref.current = null
       ema50Ref.current = null
     }
-  }, [])
+  }, [compact])
 
   useEffect(() => {
     const candles = candleSeriesRef.current
@@ -272,7 +275,7 @@ export default function PriceChart({
     let active = true
     setMessage('A carregar gráfico…')
     const narrow = isNarrow()
-    const visibleBars = narrow ? 56 : 96
+    const visibleBars = compact ? 48 : narrow ? 56 : 96
     void fetchRef.current(symbol, interval, candleLimit[interval]).then((rows) => {
       if (!active || candleSeriesRef.current !== candles) return
       if (rows.length === 0) {
@@ -307,7 +310,7 @@ export default function PriceChart({
       if (active) setMessage('Não foi possível carregar o gráfico.')
     })
     return () => { active = false }
-  }, [symbol, interval, staleHint])
+  }, [symbol, interval, staleHint, compact])
 
   useEffect(() => {
     const candles = candleSeriesRef.current
@@ -316,38 +319,46 @@ export default function PriceChart({
   }, [paintedKey])
 
   return (
-    <div className="chart-host">
-      <div className="chart-toolbar">
-        <div className="chart-legend">
-          <span>EMA 20</span><span>EMA 50</span><span>Volume</span>
-          {showSessions && sessionIntervals.includes(interval) && (
-            <>
-              <span className="legend-asia">Ásia</span>
-              <span className="legend-london">Londres</span>
-              <span className="legend-ny">NY</span>
-              <span className="legend-prev">Dia ant.</span>
-            </>
-          )}
-          {overlay.htfLevels.length > 0 && <span className="legend-prev">4h/1h H·L</span>}
-        </div>
-        <div className="chart-toolbar-actions">
-          {sessionIntervals.includes(interval) && (
-            <button
-              type="button"
-              className={`session-toggle${showSessions ? ' active' : ''}`}
-              onClick={() => setShowSessions((v) => !v)}
-              title="Highs/lows das sessões Ásia, Londres e Nova Iorque (horário ET, estilo TJR)"
-            >
-              Sessões
-            </button>
-          )}
-          <div className="timeframe-tabs" title="Muda o intervalo das velas. O sinal do agente foi calculado em 1h.">
-            {intervals.map((item) => (
-              <button key={item} className={item === interval ? 'active' : ''} onClick={() => onIntervalChange(item)}>{item}</button>
-            ))}
+    <div className={`chart-host${compact ? ' compact' : ''}`}>
+      {!compact && (
+        <div className="chart-toolbar">
+          <div className="chart-legend">
+            <span>EMA 20</span><span>EMA 50</span><span>Volume</span>
+            {showSessions && sessionIntervals.includes(interval) && (
+              <>
+                <span className="legend-asia">Ásia</span>
+                <span className="legend-london">Londres</span>
+                <span className="legend-ny">NY</span>
+                <span className="legend-prev">Dia ant.</span>
+              </>
+            )}
+            {overlay.htfLevels.length > 0 && <span className="legend-prev">4h/1h H·L</span>}
+          </div>
+          <div className="chart-toolbar-actions">
+            {sessionIntervals.includes(interval) && (
+              <button
+                type="button"
+                className={`session-toggle${showSessions ? ' active' : ''}`}
+                onClick={() => setShowSessions((v) => !v)}
+                title="Highs/lows das sessões Ásia, Londres e Nova Iorque (horário ET, estilo TJR)"
+              >
+                Sessões
+              </button>
+            )}
+            <div className="timeframe-tabs" title="Muda o intervalo das velas. O sinal do agente foi calculado em 1h.">
+              {intervals.map((item) => (
+                <button
+                  key={item}
+                  className={item === interval ? 'active' : ''}
+                  onClick={() => onIntervalChange?.(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       <div ref={host} className="chart-canvas" />
       {message && <p className="chart-message">{message}</p>}
     </div>

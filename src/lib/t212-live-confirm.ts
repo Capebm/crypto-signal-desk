@@ -30,7 +30,7 @@ export function buildT212LivePrintPaste(input: {
     `TP: ${fmtPrint(input.target)}`,
     `Stake: ${input.stakeEur} €`,
     `Preço live T212: ${live}`,
-    'Prints: 5m + 1m da conta CFD, depois do close. Ignorar a vela da extrema direita.',
+    'Prints agora (não esperar :00): desk 5m + desk 1m, depois T212 5m + T212 1m.',
   ].join('\n')
 }
 

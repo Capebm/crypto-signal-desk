@@ -1205,6 +1205,12 @@ export default function T212Dashboard() {
                                 instrument={selected.instrument}
                                 decision={selected}
                                 onConfirmLive={confirmLiveSetup}
+                                loadCandles={loadChartCandles}
+                                staleHint={
+                                  selected.instrument.kind === 'crypto' && binancePairs.get(selected.instrument.id)
+                                    ? `Binance ${binancePairs.get(selected.instrument.id)}`
+                                    : `Yahoo ${selected.instrument.yahooSymbol}`
+                                }
                               />
                               <div className="card-expanded-main">
                                 <article className="chart-panel">

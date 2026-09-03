@@ -621,7 +621,7 @@ body.desk-mode { overflow: hidden; }
 .t212-print-frame {
   margin: 0;
   padding: 8px;
-  border: 1px dashed color-mix(in srgb, var(--tv-amber) 50%, var(--tv-border));
+  border: 1px solid var(--tv-border);
   border-radius: 4px;
   background: var(--tv-toolbar);
 }
@@ -647,21 +647,8 @@ body.desk-mode { overflow: hidden; }
   font-weight: 800;
   color: var(--tv-amber);
 }
-.t212-print-frame svg { width: 100%; height: auto; display: block; }
-.t212-print-stop { stroke: var(--tv-red); stroke-width: 1; stroke-dasharray: 4 3; }
-.t212-print-tp { stroke: var(--tv-green); stroke-width: 1; stroke-dasharray: 4 3; }
-.t212-print-svg-label {
-  fill: var(--tv-amber);
-  font-size: 7px;
-  font-weight: 800;
-  font-family: inherit;
-}
-.t212-print-svg-warn {
-  fill: var(--tv-text-muted);
-  font-size: 6px;
-  font-weight: 800;
-  font-family: inherit;
-}
+.t212-print-frame .chart-host { margin-top: 4px; }
+.t212-print-frame .chart-message { margin: 4px 0 0; font-size: .62rem; }
 .t212-print-frame figcaption {
   display: grid;
   gap: 2px;
@@ -1420,7 +1407,9 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .chart-panel h2, .evidence-panel h2 { margin: 5px 0 14px; font-size: 1.08rem; }
 .chart-panel header > span { color: var(--tv-text-secondary); font-size: .78rem; }
 .chart-host { position: relative; min-height: 320px; }
+.chart-host.compact { min-height: 0; }
 .chart-canvas { width: 100%; min-height: 280px; touch-action: pan-x; }
+.chart-host.compact .chart-canvas { min-height: 200px; height: 200px; }
 .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .chart-toolbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .chart-legend { display: flex; gap: 10px; padding: 0; color: var(--tv-text-secondary); font-size: .74rem; flex-wrap: wrap; }
