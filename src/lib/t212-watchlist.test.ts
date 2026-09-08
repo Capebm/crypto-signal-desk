@@ -30,7 +30,7 @@ describe('t212 watchlist + smt policy', () => {
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'gbpaud')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'nvo')).toBe(true)
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'inj')).toBe(true)
-    expect(t212IsCfdListed(T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'sui')!)).toBe(true)
+    expect(t212IsCfdListed(T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'sui')!)).toBe(false)
     expect(t212IsCfdListed(T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'bch')!)).toBe(true)
   })
 
@@ -66,7 +66,8 @@ describe('t212 watchlist + smt policy', () => {
     const symbols = t212CryptoAgentSymbols('USDC')
     expect(symbols).toContain('XRPUSDC')
     expect(symbols).toContain('BTCUSDC')
-    expect(symbols).toContain('INJUSDC')
+    expect(symbols).not.toContain('INJUSDC')
+    expect(symbols).not.toContain('JUPUSDC')
     expect(symbols.every((symbol) => symbol.endsWith('USDC'))).toBe(true)
   })
 })

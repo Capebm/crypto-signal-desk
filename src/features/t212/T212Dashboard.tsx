@@ -964,7 +964,7 @@ export default function T212Dashboard() {
 
       <details className="t212-watchlist-panel">
         <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
-        <p className="desk-sub">Crypto: Binance avalia → pesquisa na T212 o ticker da chip (MATIC, Cosmos, Jupiter — nunca POL/ATOM/JUP). Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
+        <p className="desk-sub">Crypto: só os CFDs que a T212 lista (BTC, ETH, SOL, XRP, MATIC, …). JUP/ATOM/INJ/SUI não são crypto CFD — JUP na pesquisa é um fundo. Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
         <div className="t212-watchlist-tools">
           <input
             type="search"

@@ -16,12 +16,22 @@ describe('T212 app search tickers', () => {
     expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'rty')).toBe(false)
   })
 
-  it('keeps catalog cryptos for Binance→T212 shorts', () => {
-    expect(t212IsCfdListed(instrumentById('inj')!)).toBe(true)
-    expect(resolveT212Watchlist(['inj']).some((item) => item.id === 'inj')).toBe(true)
-    expect(t212IsCfdListed(instrumentById('sui')!)).toBe(true)
-    expect(t212ExecuteTicker(instrumentById('atom')!)).toBe('Cosmos')
-    expect(t212ExecuteTicker(instrumentById('jup')!)).toBe('Jupiter')
+  it('only lists crypto CFDs that exist on Trading 212 search', () => {
+    expect(t212IsCfdListed(instrumentById('btc')!)).toBe(true)
+    expect(t212IsCfdListed(instrumentById('bch')!)).toBe(true)
+    expect(t212IsCfdListed(instrumentById('pol')!)).toBe(true)
+    expect(t212IsCfdListed(instrumentById('inj')!)).toBe(false)
+    expect(t212IsCfdListed(instrumentById('sui')!)).toBe(false)
+    expect(t212IsCfdListed(instrumentById('jup')!)).toBe(false)
+    expect(t212IsCfdListed(instrumentById('atom')!)).toBe(false)
+    expect(resolveT212Watchlist(['inj', 'jup', 'btc']).map((item) => item.id)).toEqual(
+      expect.arrayContaining(['btc']),
+    )
+    expect(resolveT212Watchlist(['inj', 'jup']).some((item) => item.id === 'inj' || item.id === 'jup')).toBe(false)
+    expect(t212ExecuteTicker(instrumentById('pol')!)).toBe('MATIC')
+    expect(T212_EXTRA_INSTRUMENTS.filter((item) => item.kind === 'crypto' && t212IsCfdListed(item)).length).toBe(
+      Object.keys(T212_CRYPTO_CFD_TICKER).length,
+    )
   })
 
   it('maps T212 app tickers the user can type in search', () => {
@@ -39,11 +49,5 @@ describe('T212 app search tickers', () => {
     expect(t212ExecuteTicker(instrumentById('platinum')!)).toBe('XPTUSD')
     expect(t212ExecuteTicker(instrumentById('palladium')!)).toBe('PALLADIUM')
     expect(T212_APP_TICKER.volx).toBe('VOLX')
-  })
-
-  it('keeps catalog cryptos as T212 short candidates', () => {
-    expect(t212IsCfdListed(instrumentById('bch')!)).toBe(true)
-    expect(t212IsCfdListed(instrumentById('btc')!)).toBe(true)
-    expect(T212_EXTRA_INSTRUMENTS.filter((item) => item.kind === 'crypto' && t212IsCfdListed(item)).length).toBeGreaterThanOrEqual(50)
   })
 })

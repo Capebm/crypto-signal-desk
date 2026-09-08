@@ -7,8 +7,9 @@
  * Commodities verificadas: CRUDE, NATGAS, COPPER, BRENT, PALLADIUM.
  * Metais forex: XAUUSD / XAGUSD (docs T212: Gold (XAUUSD); página XAGUSD).
  *   GOLD/SILVER na pesquisa = acções (Gold.com, mineiras) — não o metal.
- * Crypto com nome ≠ ticker: MATIC (não POL), Cosmos (ATOM = Atomera),
- * Jupiter (JUP = fundo LSE), RENDER.
+ * Crypto CFD verificadas (categoria Cryptocurrencies). POL na T212 = MATIC.
+ * ATOM/JUP ficam de fora: na pesquisa T212 são acções (Atomera / fundo LSE),
+ * não o crypto CFD — o utilizador confirmou "No crypto found" para Jupiter.
  *
  * Removidos por página inexistente (classe SWE30): SWE30, DXY, AUS200, US2000.
  */
@@ -39,19 +40,38 @@ export const T212_APP_TICKER: Record<string, string> = {
   palladium: 'PALLADIUM',
   copper: 'COPPER',
   pol: 'MATIC',
-  rndr: 'RENDER',
-  atom: 'Cosmos',
-  jup: 'Jupiter',
 }
 
-/** @deprecated use T212_APP_TICKER */
-export const T212_CRYPTO_CFD_TICKER: Record<string, string> = { pol: 'MATIC' }
+/** Crypto CFDs com página T212 /trading-instruments/cfd/{TICKER}. */
+export const T212_CRYPTO_CFD_TICKER: Record<string, string> = {
+  btc: 'BTC',
+  eth: 'ETH',
+  sol: 'SOL',
+  xrp: 'XRP',
+  doge: 'DOGE',
+  ada: 'ADA',
+  link: 'LINK',
+  avax: 'AVAX',
+  ltc: 'LTC',
+  bnb: 'BNB',
+  dot: 'DOT',
+  xlm: 'XLM',
+  trx: 'TRX',
+  shib: 'SHIB',
+  uni: 'UNI',
+  aave: 'AAVE',
+  algo: 'ALGO',
+  pol: 'MATIC',
+  etc: 'ETC',
+  bch: 'BCH',
+}
 
-export function t212IsCfdListed(_item: { id: string; kind: string }): boolean {
-  return true
+export function t212IsCfdListed(item: { id: string; kind: string }): boolean {
+  if (item.kind !== 'crypto') return true
+  return item.id in T212_CRYPTO_CFD_TICKER
 }
 
 /** Ticker a pesquisar na app T212 (conta CFD). Nunca strings compostas. */
 export function t212ExecuteTicker(item: { id: string; t212Search: string; short?: string }): string {
-  return T212_APP_TICKER[item.id] ?? item.t212Search
+  return T212_APP_TICKER[item.id] ?? T212_CRYPTO_CFD_TICKER[item.id] ?? item.t212Search
 }
