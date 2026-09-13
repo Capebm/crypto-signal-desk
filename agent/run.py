@@ -227,6 +227,52 @@ def set_checkbox(page, tab: str, label: str, want: bool, rep: Report, dry: bool)
         rep.add(tab, label, "FAIL", str(exc).splitlines()[0])
 
 
+def select_all_watchlist(page, tab: str, rep: Report, dry: bool) -> None:
+    """Turn on every extra in the watchlist.
+
+    "Selecionar todos" acts on whichever class filter is active -- under Crypto
+    it even relabels itself to "Selecionar Binance live" and only picks the
+    Binance-backed pairs. So the Todos filter has to be selected first for it to
+    mean all extras.
+    """
+    panel = page.locator("details.t212-watchlist-panel")
+    try:
+        if not panel.count():
+            rep.add(tab, "Watchlist", "FAIL", "watchlist panel not found")
+            return
+        panel = panel.first
+        if panel.get_attribute("open") is None:
+            panel.evaluate("(d) => { d.open = true; }")
+            page.wait_for_timeout(400)
+
+        todos = page.locator(".t212-kind-tabs button").filter(has_text="Todos")
+        if not todos.count():
+            rep.add(tab, "Watchlist", "FAIL", "class filter 'Todos' not found")
+            return
+        if dry:
+            rep.add(tab, "Watchlist", "DRY", "would select all extras")
+            return
+        if "active" not in (todos.first.get_attribute("class") or "").split():
+            todos.first.click()
+            page.wait_for_timeout(400)
+
+        count_span = page.locator(".t212-watchlist-actions span").first
+        before = count_span.inner_text().strip()
+
+        button = page.locator(".t212-watchlist-actions button").filter(
+            has_text="Selecionar todos"
+        )
+        if not button.count():
+            rep.add(tab, "Watchlist", "FAIL", "'Selecionar todos' button not found")
+            return
+        button.first.click()
+        page.wait_for_timeout(600)
+        after = count_span.inner_text().strip()
+        rep.add(tab, "Watchlist", "OK", f"{before} -> {after}")
+    except PWError as exc:
+        rep.add(tab, "Watchlist", "FAIL", str(exc).splitlines()[0])
+
+
 def run_scan(page, tab: str, wait_ms: int, rep: Report, dry: bool) -> None:
     """Click whichever trigger this tab is showing and wait for it to finish."""
     for selector, name in (
@@ -348,6 +394,8 @@ def main() -> int:
                         set_select(page, name, aria, want, rep, args.dry_run)
                     for label, want in tab.get("checkboxes", {}).items():
                         set_checkbox(page, name, label, bool(want), rep, args.dry_run)
+                    if tab.get("select_all_watchlist"):
+                        select_all_watchlist(page, name, rep, args.dry_run)
                     run_scan(
                         page, name, cfg.get("scan_wait_ms", 180000), rep, args.dry_run
                     )

@@ -19,6 +19,20 @@ app's internals, and it changes nothing in this repo.
 | T212 | Risco / TP / Dados | Agressivo · 1R · Twelve Data |
 | T212 | Malha larga / Todos setups | **on** |
 | T212 | CFD prático / Disciplina (toggle) | off |
+| Both | Alertas | **on** |
+| T212 | Watchlist extras | all selected (135 = 11 core + 124 extras) |
+
+`Selecionar todos` only means *all* extras while the watchlist's class filter is
+on **Todos**; under **Crypto** it relabels itself to `Selecionar Binance live`
+and picks only the Binance-backed pairs. The agent therefore selects the Todos
+filter first, then clicks it.
+
+**Alertas turns on the toggle, but no notification reaches you from a scheduled
+run.** They are browser notifications, delivered to the browser that raised them
+— on GitHub's runner that is a headless Chromium which is destroyed when the job
+ends. The toggle is set so the scan behaves identically to your own session; to
+actually be alerted, keep the desk open somewhere, or wire the scan results in
+`report.json` to a real notification channel.
 
 Estrito is applied **before** everything else on purpose: it is a preset that
 rewrites several toggles at once, so it has to land first or it would undo the
