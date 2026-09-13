@@ -1,0 +1,45 @@
+name: crypto-signal-desk scan
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub's scheduler can drift a few minutes under load.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what it sees without changing anything"
+        type: boolean
+        default: false
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r agent/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run the desk
+        run: python agent/run.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-${{ github.run_number }}
+          path: agent/out/
+          retention-days: 7
+          if-no-files-found: warn

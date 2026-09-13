@@ -1,0 +1,35 @@
+{
+  "url": "https://crypto-signal-desk.netlify.app",
+  "viewport": { "width": 1280, "height": 1800 },
+  "settle_ms": 2500,
+  "scan_wait_ms": 180000,
+  "tabs": [
+    {
+      "name": "Agente",
+      "presets": [],
+      "selects": {},
+      "checkboxes": {
+        "Long após H": false,
+        "Malha larga": true,
+        "Disciplina (toggle)": false,
+        "Evitar NY mid": false,
+        "Todos setups": true
+      }
+    },
+    {
+      "name": "T212",
+      "presets": ["Estrito"],
+      "selects": {
+        "Perfil de risco": "Agressivo",
+        "Modo TP": "1R",
+        "Fonte de dados": "Twelve Data"
+      },
+      "checkboxes": {
+        "Malha larga": true,
+        "CFD prático": false,
+        "Disciplina (toggle)": false,
+        "Todos setups": true
+      }
+    }
+  ]
+}
