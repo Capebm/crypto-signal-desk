@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { addAgentPin, AGENT_DEFAULT_PINS, agentPinSymbols, normalizeAgentBase, readAgentPins, removeAgentPin } from './agent-watchlist'
-import { mergeMarketLists } from './binance'
+import { isTokenizedEquityBase, mergeMarketLists } from './binance'
 
 const memory = new Map<string, string>()
 
@@ -48,5 +48,25 @@ describe('mergeMarketLists', () => {
       { symbol: 'PYTHUSDC', quoteVolume: 2, priceChangePercent: 1 },
     ]
     expect(mergeMarketLists(liquid, pinned).map((row) => row.symbol)).toEqual(['BTCUSDC', 'PYTHUSDC'])
+  })
+})
+
+describe('isTokenizedEquityBase', () => {
+  it('exclui acções tokenizadas da Binance (sufixo B)', () => {
+    for (const base of ['AAPLB', 'NVDAB', 'TSLAB', 'SPYB', 'MSTRB', 'QQQB', 'GOOGLB']) {
+      expect(isTokenizedEquityBase(base)).toBe(true)
+    }
+  })
+
+  it('não apanha cryptos legítimas que acabam em B', () => {
+    for (const base of ['BNB', 'ARB', 'SHIB', 'CKB', 'TRB', 'BB', 'YB', 'DGB', 'BEB']) {
+      expect(isTokenizedEquityBase(base)).toBe(false)
+    }
+  })
+
+  it('não apanha bases normais', () => {
+    for (const base of ['BTC', 'ETH', 'SOL', 'PYTH', 'RENDER']) {
+      expect(isTokenizedEquityBase(base)).toBe(false)
+    }
   })
 })

@@ -41,13 +41,33 @@ export async function get24hChange(symbol: string): Promise<number> {
   return Number(ticker.priceChangePercent)
 }
 
-const stableBases = new Set(['USDC', 'USDT', 'FDUSD', 'TUSD', 'USDP', 'DAI', 'BUSD', 'USDS', 'EUR', 'EURI'])
+const stableBases = new Set([
+  'USDC', 'USDT', 'FDUSD', 'TUSD', 'USDP', 'DAI', 'BUSD', 'USDS', 'EUR', 'EURI',
+  // Pegged a USD/EUR — não têm estrutura TJR (sem sweeps nem deslocação real).
+  'BFUSD', 'USDE', 'USD1', 'AEUR', 'RLUSD', 'XUSD', 'PYUSD', 'USDD', 'EURT',
+])
+
+/**
+ * Acções tokenizadas da Binance usam o sufixo B (AAPLB, NVDAB, TSLAB…).
+ * Não são crypto: seguem o horário da bolsa e ficam sem velas fora dele,
+ * o que envenena o scan 1h. Excluídas por padrão — menos, mas a sério.
+ */
+const tokenizedEquityPattern = /^[A-Z]{1,5}B$/
+
+/** Cryptos legítimas que acabam em B e NÃO podem cair no filtro acima. */
+const cryptoBasesEndingInB = new Set(['BNB', 'ARB', 'SHIB', 'CKB', 'TRB', 'BB', 'YB', 'DGB', 'BEB'])
+
+export const isTokenizedEquityBase = (base: string) =>
+  tokenizedEquityPattern.test(base) && !cryptoBasesEndingInB.has(base)
 
 const leveragedToken = (quote: QuoteAsset) => new RegExp(`(UP|DOWN|BULL|BEAR)${quote}$`)
 
 const eligibleSymbol = (symbol: string, quote: QuoteAsset) => {
   const base = symbol.replace(new RegExp(`${quote}$`), '')
-  return symbol.endsWith(quote) && !stableBases.has(base) && !leveragedToken(quote).test(symbol)
+  return symbol.endsWith(quote)
+    && !stableBases.has(base)
+    && !isTokenizedEquityBase(base)
+    && !leveragedToken(quote).test(symbol)
 }
 
 export async function getLiquidMarkets(limit = 50, quote: QuoteAsset = AGENT_QUOTE_ASSET): Promise<MarketTicker[]> {
