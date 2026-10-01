@@ -19,7 +19,20 @@ import {
   type SignalBucket,
   type StoredSignal,
 } from '../../lib/signal-log'
-import { DESK_OWNER_EMAIL, hasDeskSession, sendDeskMagicLink, signOutDesk, supabase } from '../../lib/supabase'
+import {
+  authErrorMessage,
+  DESK_OWNER_EMAIL,
+  hasDeskSession,
+  readPendingLogin,
+  sendDeskMagicLink,
+  signOutDesk,
+  supabase,
+  verifyDeskCode,
+  writePendingLogin,
+} from '../../lib/supabase'
+
+/** Evita pedir emails seguidos (o plano grátis só envia 2 por hora). */
+const RESEND_COOLDOWN_MS = 60_000
 
 /** Abaixo disto a expectancy ainda é ruído — não mudes regras com base nela. */
 const MIN_SAMPLE = 30
@@ -60,9 +73,12 @@ export default function SignalsDashboard() {
   const [dbState, setDbState] = useState<DbState>(() => (hasDeskSession() ? 'ok' : 'signed-out'))
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [email, setEmail] = useState(DESK_OWNER_EMAIL)
+  const [pendingLogin, setPendingLogin] = useState(readPendingLogin)
+  const [email, setEmail] = useState(() => pendingLogin?.email ?? DESK_OWNER_EMAIL)
   const [userEmail, setUserEmail] = useState<string>()
-  const [linkSent, setLinkSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [now, setNow] = useState(Date.now)
   const [settings, setSettings] = useState<RiskSettings>(readRiskSettings)
   const [pending, setPending] = useState(pendingSignalCount)
 
@@ -103,19 +119,54 @@ export default function SignalsDashboard() {
   const needsSetup = dbState !== 'ok'
   const stateText = DB_STATE_TEXT[dbState]
 
-  const sendLink = async () => {
+  const cooldownLeft = pendingLogin ? Math.max(0, RESEND_COOLDOWN_MS - (now - pendingLogin.sentAt)) : 0
+  useEffect(() => {
+    if (cooldownLeft <= 0) return
+    const timer = window.setTimeout(() => setNow(Date.now()), 1000)
+    return () => window.clearTimeout(timer)
+  }, [cooldownLeft, now])
+
+  const sendCode = async () => {
     setMessage('')
+    setAuthBusy(true)
     try {
       await sendDeskMagicLink(email)
-      setLinkSent(true)
+      const next = { email: email.trim().toLowerCase(), sentAt: Date.now() }
+      writePendingLogin(next)
+      setPendingLogin(next)
+      setNow(Date.now())
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Não foi possível enviar o link.')
+      setMessage(authErrorMessage(error))
+      // Rate limit: um código já enviado continua válido — mostra o campo do código.
+      if (/rate limit/i.test(error instanceof Error ? error.message : '')) {
+        setPendingLogin((current) => current ?? { email: email.trim().toLowerCase(), sentAt: 0 })
+      }
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const submitCode = async () => {
+    if (!pendingLogin) return
+    setMessage('')
+    setAuthBusy(true)
+    try {
+      await verifyDeskCode(pendingLogin.email, code)
+      writePendingLogin(undefined)
+      setPendingLogin(undefined)
+      setCode('')
+      await refresh()
+    } catch (error) {
+      setMessage(authErrorMessage(error))
+    } finally {
+      setAuthBusy(false)
     }
   }
 
   const signOut = async () => {
     await signOutDesk()
-    setLinkSent(false)
+    writePendingLogin(undefined)
+    setPendingLogin(undefined)
     await refresh()
   }
 
@@ -166,18 +217,56 @@ export default function SignalsDashboard() {
                 <p className="journal-muted">Ligado como <strong>{userEmail}</strong>. A sessão fica guardada neste dispositivo.</p>
                 <button type="button" className="ghost" onClick={() => void signOut()}>Sair</button>
               </div>
-            ) : linkSent ? (
-              <p className="journal-muted">
-                Link enviado para <strong>{email}</strong>. Abre-o <strong>neste dispositivo</strong> — voltas aqui já com sessão.
-              </p>
-            ) : (
+            ) : pendingLogin ? (
               <>
-                <p className="journal-muted">Entra com o teu email (link mágico, sem password). Só esta conta tem acesso aos dados.</p>
+                <p className="journal-muted">
+                  Enviámos um email para <strong>{pendingLogin.email}</strong>. Escreve aqui o <strong>código</strong> do email
+                  (na app do iPhone usa o código — o link abre no Safari, que tem sessão separada).
+                </p>
                 <form
                   className="signals-token-row"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    void sendLink()
+                    void submitCode()
+                  }}
+                >
+                  <input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9 ]*"
+                    maxLength={10}
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    placeholder="Código"
+                    aria-label="Código do email"
+                  />
+                  <button type="submit" disabled={authBusy || code.replace(/\D/g, '').length < 6}>Entrar</button>
+                </form>
+                <div className="signals-login-actions">
+                  <button type="button" className="ghost" disabled={authBusy || cooldownLeft > 0} onClick={() => void sendCode()}>
+                    {cooldownLeft > 0 ? `Reenviar (${Math.ceil(cooldownLeft / 1000)}s)` : 'Reenviar email'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      writePendingLogin(undefined)
+                      setPendingLogin(undefined)
+                      setMessage('')
+                    }}
+                  >
+                    Mudar email
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="journal-muted">Entra com o teu email: recebes um código (sem password). Só esta conta tem acesso aos dados.</p>
+                <form
+                  className="signals-token-row"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void sendCode()
                   }}
                 >
                   <input
@@ -187,8 +276,11 @@ export default function SignalsDashboard() {
                     onChange={(event) => setEmail(event.target.value)}
                     aria-label="Email"
                   />
-                  <button type="submit">Enviar link</button>
+                  <button type="submit" disabled={authBusy}>{authBusy ? 'A enviar…' : 'Enviar código'}</button>
                 </form>
+                <button type="button" className="ghost signals-have-code" onClick={() => setPendingLogin({ email: email.trim().toLowerCase(), sentAt: 0 })}>
+                  Já tenho um código
+                </button>
               </>
             )}
           </section>

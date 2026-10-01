@@ -1744,3 +1744,7 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 
 /* Sinais: 4 valores curtos cabem numa linha mesmo no telemóvel. */
 .signals-shell .journal-breakdown li { grid-template-columns: minmax(0, 1.4fr) .5fr .9fr .7fr !important; }
+
+.signals-login-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.signals-login-actions button, .signals-have-code { padding: 8px 12px; font-size: .8rem; }
+.signals-have-code { margin-top: 8px; }

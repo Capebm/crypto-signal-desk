@@ -45,6 +45,51 @@ export async function sendDeskMagicLink(email: string) {
   if (error) throw error
 }
 
+/**
+ * Código do email (6–8 dígitos). Necessário na web app do iPhone: o link abre no Safari,
+ * que tem armazenamento separado da app do ecrã principal — o código entra na própria app.
+ */
+export async function verifyDeskCode(email: string, code: string) {
+  const { error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: code.replace(/\D/g, ''),
+    type: 'email',
+  })
+  if (error) throw error
+}
+
+/** Mensagens do Supabase Auth em português. */
+export function authErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/rate limit/i.test(message)) return 'Limite de emails atingido (2 por hora no plano grátis). Usa o código do último email ou tenta daqui a 1 hora.'
+  if (/expired|invalid/i.test(message)) return 'Código inválido ou expirado. Usa o código do email mais recente.'
+  if (/signups not allowed/i.test(message)) return 'Este email não tem conta no Desk.'
+  return message || 'Falha no login.'
+}
+
+const PENDING_LOGIN_KEY = 'desk-pending-login-v1'
+
+/** Lembra o email/hora do último envio: a web app do iPhone pode recarregar ao trocar de app. */
+export function readPendingLogin(): { email: string; sentAt: number } | undefined {
+  try {
+    const raw = localStorage.getItem(PENDING_LOGIN_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as { email: string; sentAt: number }
+    return Date.now() - parsed.sentAt < 60 * 60_000 ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function writePendingLogin(value?: { email: string; sentAt: number }) {
+  try {
+    if (value) localStorage.setItem(PENDING_LOGIN_KEY, JSON.stringify(value))
+    else localStorage.removeItem(PENDING_LOGIN_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function signOutDesk() {
   await supabase.auth.signOut()
 }
