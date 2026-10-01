@@ -46,23 +46,27 @@ export async function sendDeskMagicLink(email: string) {
 }
 
 /**
- * Código do email (6–8 dígitos). Necessário na web app do iPhone: o link abre no Safari,
- * que tem armazenamento separado da app do ecrã principal — o código entra na própria app.
+ * Password: necessária na web app do iPhone. O link do email abre no Safari, que tem
+ * armazenamento separado da app do ecrã principal; e sem SMTP próprio o email não traz código.
  */
-export async function verifyDeskCode(email: string, code: string) {
-  const { error } = await supabase.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: code.replace(/\D/g, ''),
-    type: 'email',
-  })
+export async function signInDeskPassword(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
+  if (error) throw error
+}
+
+/** Define/muda a password da sessão actual (entrar uma vez por link num browser). */
+export async function setDeskPassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password })
   if (error) throw error
 }
 
 /** Mensagens do Supabase Auth em português. */
 export function authErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '')
-  if (/rate limit/i.test(message)) return 'Limite de emails atingido (2 por hora no plano grátis). Usa o código do último email ou tenta daqui a 1 hora.'
-  if (/expired|invalid/i.test(message)) return 'Código inválido ou expirado. Usa o código do email mais recente.'
+  if (/rate limit/i.test(message)) return 'Limite de emails atingido (2 por hora no plano grátis). Usa a password ou tenta daqui a 1 hora.'
+  if (/invalid login credentials/i.test(message)) return 'Email ou password errados. Sem password ainda? Entra pelo link num browser e define-a aqui.'
+  if (/at least|too short|weak/i.test(message)) return 'A password tem de ter pelo menos 8 caracteres.'
+  if (/different from the old/i.test(message)) return 'Essa já é a tua password.'
   if (/signups not allowed/i.test(message)) return 'Este email não tem conta no Desk.'
   return message || 'Falha no login.'
 }

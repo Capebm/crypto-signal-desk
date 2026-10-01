@@ -25,9 +25,10 @@ import {
   hasDeskSession,
   readPendingLogin,
   sendDeskMagicLink,
+  setDeskPassword,
+  signInDeskPassword,
   signOutDesk,
   supabase,
-  verifyDeskCode,
   writePendingLogin,
 } from '../../lib/supabase'
 
@@ -76,7 +77,8 @@ export default function SignalsDashboard() {
   const [pendingLogin, setPendingLogin] = useState(readPendingLogin)
   const [email, setEmail] = useState(() => pendingLogin?.email ?? DESK_OWNER_EMAIL)
   const [userEmail, setUserEmail] = useState<string>()
-  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
   const [now, setNow] = useState(Date.now)
   const [settings, setSettings] = useState<RiskSettings>(readRiskSettings)
@@ -126,7 +128,7 @@ export default function SignalsDashboard() {
     return () => window.clearTimeout(timer)
   }, [cooldownLeft, now])
 
-  const sendCode = async () => {
+  const sendLink = async () => {
     setMessage('')
     setAuthBusy(true)
     try {
@@ -135,27 +137,37 @@ export default function SignalsDashboard() {
       writePendingLogin(next)
       setPendingLogin(next)
       setNow(Date.now())
+      setMessage('Link enviado. Abre-o neste browser; depois define uma password para a app do iPhone.')
     } catch (error) {
       setMessage(authErrorMessage(error))
-      // Rate limit: um código já enviado continua válido — mostra o campo do código.
-      if (/rate limit/i.test(error instanceof Error ? error.message : '')) {
-        setPendingLogin((current) => current ?? { email: email.trim().toLowerCase(), sentAt: 0 })
-      }
     } finally {
       setAuthBusy(false)
     }
   }
 
-  const submitCode = async () => {
-    if (!pendingLogin) return
+  const signInPassword = async () => {
     setMessage('')
     setAuthBusy(true)
     try {
-      await verifyDeskCode(pendingLogin.email, code)
+      await signInDeskPassword(email, password)
+      setPassword('')
       writePendingLogin(undefined)
       setPendingLogin(undefined)
-      setCode('')
       await refresh()
+    } catch (error) {
+      setMessage(authErrorMessage(error))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const savePassword = async () => {
+    setMessage('')
+    setAuthBusy(true)
+    try {
+      await setDeskPassword(newPassword)
+      setNewPassword('')
+      setMessage('Password guardada. Na app do iPhone entra com o email e esta password.')
     } catch (error) {
       setMessage(authErrorMessage(error))
     } finally {
@@ -215,72 +227,60 @@ export default function SignalsDashboard() {
             {userEmail ? (
               <div className="signals-account">
                 <p className="journal-muted">Ligado como <strong>{userEmail}</strong>. A sessão fica guardada neste dispositivo.</p>
-                <button type="button" className="ghost" onClick={() => void signOut()}>Sair</button>
-              </div>
-            ) : pendingLogin ? (
-              <>
-                <p className="journal-muted">
-                  Enviámos um email para <strong>{pendingLogin.email}</strong>. Escreve aqui o <strong>código</strong> do email
-                  (na app do iPhone usa o código — o link abre no Safari, que tem sessão separada).
-                </p>
                 <form
                   className="signals-token-row"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    void submitCode()
+                    void savePassword()
                   }}
                 >
                   <input
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9 ]*"
-                    maxLength={10}
-                    value={code}
-                    onChange={(event) => setCode(event.target.value)}
-                    placeholder="Código"
-                    aria-label="Código do email"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="Nova password (iPhone)"
+                    aria-label="Nova password"
                   />
-                  <button type="submit" disabled={authBusy || code.replace(/\D/g, '').length < 6}>Entrar</button>
+                  <button type="submit" disabled={authBusy || newPassword.length < 8}>Guardar</button>
                 </form>
-                <div className="signals-login-actions">
-                  <button type="button" className="ghost" disabled={authBusy || cooldownLeft > 0} onClick={() => void sendCode()}>
-                    {cooldownLeft > 0 ? `Reenviar (${Math.ceil(cooldownLeft / 1000)}s)` : 'Reenviar email'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      writePendingLogin(undefined)
-                      setPendingLogin(undefined)
-                      setMessage('')
-                    }}
-                  >
-                    Mudar email
-                  </button>
-                </div>
-              </>
+                <p className="journal-muted signals-hint">Define uma password para entrar na app do ecrã principal do iPhone.</p>
+                <button type="button" className="ghost" onClick={() => void signOut()}>Sair</button>
+              </div>
             ) : (
               <>
-                <p className="journal-muted">Entra com o teu email: recebes um código (sem password). Só esta conta tem acesso aos dados.</p>
+                <p className="journal-muted">Entra com email e password. Só esta conta tem acesso aos dados.</p>
                 <form
-                  className="signals-token-row"
+                  className="signals-login-form"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    void sendCode()
+                    void signInPassword()
                   }}
                 >
                   <input
                     type="email"
-                    autoComplete="email"
+                    autoComplete="username"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     aria-label="Email"
                   />
-                  <button type="submit" disabled={authBusy}>{authBusy ? 'A enviar…' : 'Enviar código'}</button>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Password"
+                    aria-label="Password"
+                  />
+                  <button type="submit" disabled={authBusy || !password}>{authBusy ? 'A entrar…' : 'Entrar'}</button>
                 </form>
-                <button type="button" className="ghost signals-have-code" onClick={() => setPendingLogin({ email: email.trim().toLowerCase(), sentAt: 0 })}>
-                  Já tenho um código
-                </button>
+                <div className="signals-login-actions">
+                  <button type="button" className="ghost" disabled={authBusy || cooldownLeft > 0} onClick={() => void sendLink()}>
+                    {cooldownLeft > 0 ? `Link enviado (${Math.ceil(cooldownLeft / 1000)}s)` : 'Sem password? Enviar link por email'}
+                  </button>
+                </div>
+                <p className="journal-muted signals-hint">O link só funciona no browser (Safari/Chrome), não na app do ecrã principal.</p>
               </>
             )}
           </section>

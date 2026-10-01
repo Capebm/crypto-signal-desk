@@ -1748,3 +1748,18 @@ dt { color: var(--tv-text-muted); } dd { margin: 0; font-weight: 700; }
 .signals-login-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .signals-login-actions button, .signals-have-code { padding: 8px 12px; font-size: .8rem; }
 .signals-have-code { margin-top: 8px; }
+
+.signals-login-form { display: grid; gap: 8px; }
+.signals-login-form input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--tv-border);
+  border-radius: 4px;
+  background: var(--tv-bg-elevated);
+  color: var(--tv-text);
+  font: inherit;
+  font-size: 16px;
+}
+.signals-hint { margin: 6px 0 10px; font-size: .78rem; }
+.signals-account { display: grid; gap: 8px; justify-items: start; }
+.signals-account .signals-token-row { width: 100%; }
