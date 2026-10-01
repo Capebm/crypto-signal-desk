@@ -64,6 +64,13 @@ export const T212_CRYPTO_CFD_TICKER: Record<string, string> = {
   pol: 'MATIC',
   etc: 'ETC',
   bch: 'BCH',
+  // Confirmados no site T212 em 2026-10-01.
+  crv: 'CRV',
+  eos: 'EOS',
+  fil: 'FIL',
+  mana: 'MANA',
+  sand: 'SAND',
+  zec: 'ZEC',
 }
 
 export function t212IsCfdListed(item: { id: string; kind: string }): boolean {

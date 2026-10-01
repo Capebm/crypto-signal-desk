@@ -8,6 +8,8 @@ const ALIASES: Record<string, string[]> = {
   RNDR: ['RENDER', 'RNDR'],
   FET: ['FET', 'ASI'],
   ASI: ['FET', 'ASI'],
+  // EOS foi rebatizado Vaulta (A) na Binance.
+  EOS: ['EOS', 'A'],
 }
 
 export function t212CryptoBaseAliases(short: string): string[] {

@@ -98,7 +98,7 @@ const potentialPct = (row: AgentRow) => {
 }
 
 /** Top candidatos COMPRAR refinados automaticamente após scan (precisa 1m para COMPRAR JÁ). */
-const AUTO_REFINE_TOP = 80
+const AUTO_REFINE_TOP = 150
 
 export default function AgentDashboard() {
   const [rows, setRows] = useState<AgentRow[]>([])
