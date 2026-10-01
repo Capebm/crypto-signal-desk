@@ -45,6 +45,10 @@ import type { Direction, Interval } from '../../lib/types'
 import { useScreenWakeLock } from '../../lib/use-screen-wake-lock'
 import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import TpModeModal from './TpModeModal'
+import RiskWarningChips from '../../components/RiskWarningChips'
+import { readDeskRiskSnapshot, warningsFor } from '../../lib/desk-risk-context'
+import { entryWindowLocalLabel, readRiskSettings } from '../../lib/risk-rules'
+import { useSignalLogger, type LoggableSignal } from '../../lib/use-signal-logger'
 
 const TP_STORAGE_KEY = 'tjr-tp-mode'
 const RISK_KEY = 'tjr-risk-index'
@@ -147,7 +151,7 @@ export default function AgentDashboard() {
   const [session, setSession] = useState(() => getTradingSessionStatus(new Date(), { market: 'crypto' }))
   const [marketClocks, setMarketClocks] = useState(() => getMarketClocks())
   const [pinKey, setPinKey] = useState(0)
-  const [todayPnl, setTodayPnl] = useState(() => pnlForDay(getClosedTrades(), dayId(Date.now())))
+  const [todayPnl, setTodayPnl] = useState(() => pnlForDay(getClosedTrades().filter((t) => t.venue !== 't212'), dayId(Date.now())))
   const [regime, setRegime] = useState<MarketRegime>()
   const [alertBuyNow, setAlertBuyNow] = useState(() => alertsEnabled())
   const [presetId, setPresetId] = useState<AgentPresetId>(() => readActivePresetId())
@@ -210,7 +214,7 @@ export default function AgentDashboard() {
     const tick = () => {
       setSession(getTradingSessionStatus(new Date(), { market: 'crypto' }))
       setMarketClocks(getMarketClocks())
-      setTodayPnl(pnlForDay(getClosedTrades(), dayId(Date.now())))
+      setTodayPnl(pnlForDay(getClosedTrades().filter((t) => t.venue !== 't212'), dayId(Date.now())))
     }
     tick()
     const id = window.setInterval(tick, 30_000)
@@ -388,7 +392,7 @@ export default function AgentDashboard() {
             const candles1h = await getCandles(market.symbol, '1h')
             const decision = evaluateTjrQuick(market.symbol, candles1h, btc1h, riskProfile, tpMode, evalOptions, 'long')
             if (scanAllSetups) {
-              const scout = evaluateTjrQuick(market.symbol, candles1h, btc1h, 'agressivo', '1r', evalOptions, 'long')
+              const scout = evaluateTjrQuick(market.symbol, candles1h, btc1h, 'agressivo', '1_5r', evalOptions, 'long')
               if (
                 scout.action === 'COMPRAR'
                 || (scout.bias === 'bullish' && !scout.opposedSweep && scout.action === 'ESPERAR')
@@ -418,7 +422,7 @@ export default function AgentDashboard() {
       if (buyCandidates.length > 0) {
         setStatus(
           scanAllSetups
-            ? `Scan 1h ok · MTF + 9 combos risco×TP no top ${buyCandidates.length}…`
+            ? `Scan 1h ok · MTF + 6 combos risco×TP no top ${buyCandidates.length}…`
             : `Scan 1h ok · a refinar top ${buyCandidates.length} candidatos COMPRAR (1m/MTF)…`,
         )
         let buyNow = 0
@@ -456,10 +460,10 @@ export default function AgentDashboard() {
         const dropped = buyCandidates.length - buyNow - stillAguardar
         setStatus(
           buyNow > 0
-            ? `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ${scanAllSetups ? ' (melhor dos 9 setups)' : ''}. Expande o cartão.`
+            ? `${results.length} moedas · ${buyCandidates.length} refinadas · ${buyNow} COMPRAR JÁ${scanAllSetups ? ' (melhor dos 6 setups)' : ''}. Expande o cartão.`
             : stillAguardar > 0
               ? `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ · ${stillAguardar} Aguardar (falta BOS 1m).`
-              : `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ · 0 Aguardar${dropped > 0 ? ` · ${dropped} sem COMPRAR JÁ nas 9 combos` : ''}.`,
+              : `${results.length} moedas · ${buyCandidates.length} refinadas · 0 COMPRAR JÁ · 0 Aguardar${dropped > 0 ? ` · ${dropped} sem COMPRAR JÁ nas 6 combos` : ''}.`,
         )
       } else {
         const highSweepHeavy = sorted.filter((row) => row.opposedSweep || row.action === 'VENDER').length
@@ -477,6 +481,29 @@ export default function AgentDashboard() {
       setScanProgress(undefined)
     }
   }
+
+  const signalsToLog = useMemo<LoggableSignal[]>(
+    () => rows.filter(isEnterLongNow).map((row) => ({
+      venue: 'spot',
+      symbol: row.symbol,
+      base: resolveBase(row.symbol),
+      instrumentKind: 'crypto',
+      dataSymbol: `binance:${row.symbol}`,
+      side: 'long',
+      entry: row.entry,
+      stop: row.stop,
+      target: row.target,
+      riskReward: row.riskReward,
+      score: row.score,
+      profile: row.tradeSetup?.profile ?? riskProfile,
+      tpMode: row.tradeSetup?.tpMode ?? tpMode,
+    })),
+    [rows, riskProfile, tpMode],
+  )
+  useSignalLogger(signalsToLog)
+  const riskSnapshot = useMemo(() => readDeskRiskSnapshot(), [rows])
+  const riskSettings = useMemo(() => readRiskSettings(), [rows])
+  const dailyLossLimit = riskSettings.capital * riskSettings.dailyLossPct / 100
 
   const counts = {
     COMPRAR_JA: rows.filter((row) => isEnterLongNow(row)).length,
@@ -669,7 +696,7 @@ export default function AgentDashboard() {
                       <strong className={`timing-${row.entryTiming.toLowerCase()}`}>{tjrActionLabel(row)}</strong>
                       <small className="desk-sub">{row.setupStatus}{refinedSymbols.has(row.symbol) ? ' · MTF' : ''}</small>
                       {row.matchingSetups && row.matchingSetups.length > 0 && (
-                        <div className="setup-hit-row" title="Setups com COMPRAR JÁ ou AGUARDAR nos 9 combos">
+                        <div className="setup-hit-row" title="Setups com COMPRAR JÁ ou AGUARDAR nos 6 combos">
                           {row.matchingSetups.map((hit) => {
                             const isTrade = row.tradeSetup?.profile === hit.profile && row.tradeSetup?.tpMode === hit.tpMode
                             return (
@@ -688,6 +715,7 @@ export default function AgentDashboard() {
                           <span className="setup-hit current">{row.tradeSetup.label}</span>
                         </div>
                       )}
+                      {isEnterLongNow(row) && <RiskWarningChips warnings={warningsFor('spot', 'crypto', row.entry, riskSnapshot)} />}
                     </td>
                     <td>
                       {row.riskyHighLong ? (
@@ -798,22 +826,17 @@ export default function AgentDashboard() {
           <strong className={todayPnl.pnl >= 0 ? 'positive' : 'negative'}>
             {todayPnl.pnl >= 0 ? '+' : ''}{todayPnl.pnl.toFixed(2)}
           </strong>
-          <small>{AGENT_QUOTE_ASSET}</small>
+          <small>{todayPnl.trades} trades · limite −{dailyLossLimit.toFixed(2)}</small>
+        </article>
+        <article className={todayPnl.pnl <= -dailyLossLimit ? 'kpi-stop' : ''}>
+          <span>Risco/trade</span>
+          <strong>{riskSettings.riskPct}%</strong>
+          <small>≈ {(riskSettings.capital * riskSettings.riskPct / 100).toFixed(2)} no stop</small>
         </article>
         <article>
-          <span>Trades</span>
-          <strong>{todayPnl.trades}</strong>
-          <small>hoje</small>
-        </article>
-        <article>
-          <span>Risco</span>
+          <span>Perfil</span>
           <strong>{riskProfiles[riskProfile].label}</strong>
-          <small>perfil</small>
-        </article>
-        <article>
-          <span>TP</span>
-          <strong>{tpModeMeta[tpMode].short}</strong>
-          <small>alvo</small>
+          <small>TP {tpModeMeta[tpMode].short}</small>
         </article>
         <article className={session.inIdealWindow ? 'kpi-hot' : ''}>
           <span>Sessão</span>
@@ -943,7 +966,7 @@ export default function AgentDashboard() {
               />
               <span>Evitar NY mid</span>
             </label>
-            <label className="tv-setup-toggle" title="Testa 9 combos (3 riscos × 3 TPs).">
+            <label className="tv-setup-toggle" title="Testa 6 combos (3 riscos × 2 TPs).">
               <input
                 type="checkbox"
                 checked={scanAllSetups}
@@ -1023,8 +1046,8 @@ export default function AgentDashboard() {
           <h2>Encontra oportunidades em 3 passos</h2>
           <ol className="scan-onboarding-steps">
             <li><strong>Playbook:</strong> usa Prático para o dia a dia.</li>
-            <li><strong>Sessão:</strong> melhor qualidade na NY open ({marketClocks.windows.nyOpen.lisbon} PT).</li>
-            <li><strong>Decisão:</strong> só executa cartões COMPRAR JÁ; AGUARDAR não é entrada.</li>
+            <li><strong>Janela:</strong> {entryWindowLocalLabel()} (hora local) — a que deu resultado no teu diário. Fora dela o JÁ leva aviso.</li>
+            <li><strong>Decisão:</strong> só executa cartões COMPRAR JÁ; AGUARDAR não é entrada. Tamanho em «Auto · risco».</li>
           </ol>
           {nyClock && !session.inIdealWindow && (
             <p className="scan-empty-hint">Agora: <strong>{nyClock.status}</strong> · {session.badge}</p>
@@ -1090,7 +1113,7 @@ export default function AgentDashboard() {
           <p><strong>Playbooks:</strong> Prático = dia a dia (mais oportunidades). Disciplina = filtro apertado. Malha = rede larga. Toggles avançados ficam em Ajustes.</p>
           <p><strong>Risco ({riskProfiles[riskProfile].label}):</strong> {riskProfiles[riskProfile].description} — com Todos setups OFF, define o sinal da linha.</p>
           <p><strong>TP ({tpModeMeta[tpMode].label}):</strong> {tpModeMeta[tpMode].description}</p>
-          <p><strong>Todos setups:</strong> 3×3=9 combos (ligado no Prático/Malha). O sinal da linha é o melhor (JÁ &gt; Aguardar).</p>
+          <p><strong>Todos setups:</strong> 3×2=6 combos (ligado no Prático/Malha). O sinal da linha é o melhor (JÁ &gt; Aguardar).</p>
           <p><strong>Malha / Long após H / Evitar NY mid:</strong> em Ajustes — aplicam-se a todos os combos.</p>
           <p><strong>Montante:</strong> só no painel Binance ao abrir uma oportunidade. Não altera o scan TJR.</p>
         </div>

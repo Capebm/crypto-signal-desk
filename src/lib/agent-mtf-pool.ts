@@ -1,4 +1,4 @@
-/** Prático/Malha (9 setups, não Disciplina): mesmas regras práticas que o T212 crypto. */
+/** Prático/Malha (6 setups, não Disciplina): mesmas regras práticas que o T212 crypto. */
 export function agentUsesPracticalConfirm(tjrVideoStrict: boolean, scanAllSetups: boolean): boolean {
   return !tjrVideoStrict && scanAllSetups
 }

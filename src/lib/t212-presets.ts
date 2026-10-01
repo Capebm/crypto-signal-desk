@@ -29,7 +29,7 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, T212PresetMet
   pratico: {
     label: 'Prático',
     blurb: 'Mais direções · JÁ só após toque na zona e com espaço',
-    title: 'Prático · CFD flexível · 9 setups · entrada apenas na zona com liquidez livre',
+    title: 'Prático · CFD flexível · 6 setups · entrada apenas na zona com liquidez livre',
     config: {
       riskIndex: 1,
       tpMode: '1_5r',
@@ -71,7 +71,7 @@ export const T212_PRESETS: Record<Exclude<T212PresetId, 'custom'>, T212PresetMet
     title: 'Estrito · conservador · CFD prático off · sem malha',
     config: {
       riskIndex: 0,
-      tpMode: '1r',
+      tpMode: '1_5r',
       wideNet: false,
       cfdPractical: false,
       scanAllSetups: false,

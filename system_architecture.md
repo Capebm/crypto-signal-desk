@@ -30,6 +30,18 @@
 - Disciplina bloqueia feed ES/NQ inválido ou SMT fresh contrário ao trade.
 - Prático mostra feed/SMT como qualidade; não bloqueia oportunidades apenas por ausência de dados ES/NQ.
 
+## Risco (V3.1 · diário ago–set 2026)
+- R:R mínimo **1.5** em todos os perfis e modos (`MIN_RR_FLOOR`); o modo TP 1R foi retirado (1R a ~47% de acerto perdia após custos).
+- Avisos (não bloqueiam, ficam gravados no sinal): fora de 13:30–16:00 UTC · ação CFD · alt Spot < 1 $ · máx. posições abertas · limite de perda diária.
+- Stake «Auto · risco»: notional = capital × risco% ÷ distância do stop (Spot ≤ 1× capital, CFD ≤ 5×).
+
+## Sinais medidos (Supabase)
+- Cada JÁ (Agente/T212, sem CONFIRMAR LIVE) → tabela `signals` directamente do browser (supabase-js, chave publishable).
+- Acesso: login por link mágico; RLS só deixa a sessão de capebm@gmail.com ler/escrever as suas linhas (`is_desk_owner`).
+- Dedupe: ativo + lado + janela de 15 min. Fila local se a BD falhar.
+- Resolução com velas 5m depois do sinal: TP, SL, SL/TP na mesma vela = −1R (conservador), ou R no fecho às 48h.
+- Diário liga trades ao sinal mais próximo (≤ 2h depois, mesmo lado) → plano vs execução; `journal_trades` faz upsert por id.
+
 ## Preços
 - Stop = 2.º swing de execução com buffer ATR; Crypto só usa o clamp 3.5–8% se não houver ATR.
 - Alvo 1R/1.5R usa esse risco estrutural e nunca atravessa o draw oposto mais próximo.

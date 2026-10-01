@@ -1,6 +1,7 @@
 import { getTradingSessionStatus } from '../trading-session'
 import { t212ExecutionId, type T212Execution } from './t212-statement'
-import type { ClosedTrade } from './types'
+import { classifyAssetClass } from './asset-class'
+import type { ClosedTrade, TradeExitType } from './types'
 
 export type T212ClosedPosition = {
   positionId: string
@@ -15,6 +16,11 @@ export type T212ClosedPosition = {
   totalResult: number
   spread?: number
   overnight?: number
+  /** Ordem que fechou a posição (STOP LOSS / TAKE PROFIT / MARKET…). */
+  exitType?: TradeExitType
+  /** SL/TP anexados na abertura (mesmo que cancelados). */
+  plannedStop?: number
+  plannedTarget?: number
 }
 
 export type T212CsvParseResult = {
@@ -42,6 +48,7 @@ export function parseT212Csv(text: string): T212CsvParseResult {
 
   const executions: T212Execution[] = []
   const closedPositions: T212ClosedPosition[] = []
+  const orderPlans = new Map<string, { stop?: number; target?: number; exitType?: TradeExitType }>()
 
   for (const row of rows.slice(1)) {
     if (row.length < 2) continue
@@ -50,6 +57,16 @@ export function parseT212Csv(text: string): T212CsvParseResult {
     if (recordType === 'Order') {
       const status = get(row, 'Status').toUpperCase()
       const intent = get(row, 'Intent').toUpperCase()
+      const orderType = get(row, 'Order type').toUpperCase()
+      const orderPositionId = get(row, 'Position ID')
+      if (orderPositionId) {
+        const plan = orderPlans.get(orderPositionId) ?? {}
+        const target = Number(get(row, 'Target price (instrument currency)'))
+        if (orderType === 'STOP LOSS' && Number.isFinite(target) && target > 0) plan.stop = target
+        if (orderType === 'TAKE PROFIT' && Number.isFinite(target) && target > 0) plan.target = target
+        if (status === 'EXECUTED' && intent === 'CLOSE') plan.exitType = exitTypeFromOrder(orderType)
+        orderPlans.set(orderPositionId, plan)
+      }
       if (status !== 'EXECUTED') continue
       if (intent !== 'OPEN' && intent !== 'CLOSE') continue
       const symbol = get(row, 'Symbol').toUpperCase()
@@ -105,7 +122,21 @@ export function parseT212Csv(text: string): T212CsvParseResult {
     }
   }
 
+  for (const position of closedPositions) {
+    const plan = orderPlans.get(position.positionId)
+    position.plannedStop = plan?.stop
+    position.plannedTarget = plan?.target
+    position.exitType = plan?.exitType ?? 'manual'
+  }
+
   return rebuildT212FromCsv(closedPositions, executions)
+}
+
+function exitTypeFromOrder(orderType: string): TradeExitType {
+  if (orderType === 'STOP LOSS') return 'sl'
+  if (orderType === 'TAKE PROFIT') return 'tp'
+  if (orderType === 'TRAILING STOP') return 'trailing'
+  return 'manual'
 }
 
 /** Merge de vários CSVs: closed por Position ID + opens restantes. */
@@ -144,7 +175,10 @@ export function closedPositionToTrade(p: T212ClosedPosition): ClosedTrade {
   const entrySession = getTradingSessionStatus(new Date(p.openedAt), { market: 'cfd' })
   const exitSession = getTradingSessionStatus(new Date(p.closedAt), { market: 'cfd' })
   const cost = Math.abs(p.avgPrice * p.units)
-  const fees = Math.abs(p.overnight ?? 0) + Math.abs(p.spread ?? 0)
+  // A coluna Spread do CSV não é custo extra: já está nos preços (Result = units × Δpreço).
+  const overnight = p.overnight ?? 0
+  const fees = Math.abs(overnight)
+  const side = p.direction === 'Sell' ? 'short' : 'long'
   return {
     id: `t212-pos-${p.positionId}`,
     symbol: p.symbol,
@@ -163,8 +197,22 @@ export function closedPositionToTrade(p: T212ClosedPosition): ClosedTrade {
     exitSessionBadge: exitSession.badge,
     durationMs: p.closedAt - p.openedAt,
     venue: 't212',
-    side: p.direction === 'Sell' ? 'short' : 'long',
+    side,
+    assetClass: classifyAssetClass(p.symbol, 't212'),
+    exitType: p.exitType,
+    plannedStop: p.plannedStop,
+    plannedTarget: p.plannedTarget,
+    overnight,
+    realizedR: realizedR(side, p.avgPrice, p.closePrice, p.plannedStop),
   }
+}
+
+/** R realizado face ao stop planeado (sem stop válido → undefined). */
+export function realizedR(side: 'long' | 'short', entry: number, exit: number, stop?: number): number | undefined {
+  if (stop === undefined || !Number.isFinite(stop)) return undefined
+  const risk = side === 'long' ? entry - stop : stop - entry
+  if (!(risk > 0)) return undefined
+  return (side === 'long' ? exit - entry : entry - exit) / risk
 }
 
 function parseUtc(raw: string): number | undefined {

@@ -1,6 +1,11 @@
 export type TpMode = '1r' | '1_5r' | 'liquidez'
 
-export const tpModes: TpMode[] = ['1r', '1_5r', 'liquidez']
+/** '1r' fica só no tipo para ler presets antigos — nunca passa o piso de R:R 1.5. */
+export const tpModes: TpMode[] = ['1_5r', 'liquidez']
+
+export function normalizeTpMode(raw: string | null | undefined): TpMode {
+  return raw === 'liquidez' ? 'liquidez' : '1_5r'
+}
 
 export const tpModeMeta: Record<TpMode, { label: string; short: string; multiple?: number; description: string }> = {
   '1r': {

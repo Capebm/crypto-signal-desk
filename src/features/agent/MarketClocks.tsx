@@ -5,11 +5,14 @@ type Props = { snapshot: MarketClocksSnapshot; compact?: boolean }
 export default function MarketClocks({ snapshot, compact = false }: Props) {
   return (
     <section className={`market-clocks${compact ? ' compact' : ''}`} aria-label="Relógios dos mercados TJR">
-      <div className="market-clocks-local">
-        <span>Tu</span>
-        <strong>{snapshot.local.time}</strong>
-        {!compact && <small>{snapshot.local.label}</small>}
-      </div>
+      {/* Compacto: a hora local já está na toolbar — só os 3 mercados numa linha. */}
+      {!compact && (
+        <div className="market-clocks-local">
+          <span>Tu</span>
+          <strong>{snapshot.local.time}</strong>
+          <small>{snapshot.local.label}</small>
+        </div>
+      )}
       {snapshot.clocks.map((clock) => (
         <article
           key={clock.id}

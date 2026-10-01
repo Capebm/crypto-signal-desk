@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { CRYPTO_TAB_EVENT, type CryptoTab } from '../lib/crypto-tabs'
+import { CRYPTO_TAB_EVENT, isCryptoTab, type CryptoTab } from '../lib/crypto-tabs'
 import AppFooter from '../components/AppFooter'
 import AgentDashboard from './agent/AgentDashboard'
 import JournalDashboard from './journal/JournalDashboard'
 import PositionsDashboard from './positions/PositionsDashboard'
+import SignalsDashboard from './signals/SignalsDashboard'
 import T212Dashboard from './t212/T212Dashboard'
 
 const TAB_KEY = 'crypto-desk-tab'
@@ -11,9 +12,12 @@ const TAB_KEY = 'crypto-desk-tab'
 type Props = { onSwitchApp?: (app: 'garimpo' | 'crypto') => void }
 
 const readTab = (): CryptoTab => {
-  const saved = localStorage.getItem(TAB_KEY)
-  if (saved === 'journal' || saved === 't212' || saved === 'agent' || saved === 'positions') return saved
-  return 'agent'
+  try {
+    const saved = localStorage.getItem(TAB_KEY)
+    return isCryptoTab(saved) ? saved : 'agent'
+  } catch {
+    return 'agent'
+  }
 }
 
 export default function CryptoApp({ onSwitchApp }: Props) {
@@ -26,7 +30,7 @@ export default function CryptoApp({ onSwitchApp }: Props) {
   useEffect(() => {
     const onTab = (event: Event) => {
       const detail = (event as CustomEvent<CryptoTab>).detail
-      if (detail === 'agent' || detail === 'journal' || detail === 't212' || detail === 'positions') setTab(detail)
+      if (isCryptoTab(detail)) setTab(detail)
     }
     window.addEventListener(CRYPTO_TAB_EVENT, onTab)
     return () => window.removeEventListener(CRYPTO_TAB_EVENT, onTab)
@@ -69,6 +73,15 @@ export default function CryptoApp({ onSwitchApp }: Props) {
           </button>
           <button
             type="button"
+            className={tab === 'signals' ? 'active' : ''}
+            onClick={() => setTab('signals')}
+            title="Sinais medidos · TP/SL automático"
+          >
+            <span className="desk-rail-icon" aria-hidden>◉</span>
+            <span>Sinais</span>
+          </button>
+          <button
+            type="button"
             className={tab === 'journal' ? 'active' : ''}
             onClick={() => setTab('journal')}
             title="Diário"
@@ -92,6 +105,8 @@ export default function CryptoApp({ onSwitchApp }: Props) {
           <T212Dashboard />
         ) : tab === 'positions' ? (
           <PositionsDashboard />
+        ) : tab === 'signals' ? (
+          <SignalsDashboard />
         ) : (
           <JournalDashboard />
         )}

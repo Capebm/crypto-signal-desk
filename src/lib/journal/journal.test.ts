@@ -160,3 +160,36 @@ describe('collapseFifoFills', () => {
     expect(trades[0].entryPrice).toBeCloseTo(2.05, 8)
   })
 })
+
+describe('diagnoseJournal', () => {
+  it('flags stops > TPs, early manual exits and the losing asset class', async () => {
+    const { computeJournalStats, diagnoseJournal } = await import('./journal-stats')
+    const base = Date.UTC(2026, 8, 1, 17, 0)
+    const make = (i: number, pnl: number, exitType: 'tp' | 'sl' | 'manual', assetClass: 'stock' | 'forex') => ({
+      id: `t${i}`, symbol: 'X', base: 'X', entryTime: base + i * 3_600_000, exitTime: base + i * 3_600_000 + 60_000,
+      entryPrice: 1, exitPrice: 1, quantity: 1, pnlUsdc: pnl, pnlPct: 0, feesUsdc: 0,
+      entrySession: 'ny' as const, entrySessionBadge: '', exitSession: 'ny' as const, exitSessionBadge: '',
+      durationMs: 60_000, venue: 't212' as const, side: 'long' as const, exitType, assetClass,
+    })
+    const trades = [
+      ...Array.from({ length: 6 }, (_, i) => make(i, -3.5, 'sl', 'stock')),
+      ...Array.from({ length: 3 }, (_, i) => make(10 + i, 2.8, 'tp', 'forex')),
+      ...Array.from({ length: 3 }, (_, i) => make(20 + i, 0.5, 'manual', 'stock')),
+    ]
+    const texts = diagnoseJournal(computeJournalStats(trades), (v) => v.toFixed(2)).map((i) => i.text)
+    expect(texts.some((t) => t.startsWith('Stops: 6×'))).toBe(true)
+    expect(texts.some((t) => t.startsWith('Ganhos fechados à mão'))).toBe(true)
+    expect(texts.some((t) => t.startsWith('Ações'))).toBe(true)
+    expect(texts.some((t) => t.startsWith('Entradas fora'))).toBe(true)
+  })
+})
+
+describe('feeToUsdc', () => {
+  it('estimates BNB fees from notional instead of base price', async () => {
+    const { feeToUsdc } = await import('./round-trips')
+    const fill = { id: 'x', time: 0, symbol: 'NOMUSDC', side: 'SELL' as const, price: 0.002031, quantity: 16367, quoteAmount: 33.24, fee: 0.00000982, feeAsset: 'BNB' }
+    expect(feeToUsdc(fill)).toBeCloseTo(0.0249, 3)
+    expect(feeToUsdc({ ...fill, fee: 41.85, feeAsset: 'NOM', price: 0.002192 })).toBeCloseTo(0.0917, 3)
+    expect(feeToUsdc({ ...fill, fee: 0.033, feeAsset: 'USDC' })).toBe(0.033)
+  })
+})

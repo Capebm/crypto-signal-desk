@@ -43,4 +43,20 @@ Closed position,2026-08-07 10:00:00+00:00,EUR,Japan 225,JPN225,JPY,Buy,0.2772493
     expect(rebuilt.openExecutions).toHaveLength(0)
     expect(rebuilt.closedTrades[0].pnlUsdc).toBeCloseTo(0.49, 2)
   })
+
+  it('extracts exit type, planned SL/TP and ignores the Spread column as a fee', () => {
+    const csv = sampleCsv.replace(
+      'Order,2026-08-04 09:21:50+00:00,EUR,Germany 40,GER40,EUR,Sell,0.0038160500,POS55200123248,55200123249,TAKE PROFIT',
+      'Order,2026-08-04 09:21:50+00:00,EUR,Germany 40,GER40,EUR,Sell,0.0038160500,POS55200123248,55200123250,STOP LOSS,CLOSE,CANCELLED,2026-08-04 09:21:50+00:00,,,,,25227.4000000000,,,,,,,,,,,,,\nOrder,2026-08-04 09:21:50+00:00,EUR,Germany 40,GER40,EUR,Sell,0.0038160500,POS55200123248,55200123249,TAKE PROFIT',
+    )
+    const [trade] = parseT212Csv(csv).closedTrades
+    expect(trade.exitType).toBe('manual')
+    expect(trade.plannedStop).toBeCloseTo(25227.4)
+    expect(trade.plannedTarget).toBeCloseTo(27514.9)
+    expect(trade.feesUsdc).toBeCloseTo(0.02)
+    expect(trade.overnight).toBeCloseTo(-0.02)
+    expect(trade.assetClass).toBe('index')
+    expect(trade.realizedR).toBeCloseTo((26239.9 - 26205.1) / (26205.1 - 25227.4), 4)
+  })
 })
+

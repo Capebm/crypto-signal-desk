@@ -1,3 +1,4 @@
+import { ASSET_CLASS_LABEL } from './asset-class'
 import type { BucketStats, ClosedTrade, DayStats, EquityPoint, JournalStats, SessionStats, SymbolStats } from './types'
 
 export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const
@@ -50,7 +51,32 @@ const emptyStats = (): JournalStats => ({
   byProfile: {},
   byTpMode: {},
   byMesh: {},
+  byExitType: {},
+  byAssetClass: {},
+  byHourUtc: {},
+  overnightTotal: 0,
+  avgRealizedR: 0,
+  rTrades: 0,
+  avgManualWin: 0,
+  avgTpWin: 0,
+  linkedTrades: 0,
+  planFollowedPct: 0,
 })
+
+export const EXIT_TYPE_LABEL: Record<string, string> = {
+  tp: 'Take profit',
+  sl: 'Stop loss',
+  manual: 'Fecho manual',
+  trailing: 'Trailing stop',
+}
+
+/** Stop usado dentro de ±10% da distância do stop do sinal. */
+export function followedPlannedStop(trade: ClosedTrade, signalStop: number): boolean {
+  if (trade.plannedStop === undefined) return false
+  const plannedRisk = Math.abs(trade.entryPrice - signalStop)
+  if (!(plannedRisk > 0)) return false
+  return Math.abs(trade.plannedStop - signalStop) <= plannedRisk * 0.1
+}
 
 export function durationBucket(ms: number): (typeof DURATION_BUCKETS)[number] {
   if (ms < 15 * 60_000) return '< 15 min'
@@ -88,6 +114,18 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   const byProfile: Record<string, BucketStats> = {}
   const byTpMode: Record<string, BucketStats> = {}
   const byMesh: Record<string, BucketStats> = {}
+  const byExitType: Record<string, BucketStats> = {}
+  const byAssetClass: Record<string, BucketStats> = {}
+  const byHourUtc: Record<string, BucketStats> = {}
+  let overnightTotal = 0
+  let rSum = 0
+  let rTrades = 0
+  let manualWinSum = 0
+  let manualWins = 0
+  let tpWinSum = 0
+  let tpWins = 0
+  let linkedTrades = 0
+  let followed = 0
 
   const chronological = [...trades].sort((a, b) => a.exitTime - b.exitTime)
   const equityCurve: EquityPoint[] = []
@@ -159,6 +197,26 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     bump(byWeekday, WEEKDAY_LABELS[new Date(trade.exitTime).getDay()] ?? '—', trade)
     bump(byHour, `${String(new Date(trade.entryTime).getHours()).padStart(2, '0')}h`, trade)
     bump(byDuration, durationBucket(trade.durationMs), trade)
+    bump(byHourUtc, `${String(new Date(trade.entryTime).getUTCHours()).padStart(2, '0')}h UTC`, trade)
+    if (trade.assetClass) bump(byAssetClass, ASSET_CLASS_LABEL[trade.assetClass], trade)
+    if (trade.exitType) bump(byExitType, EXIT_TYPE_LABEL[trade.exitType] ?? trade.exitType, trade)
+    overnightTotal += trade.overnight ?? 0
+    if (trade.realizedR !== undefined && Number.isFinite(trade.realizedR)) {
+      rSum += trade.realizedR
+      rTrades += 1
+    }
+    if (trade.pnlUsdc > 0 && trade.exitType === 'manual') {
+      manualWinSum += trade.pnlUsdc
+      manualWins += 1
+    }
+    if (trade.pnlUsdc > 0 && trade.exitType === 'tp') {
+      tpWinSum += trade.pnlUsdc
+      tpWins += 1
+    }
+    if (trade.signalId) {
+      linkedTrades += 1
+      if (trade.planFollowed) followed += 1
+    }
 
     if (trade.signal) {
       signalTrades += 1
@@ -217,6 +275,16 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     byProfile,
     byTpMode,
     byMesh,
+    byExitType,
+    byAssetClass,
+    byHourUtc,
+    overnightTotal,
+    avgRealizedR: rTrades > 0 ? rSum / rTrades : 0,
+    rTrades,
+    avgManualWin: manualWins > 0 ? manualWinSum / manualWins : 0,
+    avgTpWin: tpWins > 0 ? tpWinSum / tpWins : 0,
+    linkedTrades,
+    planFollowedPct: linkedTrades > 0 ? (followed / linkedTrades) * 100 : 0,
   }
 }
 
@@ -280,4 +348,73 @@ export function weekStatsForMonth(
     }
   }
   return weeks
+}
+
+export type JournalInsight = { tone: 'bad' | 'warn' | 'ok'; text: string }
+
+/**
+ * Leituras automáticas do diário (as mesmas que revelaram os problemas de ago–set):
+ * stops vs TPs, ganhos cortados à mão, classe/horas que perdem, overnight e break-even.
+ */
+export function diagnoseJournal(stats: JournalStats, money: (value: number) => string): JournalInsight[] {
+  const insights: JournalInsight[] = []
+  if (stats.totalTrades < 10) return insights
+
+  const breakevenWr = stats.avgWinLossRatio > 0 && Number.isFinite(stats.avgWinLossRatio)
+    ? 100 / (1 + stats.avgWinLossRatio)
+    : undefined
+  if (breakevenWr !== undefined) {
+    insights.push({
+      tone: stats.winRate >= breakevenWr ? 'ok' : 'bad',
+      text: `Com ganho/perda médio de ${stats.avgWinLossRatio.toFixed(2).replace('.', ',')}, precisas de ${breakevenWr.toFixed(0)}% de acerto; tens ${stats.winRate.toFixed(0)}%.`,
+    })
+  }
+
+  const sl = stats.byExitType[EXIT_TYPE_LABEL.sl]
+  const tp = stats.byExitType[EXIT_TYPE_LABEL.tp]
+  if (sl && tp && Math.abs(sl.pnl) > tp.pnl) {
+    insights.push({
+      tone: 'bad',
+      text: `Stops: ${sl.trades}× = ${money(sl.pnl)} · Take profits: ${tp.trades}× = ${money(tp.pnl)}. Os stops comem mais do que os alvos dão.`,
+    })
+  }
+  if (stats.avgManualWin > 0 && stats.avgTpWin > 0 && stats.avgManualWin < stats.avgTpWin * 0.5) {
+    insights.push({
+      tone: 'warn',
+      text: `Ganhos fechados à mão: ${money(stats.avgManualWin)} em média contra ${money(stats.avgTpWin)} no TP. Deixa o OCO trabalhar ou faz parcial + break-even.`,
+    })
+  }
+
+  const losingClasses = Object.entries(stats.byAssetClass).filter(([, row]) => row.pnl < 0).sort(([, a], [, b]) => a.pnl - b.pnl)
+  if (losingClasses.length && stats.totalPnlUsdc < 0) {
+    const [name, row] = losingClasses[0]
+    const share = Math.abs(row.pnl / stats.totalPnlUsdc) * 100
+    if (share >= 50) {
+      const shareText = share >= 100 ? 'mais do que toda a perda — o resto deu lucro' : `${share.toFixed(0)}% da perda total`
+      insights.push({ tone: 'bad', text: `${name}: ${row.trades} trades, ${money(row.pnl)} (${shareText}).` })
+    }
+  }
+
+  let outsidePnl = 0
+  let outsideTrades = 0
+  for (const [key, row] of Object.entries(stats.byHourUtc)) {
+    const hour = Number(key.slice(0, 2))
+    if (hour < 13 || hour >= 16) {
+      outsidePnl += row.pnl
+      outsideTrades += row.trades
+    }
+  }
+  if (outsideTrades >= 5 && outsidePnl < 0) {
+    insights.push({ tone: 'warn', text: `Entradas fora de 13:30–16:00 UTC: ${outsideTrades} trades, ${money(outsidePnl)}.` })
+  }
+  if (stats.overnightTotal < 0 && Math.abs(stats.overnightTotal) >= Math.abs(stats.totalPnlUsdc) * 0.1) {
+    insights.push({ tone: 'warn', text: `Overnight custou ${money(stats.overnightTotal)}. Fecha os CFDs no próprio dia.` })
+  }
+  if (stats.linkedTrades > 0) {
+    insights.push({
+      tone: stats.planFollowedPct >= 80 ? 'ok' : 'warn',
+      text: `${stats.linkedTrades} trades ligados a sinais · ${stats.planFollowedPct.toFixed(0)}% respeitaram o stop do sinal.`,
+    })
+  }
+  return insights
 }

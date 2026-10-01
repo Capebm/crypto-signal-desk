@@ -16,7 +16,10 @@ import {
   writeT212PresetId,
   type T212PresetId,
 } from '../../lib/t212-presets'
-import { tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
+import { normalizeTpMode, tpModeMeta, tpModes, type TpMode } from '../../lib/tp-mode'
+import RiskWarningChips from '../../components/RiskWarningChips'
+import { readDeskRiskSnapshot, warningsFor } from '../../lib/desk-risk-context'
+import { useSignalLogger, type LoggableSignal } from '../../lib/use-signal-logger'
 import {
   evaluateTjrFull,
   formatSetupHitLabel,
@@ -112,11 +115,9 @@ export default function T212Dashboard() {
   })
   const [tpIndex, setTpIndex] = useState(() => {
     try {
-      const raw = localStorage.getItem(TP_KEY)
-      const idx = raw ? tpModes.indexOf(raw as TpMode) : 1
-      return idx >= 0 ? idx : 1
+      return tpModes.indexOf(normalizeTpMode(localStorage.getItem(TP_KEY)))
     } catch {
-      return 1
+      return 0
     }
   })
   const [scanAllSetups, setScanAllSetups] = useState(() => readBool(ALL_SETUPS_KEY, true))
@@ -549,7 +550,7 @@ export default function T212Dashboard() {
               indexRefPack = data
             }
             if (refInstrument.kind === 'crypto' && !cryptoRefPack) cryptoRefPack = data
-            // Fase 1: 1 eval (rápido). Os 9 setups vêm depois, em cache.
+            // Fase 1: 1 eval (rápido). Os 6 setups vêm depois, em cache.
             results.push(buildRow(refInstrument, data, refFor(refInstrument, data), esNq, { allSetups: false }))
             done += 1
             publish(results, done, `OK · ${refInstrument.short} · ${done}/${total}${esNq?.smt.fresh ? ` · SMT ${esNq.smt.direction}` : ''}`)
@@ -579,10 +580,10 @@ export default function T212Dashboard() {
         }
       })
 
-      // Fase 2: expandir 9 setups em memória (sem novas calls) — mais oportunidades, sem atrasar o fetch.
+      // Fase 2: expandir 6 setups em memória (sem novas calls) — mais oportunidades, sem atrasar o fetch.
       if (scanAllSetups && results.length > 0) {
-        setScanProgress({ pct: 92, label: `9 setups · ${results.length} símbolos…` })
-        setStatus(`A expandir 9 setups (cache) · ${results.length}…`)
+        setScanProgress({ pct: 92, label: `6 setups · ${results.length} símbolos…` })
+        setStatus(`A expandir 6 setups (cache) · ${results.length}…`)
         for (let index = 0; index < results.length; index += 1) {
           const row = results[index]
           const data = packById.get(row.instrument.id)
@@ -591,10 +592,10 @@ export default function T212Dashboard() {
             results[index] = buildRow(row.instrument, data, refFor(row.instrument, data), esNq, { allSetups: true })
           } catch {
             // Mantém a avaliação rápida deste instrumento; nunca apaga resultados já obtidos.
-            failed.push(`${row.instrument.short} (9 setups)`)
+            failed.push(`${row.instrument.short} (6 setups)`)
           }
           if (index % 4 === 3 || index === results.length - 1) {
-            publish(results, total, `9 setups · ${index + 1}/${results.length}`)
+            publish(results, total, `6 setups · ${index + 1}/${results.length}`)
             await new Promise((resolve) => setTimeout(resolve, 0))
           }
         }
@@ -645,10 +646,10 @@ export default function T212Dashboard() {
         : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 9 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 6 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
           : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`,
       )
-      // Não esconder linhas quando a fase dos 9 setups termina.
+      // Não esconder linhas quando a fase dos 6 setups termina.
       // Os contadores permitem ao utilizador filtrar LONG/SHORT manualmente.
       setFilter('TODAS')
     } catch (error) {
@@ -673,6 +674,30 @@ export default function T212Dashboard() {
     // Só ao abrir o separador — scan só com «Aplicar + scan».
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const isActionableNow = (row: T212Row) => (isBuyNow(row) || isSellNow(row)) && !row.liveConfirmationRequired
+  const signalsToLog = useMemo<LoggableSignal[]>(
+    () => rows.filter(isActionableNow).map((row) => ({
+      venue: 't212',
+      symbol: t212ExecuteTicker(row.instrument),
+      base: row.instrument.short,
+      instrumentKind: row.instrument.kind,
+      // Crypto CFD resolve com velas Binance (mesma fonte do scan); resto via Yahoo.
+      dataSymbol: row.instrument.kind === 'crypto' ? `binance-t212:${row.instrument.short}` : `yahoo:${row.instrument.yahooSymbol}`,
+      side: isSellNow(row) ? 'short' : 'long',
+      entry: row.entry,
+      stop: row.stop,
+      target: row.target,
+      riskReward: row.riskReward,
+      score: row.score,
+      profile: row.tradeSetup?.profile ?? riskProfile,
+      tpMode: row.tradeSetup?.tpMode ?? tpMode,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, riskProfile, tpMode],
+  )
+  useSignalLogger(signalsToLog)
+  const riskSnapshot = useMemo(() => readDeskRiskSnapshot(), [rows])
 
   const counts = useMemo(() => ({
     COMPRAR_JA: rows.filter(isBuyNow).length,
@@ -853,7 +878,7 @@ export default function T212Dashboard() {
         <article>
           <span>Instrumentos</span>
           <strong>{rows.length || watchlist.length}</strong>
-          <small>{scanAllSetups ? '× 9 setups' : `${watchlist.length} ativos`}</small>
+          <small>{scanAllSetups ? '× 6 setups' : `${watchlist.length} ativos`}</small>
         </article>
         <article>
           <span>Risco</span>
@@ -954,7 +979,7 @@ export default function T212Dashboard() {
               <input type="checkbox" checked={tjrVideoStrict} onChange={(event) => setTjrVideoStrict(event.target.checked)} />
               <span>Disciplina (toggle)</span>
             </label>
-            <label className="tv-setup-toggle" title="Testa 9 combos (3 riscos × 3 TPs).">
+            <label className="tv-setup-toggle" title="Testa 6 combos (3 riscos × 2 TPs).">
               <input type="checkbox" checked={scanAllSetups} onChange={(event) => setScanAllSetups(event.target.checked)} />
               <span>Todos setups</span>
             </label>
@@ -1163,6 +1188,9 @@ export default function T212Dashboard() {
                                 )
                               })}
                             </div>
+                          )}
+                          {isActionableNow(row) && (
+                            <RiskWarningChips warnings={warningsFor('t212', row.instrument.kind, row.entry, riskSnapshot)} />
                           )}
                         </td>
                         <td>

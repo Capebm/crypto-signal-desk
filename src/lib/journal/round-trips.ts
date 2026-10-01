@@ -10,9 +10,15 @@ type Lot = {
   feeUsdc: number
 }
 
-const feeToUsdc = (fill: BinanceFill) => {
+/** Taxa spot com desconto BNB (0,1% × 0,75). O CSV não traz o preço do BNB. */
+const BNB_FEE_RATE = 0.00075
+
+export const feeToUsdc = (fill: BinanceFill) => {
   if (!fill.fee || fill.fee <= 0) return 0
   if (!fill.feeAsset || fill.feeAsset === AGENT_QUOTE_ASSET || fill.feeAsset === 'USDT') return fill.fee
+  // Fee em BNB: fee × preço do par daria ~0 (BNB ≠ ativo negociado) → estima pelo notional.
+  if (fill.feeAsset === 'BNB' && !fill.symbol.startsWith('BNB')) return fill.quoteAmount * BNB_FEE_RATE
+  // Fee no ativo base (ex. CGPT na compra) → converte ao preço do fill.
   return fill.fee * fill.price
 }
 
@@ -87,6 +93,7 @@ export function buildClosedTrades(fills: BinanceFill[]): ClosedTrade[] {
           durationMs: fill.time - lot.time,
           venue: 'spot',
           side: 'long',
+          assetClass: 'crypto',
         })
 
         remaining -= matchedQty

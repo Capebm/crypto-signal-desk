@@ -5,10 +5,13 @@ import type { T212Instrument } from '../../lib/yahoo-market'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 import { buildT212LivePrintPaste } from '../../lib/t212-live-confirm'
 import type { Candle, Interval } from '../../lib/types'
+import { readStakeChoice, resolveStake, writeStakeChoice, type StakeChoice } from '../../lib/risk-rules'
 import T212LivePrintMock from './T212LivePrintMock'
 
-const STAKE_KEY = 't212-stake-eur'
+const STAKE_KEY = 't212-stake-choice'
 const STAKE_OPTIONS = [20, 50, 100, 200] as const
+/** CFD: o tamanho auto nunca passa de 5× o capital. */
+const T212_MAX_LEVERAGE = 5
 
 type Props = {
   instrument: T212Instrument
@@ -27,28 +30,14 @@ const fmt = (value?: number, digits = 2) => {
   return value.toFixed(8)
 }
 
-const readStakeIndex = () => {
-  try {
-    const raw = Number(localStorage.getItem(STAKE_KEY))
-    return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
-  } catch {
-    return 1
-  }
-}
-
 export default function T212TradeGuide({ instrument, decision, onConfirmLive, staleHint, loadCandles }: Props) {
-  const [stakeIndex, setStakeIndex] = useState(readStakeIndex)
+  const [stakeChoice, setStakeChoice] = useState<StakeChoice>(() => readStakeChoice(STAKE_KEY))
   const [confirmed5m, setConfirmed5m] = useState(false)
   const [confirmed1m, setConfirmed1m] = useState(false)
   const [livePriceText, setLivePriceText] = useState('')
-  const stakeEur = STAKE_OPTIONS[stakeIndex]
-  useEffect(() => {
-    try {
-      localStorage.setItem(STAKE_KEY, String(stakeIndex))
-    } catch {
-      /* ignore */
-    }
-  }, [stakeIndex])
+  const stake = resolveStake(stakeChoice, decision.entry, decision.stop, T212_MAX_LEVERAGE)
+  const stakeEur = stake.amount
+  useEffect(() => writeStakeChoice(STAKE_KEY, stakeChoice), [stakeChoice])
   useEffect(() => {
     setConfirmed5m(false)
     setConfirmed1m(false)
@@ -131,11 +120,12 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive, st
             <span>Stake €</span>
             <select
               aria-label="Stake euros"
-              value={stakeIndex}
-              onChange={(event) => setStakeIndex(Number(event.target.value))}
+              value={String(stakeChoice)}
+              onChange={(event) => setStakeChoice(event.target.value === 'auto' ? 'auto' : Number(event.target.value))}
             >
-              {STAKE_OPTIONS.map((value, index) => (
-                <option key={value} value={index}>{value} €</option>
+              <option value="auto">Auto · risco</option>
+              {STAKE_OPTIONS.map((value) => (
+                <option key={value} value={value}>{value} €</option>
               ))}
             </select>
           </label>
@@ -259,6 +249,7 @@ export default function T212TradeGuide({ instrument, decision, onConfirmLive, st
           {riskPct !== undefined && (
             <p className="desk-sub">
               R:R {decision.riskReward?.toFixed(1) ?? '—'}× · stop ≈ {riskPct.toFixed(2)}% · stake ~{stakeEur} €
+              {stake.riskAmount !== undefined ? ` · perdes ~${stake.riskAmount.toFixed(2).replace('.', ',')} € no stop` : ''}
               {enterReady ? ' · Compra/venda agora + OCO no ticket.' : ' · OCO: Stop Loss + Take Profit no mesmo ticket T212.'}
             </p>
           )}

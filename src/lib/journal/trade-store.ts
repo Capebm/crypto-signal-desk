@@ -1,7 +1,7 @@
 import type { TradeSignalMeta } from '../trade-signal-meta'
 import { dedupeFillsByFingerprint, fillFingerprint } from './binance-csv'
 import { buildClosedTrades } from './round-trips'
-import { rebuildT212FromCsv, type T212ClosedPosition } from './t212-csv'
+import { closedPositionToTrade, rebuildT212FromCsv, type T212ClosedPosition } from './t212-csv'
 import { dedupeExecutions, type T212Execution } from './t212-statement'
 import type { ClosedTrade, JournalBackup, JournalStore, TradeVenue } from './types'
 import type { BinanceFill } from './types'
@@ -94,7 +94,12 @@ function getClosedTradesFromStore(store: JournalStore): ClosedTrade[] {
     side: sideFromStore(trade, store),
     signal: store.signalByTradeId?.[trade.id],
   }))
-  const external = (store.externalTrades ?? []).map((trade) => ({
+  // T212 é sempre re-derivado do ledger: correções do parser (fees, tipo de saída) aplicam-se sem reimportar.
+  const positions = new Map((store.t212ClosedPositions ?? []).map((p) => [`t212-pos-${p.positionId}`, p]))
+  const external = (store.externalTrades ?? []).map((stored) => {
+    const position = stored.venue === 't212' ? positions.get(stored.id) : undefined
+    return position ? { ...stored, ...closedPositionToTrade(position) } : stored
+  }).map((trade) => ({
     ...trade,
     venue: trade.venue ?? 't212',
     side: sideFromStore({ ...trade, venue: trade.venue ?? 't212' }, store),

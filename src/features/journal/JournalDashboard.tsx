@@ -1,11 +1,17 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AGENT_QUOTE_ASSET, formatTradingPair } from '../../lib/binance'
 import { parseBinanceCsv } from '../../lib/journal/binance-csv'
 import { parseT212Csv } from '../../lib/journal/t212-csv'
+import { ASSET_CLASS_LABEL } from '../../lib/journal/asset-class'
+import { linkTradesToSignals, syncJournalTrades } from '../../lib/journal/signal-link'
+import { readSignalCache, refreshSignals } from '../../lib/signal-log'
+import { hasDeskSession } from '../../lib/supabase'
 import {
   computeJournalStats,
   dayId,
+  diagnoseJournal,
   DURATION_BUCKETS,
+  EXIT_TYPE_LABEL,
   formatDayLabel,
   formatDuration,
   pnlForDay,
@@ -29,12 +35,15 @@ import { signalMetaLabel } from '../../lib/trade-signal-meta'
 
 type VenueFilter = 'all' | TradeVenue
 
+/** Sem venue (vista "Todos" com EUR+USDC misturados) → número sem símbolo de moeda. */
 const money = (value: number, venue?: TradeVenue) =>
-  new Intl.NumberFormat('pt-PT', {
-    style: 'currency',
-    currency: venue === 't212' ? 'EUR' : 'USD',
-    maximumFractionDigits: 2,
-  }).format(value)
+  venue
+    ? new Intl.NumberFormat('pt-PT', {
+      style: 'currency',
+      currency: venue === 't212' ? 'EUR' : 'USD',
+      maximumFractionDigits: 2,
+    }).format(value)
+    : new Intl.NumberFormat('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(value)
 
 const price = (value: number) =>
   new Intl.NumberFormat('pt-PT', { maximumFractionDigits: value < 1 ? 5 : 2 }).format(value)
@@ -64,11 +73,17 @@ export default function JournalDashboard() {
   const [manualQty, setManualQty] = useState('')
   const [manualFees, setManualFees] = useState('')
 
-  const allTrades = useMemo(() => getClosedTrades(), [store])
-  const trades = useMemo(() => {
-    const filtered = venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)
-    return collapseFifoFills(filtered)
-  }, [allTrades, venueFilter])
+  const [signalCache, setSignalCache] = useState(() => readSignalCache().signals)
+  const [syncing, setSyncing] = useState(false)
+  // Liga cada trade ao sinal registado (plano vs execução); sem sinais fica igual.
+  const allTrades = useMemo(
+    () => linkTradesToSignals(collapseFifoFills(getClosedTrades()), signalCache),
+    [store, signalCache],
+  )
+  const trades = useMemo(
+    () => (venueFilter === 'all' ? allTrades : allTrades.filter((t) => t.venue === venueFilter)),
+    [allTrades, venueFilter],
+  )
   const moneyOpts = venueFilter === 't212' ? 't212' as const : venueFilter === 'spot' ? 'spot' as const : undefined
   const stats = useMemo(() => computeJournalStats(trades), [trades])
   const todayKey = dayId(Date.now())
@@ -85,6 +100,41 @@ export default function JournalDashboard() {
     .sort(([, a], [, b]) => a.pnl - b.pnl)
     .slice(0, 8)
 
+  const syncWithDb = async (reason?: string) => {
+    if (!hasDeskSession()) {
+      setImportMsg(`${reason ? `${reason} · ` : ''}Sem sessão — entra com o teu email na tab Sinais para guardar o diário na BD.`)
+      return
+    }
+    setSyncing(true)
+    try {
+      const { signals } = await refreshSignals()
+      setSignalCache(signals)
+      const linked = linkTradesToSignals(collapseFifoFills(getClosedTrades()), signals)
+      const sent = await syncJournalTrades(linked)
+      setImportMsg(`${reason ? `${reason} · ` : ''}BD: ${sent} trades guardados · ${linked.filter((t) => t.signalId).length} ligados a sinais.`)
+    } catch (error) {
+      setImportMsg(`${reason ? `${reason} · ` : ''}${error instanceof Error ? error.message : 'Falha a sincronizar com a BD.'}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  useEffect(() => {
+    // Ao abrir: actualiza sinais (para ligações) sem bloquear o diário local.
+    if (!hasDeskSession()) return
+    refreshSignals().then(({ signals }) => setSignalCache(signals)).catch(() => undefined)
+  }, [])
+
+  // Spot (USDC) e T212 (EUR) não se misturam: em "Todos" o diagnóstico sai por venue.
+  const insights = useMemo(() => {
+    if (venueFilter !== 'all') return diagnoseJournal(stats, (value) => money(value, venueFilter))
+    return (['t212', 'spot'] as const).flatMap((venue) => {
+      const venueStats = computeJournalStats(trades.filter((t) => t.venue === venue))
+      const label = venue === 't212' ? 'T212' : 'Spot'
+      return diagnoseJournal(venueStats, (value) => money(value, venue)).map((insight) => ({ ...insight, text: `${label} · ${insight.text}` }))
+    })
+  }, [stats, trades, venueFilter])
+
   const onImport = async (file: File) => {
     const text = await file.text()
     const fills = parseBinanceCsv(text)
@@ -94,7 +144,9 @@ export default function JournalDashboard() {
     }
     const result = importFills(fills)
     setStore(result.store)
-    setImportMsg(`${result.added} fills novos · ${result.trades.length} round-trips fechados no total.`)
+    const summary = `${result.added} fills novos · ${result.trades.length} round-trips fechados no total.`
+    setImportMsg(summary)
+    if (hasDeskSession()) void syncWithDb(summary)
   }
 
   const onT212Csv = async (file: File) => {
@@ -115,10 +167,10 @@ export default function JournalDashboard() {
         closedPositions: parsed.closedPositions,
       })
       setStore(result.store)
-      setImportMsg(
-        `T212: +${result.addedClosed} fechados · +${result.addedExecutions} execuções · ` +
-          `${result.closedCount} no histórico · ${result.openCount} abertas`,
-      )
+      const summary = `T212: +${result.addedClosed} fechados · +${result.addedExecutions} execuções · ` +
+        `${result.closedCount} no histórico · ${result.openCount} abertas`
+      setImportMsg(summary)
+      if (hasDeskSession()) void syncWithDb(summary)
     } catch (err) {
       setImportMsg(err instanceof Error ? err.message : 'Falha ao ler o CSV T212.')
     }
@@ -150,7 +202,7 @@ export default function JournalDashboard() {
           <p className="eyebrow">DIÁRIO TJR</p>
           <h1>O teu histórico de trades</h1>
           <p>
-            Dados no browser (localStorage). Faz backup JSON para não perderes nada ao mudar de PC ou limpar cache.
+            Importa os CSVs da Binance e do T212. Com a BD ligada (tab Sinais), cada import fica guardado no Supabase e ligado aos sinais.
           </p>
         </div>
         <div className="journal-header-actions">
@@ -200,6 +252,9 @@ export default function JournalDashboard() {
           <details className="journal-action-menu secondary">
             <summary>Dados e backup</summary>
             <div>
+              <button type="button" onClick={() => void syncWithDb()} disabled={syncing}>
+                {syncing ? 'A sincronizar…' : 'Sincronizar BD'}
+              </button>
               <button type="button" className="ghost" onClick={() => downloadJournalBackup()}>Backup JSON</button>
               <button type="button" className="ghost" onClick={() => backupRef.current?.click()}>Restaurar</button>
               {(store.fills.length > 0 ||
@@ -226,9 +281,8 @@ export default function JournalDashboard() {
       </header>
 
       <section className="journal-import-help">
-        <strong>Persistência:</strong> localStorage + <strong>Backup JSON</strong>. Spot: CSV Binance.
-        T212: <strong>T212 CSV</strong> (History → Export CSV). Cada ficheiro faz merge por Position ID;
-        reimporta exports posteriores para fechar abertas e crescer o histórico.
+        {hasDeskSession() ? <><strong>BD ligada.</strong> Imports sincronizam sozinhos.</> : <><strong>Só local.</strong> Liga a BD na tab Sinais.</>}
+        {' '}T212: reimporta exports posteriores para fechar abertas (merge por Position ID).
         {(store.t212ClosedPositions?.length ?? store.t212Executions?.length ?? 0) > 0 && (
           <span>
             {' '}
@@ -337,6 +391,16 @@ export default function JournalDashboard() {
         </section>
       ) : (
         <>
+          {insights.length > 0 && (
+            <section className="journal-panel journal-insights" aria-label="Diagnóstico">
+              <h2>Diagnóstico</h2>
+              <ul>
+                {insights.map((insight) => (
+                  <li key={insight.text} className={`insight-${insight.tone}`}>{insight.text}</li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="journal-kpis">
             {venueFilter === 'all' ? (
               <>
@@ -388,6 +452,27 @@ export default function JournalDashboard() {
               <strong className={stats.expectancy >= 0 ? 'positive' : 'negative'}>{money(stats.expectancy, moneyOpts)}</strong>
               <small>por trade</small>
             </article>
+          </section>
+          <details className="journal-more-kpis">
+            <summary>Mais métricas</summary>
+          <section className="journal-kpis">
+            <article>
+              <span>R realizado</span>
+              <strong className={stats.avgRealizedR >= 0 ? 'positive' : 'negative'}>
+                {stats.rTrades > 0 ? `${stats.avgRealizedR >= 0 ? '+' : ''}${stats.avgRealizedR.toFixed(2)}R` : '—'}
+              </strong>
+              <small>{stats.rTrades} trades com stop</small>
+            </article>
+            <article>
+              <span>Plano seguido</span>
+              <strong>{stats.linkedTrades > 0 ? `${stats.planFollowedPct.toFixed(0)}%` : '—'}</strong>
+              <small>{stats.linkedTrades} ligados a sinais</small>
+            </article>
+            <article>
+              <span>Overnight</span>
+              <strong className={stats.overnightTotal >= 0 ? 'positive' : 'negative'}>{money(stats.overnightTotal, 't212')}</strong>
+              <small>juros CFD</small>
+            </article>
             <article>
               <span>Fees</span>
               <strong>{venueFilter === 'all'
@@ -415,6 +500,7 @@ export default function JournalDashboard() {
               <small>{stats.maxWinStreak} ganhos seguidos</small>
             </article>
           </section>
+          </details>
           {venueFilter === 'all' && (
             <p className="journal-muted journal-kpi-note">
               Spot em USDC e T212 em EUR não se somam. Filtra um venue para a equity e o Max DD numa só moeda.
@@ -546,11 +632,13 @@ export default function JournalDashboard() {
             <BucketPanel title="Por duração" rows={stats.byDuration} order={DURATION_BUCKETS} moneyOpts={moneyOpts} />
             <BucketPanel title="Por dia da semana" rows={stats.byWeekday} order={WEEKDAY_LABELS} moneyOpts={moneyOpts} />
             <BucketPanel
-              title="Por hora (entrada)"
-              rows={stats.byHour}
-              order={Object.keys(stats.byHour).sort()}
+              title="Por hora UTC (entrada)"
+              rows={stats.byHourUtc}
+              order={Object.keys(stats.byHourUtc).sort()}
               moneyOpts={moneyOpts}
             />
+            <BucketPanel title="Por tipo de saída" rows={stats.byExitType} order={Object.values(EXIT_TYPE_LABEL)} moneyOpts={moneyOpts} />
+            <BucketPanel title="Por classe" rows={stats.byAssetClass} order={Object.values(ASSET_CLASS_LABEL)} moneyOpts={moneyOpts} />
           </section>
 
           <section className="journal-panel">

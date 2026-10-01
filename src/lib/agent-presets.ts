@@ -73,11 +73,11 @@ export const AGENT_PRESETS: Record<Exclude<AgentPresetId, 'custom'>, AgentPreset
   },
   disciplina: {
     label: 'Conservador',
-    blurb: 'Risco baixo · 1R · sem malha',
+    blurb: 'Risco baixo · 1.5R · sem malha',
     title: 'Conservador · Evitar NY mid · sem malha · sem Long após H',
     config: {
       riskIndex: 0,
-      tpMode: '1r',
+      tpMode: '1_5r',
       avoidNyMid: true,
       wideNet: false,
       allowHighSweepLong: false,

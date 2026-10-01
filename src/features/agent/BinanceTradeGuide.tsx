@@ -6,6 +6,7 @@ import {
   binanceStopLimitCopy,
 } from '../../lib/binance-prices'
 import { saveOpenPosition } from '../../lib/open-position-store'
+import { readStakeChoice, resolveStake, writeStakeChoice, type StakeChoice } from '../../lib/risk-rules'
 import { tjrActionLabel, type TjrDecision } from '../../lib/tjr-engine'
 import type { TradeSignalMeta } from '../../lib/trade-signal-meta'
 import { TIME_STOP_HOURS, TIME_STOP_NOTE } from '../../lib/trade-guards'
@@ -16,7 +17,7 @@ type Row = TjrDecision & { symbol: string; price: number }
 
 export const STAKE_OPTIONS = [10, 20, 50, 100, 200, 250] as const
 export const DEFAULT_STAKE = 20
-export const STAKE_STORAGE_KEY = 'tjr-stake-index'
+export const STAKE_STORAGE_KEY = 'tjr-stake-choice'
 
 type WizardStep = 'buy' | 'oco' | 'done'
 
@@ -29,15 +30,6 @@ type GuideProps = {
   signalMeta?: TradeSignalMeta
   onPositionSaved?: () => void
   onGoJournal?: () => void
-}
-
-const readStakeIndex = () => {
-  try {
-    const raw = Number(localStorage.getItem(STAKE_STORAGE_KEY))
-    return Number.isFinite(raw) && raw >= 0 && raw < STAKE_OPTIONS.length ? raw : 1
-  } catch {
-    return 1
-  }
 }
 
 const baseAsset = (symbol: string) => symbol.replace(new RegExp(`${AGENT_QUOTE_ASSET}$`), '')
@@ -122,15 +114,11 @@ export function BinanceOrderPanel({
   onGoJournal,
 }: GuideProps) {
   const [wizard, setWizard] = useState<WizardStep>('buy')
-  const [stakeIndex, setStakeIndex] = useState(readStakeIndex)
-  const stakeUsdc = STAKE_OPTIONS[stakeIndex]
-  useEffect(() => {
-    try {
-      localStorage.setItem(STAKE_STORAGE_KEY, String(stakeIndex))
-    } catch {
-      /* ignore */
-    }
-  }, [stakeIndex])
+  const [stakeChoice, setStakeChoice] = useState<StakeChoice>(() => readStakeChoice(STAKE_STORAGE_KEY))
+  // Spot não tem alavancagem: o auto nunca passa do capital.
+  const stake = resolveStake(stakeChoice, row.entry, row.stop, 1)
+  const stakeUsdc = stake.amount
+  useEffect(() => writeStakeChoice(STAKE_STORAGE_KEY, stakeChoice), [stakeChoice])
   const pair = formatTradingPair(row.symbol)
   const base = baseAsset(row.symbol)
   const qty = suggestedQuantity(row.entry, stakeUsdc)
@@ -237,11 +225,12 @@ export function BinanceOrderPanel({
           <span>Montante</span>
           <select
             aria-label="Montante por trade"
-            value={stakeIndex}
-            onChange={(event) => setStakeIndex(Number(event.target.value))}
+            value={String(stakeChoice)}
+            onChange={(event) => setStakeChoice(event.target.value === 'auto' ? 'auto' : Number(event.target.value))}
           >
-            {STAKE_OPTIONS.map((value, index) => (
-              <option key={value} value={index}>{value} {AGENT_QUOTE_ASSET}</option>
+            <option value="auto">Auto · risco ({stakeUsdc})</option>
+            {STAKE_OPTIONS.map((value) => (
+              <option key={value} value={value}>{value} {AGENT_QUOTE_ASSET}</option>
             ))}
           </select>
         </label>

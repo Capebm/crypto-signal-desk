@@ -17,6 +17,10 @@ export type BinanceFill = {
 
 export type TradeVenue = 'spot' | 't212'
 
+export type TradeExitType = 'tp' | 'sl' | 'manual' | 'trailing'
+
+export type AssetClass = 'crypto' | 'stock' | 'index' | 'forex' | 'commodity'
+
 export type ClosedTrade = {
   id: string
   symbol: string
@@ -40,6 +44,18 @@ export type ClosedTrade = {
   side: 'long' | 'short'
   /** Snapshot do Agente/T212 na entrada (quando registado via Fechou / meta). */
   signal?: TradeSignalMeta
+  assetClass?: AssetClass
+  /** T212: ordem que fechou; Spot: inferido do sinal ligado (± 0,25R do SL/TP). */
+  exitType?: TradeExitType
+  plannedStop?: number
+  plannedTarget?: number
+  /** Juro overnight T212 (negativo = custo). */
+  overnight?: number
+  realizedR?: number
+  /** Sinal do registo (BD) que corresponde a esta entrada. */
+  signalId?: string
+  /** Stop usado ≈ stop do sinal (só com signalId). */
+  planFollowed?: boolean
 }
 
 export type JournalStore = {
@@ -119,4 +135,19 @@ export type JournalStats = {
   byProfile: Record<string, BucketStats>
   byTpMode: Record<string, BucketStats>
   byMesh: Record<string, BucketStats>
+  /** TP / SL / manual / trailing (T212 directo; Spot só com sinal ligado). */
+  byExitType: Record<string, BucketStats>
+  byAssetClass: Record<string, BucketStats>
+  /** Hora UTC de entrada — compara com a killzone 13:30–16:00 UTC. */
+  byHourUtc: Record<string, BucketStats>
+  overnightTotal: number
+  /** Média de R realizado (só trades com stop planeado). */
+  avgRealizedR: number
+  rTrades: number
+  /** Ganhos fechados à mão vs. TP — mostra se os winners são cortados cedo. */
+  avgManualWin: number
+  avgTpWin: number
+  /** Trades ligados a um sinal registado e % que respeitou o stop do sinal (±10%). */
+  linkedTrades: number
+  planFollowedPct: number
 }

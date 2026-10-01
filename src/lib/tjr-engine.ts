@@ -1,7 +1,7 @@
 import type { Action, Decision } from './decision-engine'
 import { BTC_REFERENCE_SYMBOL } from './binance'
 import { buildTradeLevels, type InstrumentKind, type TradeLevelPlan } from './trade-levels'
-import { riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
+import { MIN_RR_FLOOR, riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   hasDisplacement,
@@ -241,6 +241,14 @@ const liquidityTargets = (candles: Candle[], side: TradeSide, referencePrice = c
     ? scored.filter((l) => l.price > referencePrice)
     : scored.filter((l) => l.price < referencePrice)
   return filtered.sort((a, b) => (side === 'long' ? a.price - b.price : b.price - a.price))
+}
+
+/** Piso global: R:R < 1.5 bloqueia JÁ em qualquer perfil/TP (diário ago–set: 1R a 47% = perda). */
+export function requiredRiskReward(tpMode: TpMode, minRr: number): number {
+  return Math.max(
+    MIN_RR_FLOOR * 0.99,
+    tpMode === 'liquidez' ? minRr : (tpModeMeta[tpMode].multiple ?? minRr) * 0.99,
+  )
 }
 
 /** Stop estrutural+ATR; alvo nunca atravessa o draw oposto mais próximo. */
@@ -538,10 +546,8 @@ function evaluate(
       : exec.price
 
   const instrumentKind = options.instrumentKind ?? (options.sessionMarket === 'crypto' ? 'crypto' : 'forex')
+  const requiredRr = requiredRiskReward(tpMode, minRr)
   const planPasses = (plan: TradeLevelPlan) => {
-    const requiredRr = tpMode === 'liquidez'
-      ? minRr
-      : (tpModeMeta[tpMode].multiple ?? minRr) * 0.99
     const rrPasses = plan.levelsValid
       && plan.riskReward >= requiredRr
       && (tpMode !== 'liquidez' || plan.riskReward <= 3.05)
@@ -589,7 +595,7 @@ function evaluate(
     headroomRr,
   } = levelPlan
   const rrOk = levelPlan.levelsValid
-    && riskReward >= (tpMode === 'liquidez' ? minRr : (tpModeMeta[tpMode].multiple ?? minRr) * 0.99)
+    && riskReward >= requiredRr
     && (tpMode !== 'liquidez' || riskReward <= 3.05)
   const headroomOk = headroomRr >= minRr
   const setupReadyWithRr = setupReady && rrOk && headroomOk && plannedTiming !== 'NENHUM'
@@ -1112,7 +1118,7 @@ export function pickPreferredSetupHit(
   return pool.find((h) => h.profile === preferredProfile && h.tpMode === preferredTp) ?? pool[0]
 }
 
-/** COMPRAR/VENDER com timing AGORA ou RETRACE (Aguardar) — 9 combos risco×TP. */
+/** COMPRAR/VENDER com timing AGORA ou RETRACE (Aguardar) — 6 combos risco×TP. */
 export function listActionNowSetups(
   symbol: string,
   data: Record<'4h' | '1h' | '15m' | '5m' | '1m', Candle[]>,
