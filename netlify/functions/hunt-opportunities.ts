@@ -1,14 +1,10 @@
-import type { Handler, HandlerEvent } from '@netlify/functions'
-import { huntOpportunities, estimateResale, huntBatch } from '../../server/hunt'
-import type { HuntBrief, HuntSettings } from '../../server/types'
+import type { HandlerEvent } from '@netlify/functions'
+import { API_HEADERS, withDeskAuth } from '../../server/desk-auth'
+import { cleanEstimateCandidate, estimateResale } from '../../server/hunt'
 
-const headers = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-}
+const headers = API_HEADERS
 
-export const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' }
+export const handler = withDeskAuth(async (event: HandlerEvent) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) }
   }
@@ -18,41 +14,21 @@ export const handler: Handler = async (event: HandlerEvent) => {
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }) }
   }
 
+  if ((event.body?.length ?? 0) > 2_000) {
+    return { statusCode: 413, headers, body: JSON.stringify({ error: 'Pedido demasiado grande' }) }
+  }
+
   try {
-    const body = JSON.parse(event.body ?? '{}') as {
-      brief?: HuntBrief
-      settings?: HuntSettings
-      candidate?: Parameters<typeof estimateResale>[0]
-      angle?: string
-      batchTag?: string
-      perBatch?: number
+    // Só a estimativa PT (1 chamada Haiku). O hunt mundial com Anthropic saiu da API: a UI usa os scrapers grátis.
+    const body = JSON.parse(event.body ?? '{}') as { candidate?: unknown }
+    const candidate = cleanEstimateCandidate(body.candidate)
+    if (!candidate) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid request body' }) }
     }
-
-    if (body.candidate) {
-      const result = await estimateResale(body.candidate, apiKey)
-      return { statusCode: 200, headers, body: JSON.stringify(result) }
-    }
-
-    if (body.brief && body.settings && body.angle) {
-      const result = await huntBatch(
-        body.brief,
-        body.angle,
-        body.batchTag ?? 'b0',
-        body.perBatch ?? 3,
-        body.settings,
-        apiKey,
-      )
-      return { statusCode: 200, headers, body: JSON.stringify(result) }
-    }
-
-    if (body.brief && body.settings) {
-      const result = await huntOpportunities(body.brief, body.settings, apiKey)
-      return { statusCode: 200, headers, body: JSON.stringify(result) }
-    }
-
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid request body' }) }
+    const result = await estimateResale(candidate, apiKey)
+    return { statusCode: 200, headers, body: JSON.stringify(result) }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Request failed'
     return { statusCode: 500, headers, body: JSON.stringify({ error: message }) }
   }
-}
+})

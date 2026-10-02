@@ -1,13 +1,15 @@
+import { useEffect, useState } from 'react'
 import { createClient, type Session } from '@supabase/supabase-js'
+import { DESK_OWNER_EMAIL, DESK_SUPABASE_PUBLISHABLE_KEY, DESK_SUPABASE_URL } from './desk-config'
 
 /**
  * Supabase do Desk. URL e chave publishable são públicas por desenho: o acesso é
  * decidido pelas políticas RLS (só a sessão de capebm@gmail.com lê/escreve as suas linhas).
  */
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? 'https://ixidmdvaqgfwkcohclnn.supabase.co'
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_X6A3D4MuV9GphEM_cp235A_L_I1WGl8'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? DESK_SUPABASE_URL
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? DESK_SUPABASE_PUBLISHABLE_KEY
 
-export const DESK_OWNER_EMAIL = 'capebm@gmail.com'
+export { DESK_OWNER_EMAIL }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -29,6 +31,29 @@ export function hasDeskSession(): boolean {
   } catch {
     return false
   }
+}
+
+export const DESK_LOGIN_REQUIRED = 'Entra na tua conta para usar os dados do servidor.'
+
+/** fetch para as /api/* do próprio site: junta o token da sessão (as funções só respondem ao dono). */
+export async function deskApiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (!token) throw new Error(DESK_LOGIN_REQUIRED)
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  return fetch(path, { ...init, headers })
+}
+
+/** Reage a login/logout (para mostrar o formulário onde as /api/* são precisas). */
+export function useDeskSignedIn(): boolean {
+  const [signedIn, setSignedIn] = useState(hasDeskSession)
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)))
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setSignedIn(Boolean(session)))
+    return () => data.subscription.unsubscribe()
+  }, [])
+  return signedIn
 }
 
 export async function currentDeskUser() {

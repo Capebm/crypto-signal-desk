@@ -2,11 +2,11 @@ import type { HuntBrief, HuntCandidate, HuntResponse, HuntSettings } from '../..
 import { briefToScraperIds, unsupportedHuntSources } from './constants'
 import { opportunityToCandidate } from './helpers'
 import { humanizeErrorText, humanizeErrorMessage } from './errors'
+import { deskApiFetch } from '../supabase'
 
 export { humanizeErrorMessage }
 
 const API = {
-  hunt: '/api/hunt',
   estimate: '/api/estimate',
   search: '/api/search',
 }
@@ -33,7 +33,7 @@ export async function fetchScrape(request: import('../../../server/types').Searc
   if (request.packagingCost !== undefined) params.set('packagingCost', String(request.packagingCost))
   if (request.limit !== undefined) params.set('limit', String(request.limit))
 
-  const res = await fetch(`${API.search}?${params}`)
+  const res = await deskApiFetch(`${API.search}?${params}`)
   if (!res.ok) throw new Error(await parseError(res, `Scrapers falharam (${res.status})`))
   return res.json()
 }
@@ -80,7 +80,7 @@ export async function fetchHunt(brief: HuntBrief, settings: HuntSettings): Promi
 export async function fetchEstimate(
   candidate: Pick<HuntCandidate, 'name' | 'category' | 'size' | 'condition'>,
 ): Promise<NonNullable<HuntCandidate['ai']>> {
-  const res = await fetch(API.estimate, {
+  const res = await deskApiFetch(API.estimate, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ candidate }),

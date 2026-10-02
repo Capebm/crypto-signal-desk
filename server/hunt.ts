@@ -104,6 +104,23 @@ async function callAnthropic(
   }
 }
 
+type EstimateCandidate = Pick<HuntCandidate, 'name' | 'category' | 'size' | 'condition'>
+
+const clip = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '')
+
+/** Valida o pedido de /api/estimate: só texto curto entra no prompt. */
+export function cleanEstimateCandidate(raw: unknown): EstimateCandidate | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const input = raw as Record<string, unknown>
+  const candidate = {
+    name: clip(input.name, 120),
+    category: clip(input.category, 40),
+    size: clip(input.size, 20),
+    condition: clip(input.condition, 40),
+  }
+  return candidate.name || candidate.category ? (candidate as EstimateCandidate) : undefined
+}
+
 export async function estimateResale(
   candidate: Pick<HuntCandidate, 'name' | 'category' | 'size' | 'condition'>,
   apiKey: string,

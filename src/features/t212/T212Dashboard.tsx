@@ -67,6 +67,7 @@ import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
+import { hasDeskSession } from '../../lib/supabase'
 
 const RISK_KEY = 't212-risk-index'
 const TP_KEY = 't212-tp-mode'
@@ -644,10 +645,14 @@ export default function T212Dashboard() {
             esNqBlocked: esNq ? tjrVideoStrict && !esNq.smt.feedValid : false,
           })}`
         : ''
+      // Índices/forex/ações vêm das /api/* (só com sessão); crypto CFD vem da Binance e funciona sem login.
+      const failedNote = failed.length
+        ? `${hasDeskSession() ? '' : ' Sem login: índices, forex e ações não carregam — entra na tab Sinais.'} Falhou: ${failed.join(', ')}.`
+        : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 6 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`
-          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failed.length ? ` Falhou: ${failed.join(', ')}.` : ''}`,
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 6 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failedNote}`
+          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failedNote}`,
       )
       // Não esconder linhas quando a fase dos 6 setups termina.
       // Os contadores permitem ao utilizador filtrar LONG/SHORT manualmente.

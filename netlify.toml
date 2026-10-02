@@ -12,11 +12,6 @@
   status = 200
 
 [[redirects]]
-  from = "/api/hunt"
-  to = "/.netlify/functions/hunt-opportunities"
-  status = 200
-
-[[redirects]]
   from = "/api/estimate"
   to = "/.netlify/functions/hunt-opportunities"
   status = 200
@@ -24,6 +19,7 @@
 [[redirects]]
   from = "/api/yahoo-candles"
   to = "/.netlify/functions/yahoo-candles"
+  status = 200
 
 [[redirects]]
   from = "/api/yahoo-pack"
@@ -41,3 +37,5 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"

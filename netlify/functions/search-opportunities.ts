@@ -1,17 +1,11 @@
-import type { Handler, HandlerEvent } from '@netlify/functions'
+import type { HandlerEvent } from '@netlify/functions'
+import { API_HEADERS, withDeskAuth } from '../../server/desk-auth'
 import { searchOpportunities } from '../../server/analyze'
 import type { SearchRequest } from '../../server/types'
 
-const headers = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-}
+const headers = API_HEADERS
 
-export const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' }
-  }
+export const handler = withDeskAuth(async (event: HandlerEvent) => {
 
   if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) }
@@ -37,4 +31,4 @@ export const handler: Handler = async (event: HandlerEvent) => {
     const message = error instanceof Error ? error.message : 'Search failed'
     return { statusCode: 500, headers, body: JSON.stringify({ error: message }) }
   }
-}
+})

@@ -1,6 +1,7 @@
 import type { Candle, Interval } from './types'
 import { getT212BinancePlaybook } from './t212-binance-feed'
 import { t212IsCfdListed } from './t212-crypto-cfd'
+import { deskApiFetch } from './supabase'
 
 /** Instrumentos CFD Trading 212 → símbolo Yahoo (OHLC). */
 export type T212Instrument = {
@@ -1143,7 +1144,7 @@ export async function fetchYahooCandlesRaw(yahooSymbol: string, interval: Interv
     interval: yahooInterval[interval],
     range: yahooRange[interval],
   })
-  const response = await fetch(`/api/yahoo-candles?${params}`, {
+  const response = await deskApiFetch(`/api/yahoo-candles?${params}`, {
     signal: AbortSignal.timeout(18_000),
   })
   const payload = (await response.json().catch(() => ({}))) as YahooChartResponse & { error?: string; detail?: string }
@@ -1172,7 +1173,7 @@ type YahooPackResponse = {
 }
 
 async function fetchPlaybookViaPack(yahooSymbol: string): Promise<PlaybookPack> {
-  const response = await fetch(`/api/yahoo-pack?symbol=${encodeURIComponent(yahooSymbol)}`, {
+  const response = await deskApiFetch(`/api/yahoo-pack?symbol=${encodeURIComponent(yahooSymbol)}`, {
     signal: AbortSignal.timeout(22_000),
   })
   const payload = (await response.json().catch(() => ({}))) as YahooPackResponse
@@ -1226,7 +1227,7 @@ type TwelvePackResponse = {
 
 async function fetchPlaybookViaTwelve(twelveSymbol: string, kind: T212Instrument['kind']): Promise<PlaybookPack> {
   const params = new URLSearchParams({ symbol: twelveSymbol, kind })
-  const response = await fetch(`/api/twelve-pack?${params}`, {
+  const response = await deskApiFetch(`/api/twelve-pack?${params}`, {
     signal: AbortSignal.timeout(45_000),
   })
   const payload = (await response.json().catch(() => ({}))) as TwelvePackResponse

@@ -2,8 +2,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { searchOpportunities } from './server/analyze'
-import { estimateResale, huntBatch, huntOpportunities } from './server/hunt'
-import type { HuntBrief, HuntSettings, SearchRequest } from './server/types'
+import { verifyDeskOwner } from './server/desk-auth'
+import { cleanEstimateCandidate, estimateResale } from './server/hunt'
+import type { SearchRequest } from './server/types'
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -74,6 +75,15 @@ export function garimpoApiPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', 'http://localhost')
 
+        // Igual às funções Netlify: /api/* só para a sessão do dono.
+        if (url.pathname.startsWith('/api/')) {
+          const auth = await verifyDeskOwner(req.headers.authorization)
+          if (!auth.ok) {
+            sendJson(res, auth.status, { error: auth.error, auth: true })
+            return
+          }
+        }
+
         if (url.pathname === '/api/search' && req.method === 'GET') {
           const sourceIds = url.searchParams.get('sourceIds')?.split(',').filter(Boolean)
           const request: SearchRequest = {
@@ -93,42 +103,6 @@ export function garimpoApiPlugin(): Plugin {
           return
         }
 
-        if (url.pathname === '/api/hunt' && req.method === 'POST') {
-          const apiKey = getApiKey(env)
-          if (!apiKey) {
-            sendJson(res, 500, { error: 'ANTHROPIC_API_KEY em falta — define no .env' })
-            return
-          }
-          try {
-            const body = JSON.parse(await readBody(req)) as {
-              brief: HuntBrief
-              settings: HuntSettings
-              angle?: string
-              batchTag?: string
-              perBatch?: number
-            }
-            if (body.angle) {
-              sendJson(
-                res,
-                200,
-                await huntBatch(
-                  body.brief,
-                  body.angle,
-                  body.batchTag ?? 'b0',
-                  body.perBatch ?? 3,
-                  body.settings,
-                  apiKey,
-                ),
-              )
-              return
-            }
-            sendJson(res, 200, await huntOpportunities(body.brief, body.settings, apiKey))
-          } catch (error) {
-            sendJson(res, 500, { error: error instanceof Error ? error.message : 'Hunt failed' })
-          }
-          return
-        }
-
         if (url.pathname === '/api/estimate' && req.method === 'POST') {
           const apiKey = getApiKey(env)
           if (!apiKey) {
@@ -136,8 +110,13 @@ export function garimpoApiPlugin(): Plugin {
             return
           }
           try {
-            const body = JSON.parse(await readBody(req)) as Parameters<typeof estimateResale>[0]
-            sendJson(res, 200, await estimateResale(body, apiKey))
+            const body = JSON.parse(await readBody(req)) as { candidate?: unknown }
+            const candidate = cleanEstimateCandidate(body.candidate)
+            if (!candidate) {
+              sendJson(res, 400, { error: 'Invalid request body' })
+              return
+            }
+            sendJson(res, 200, await estimateResale(candidate, apiKey))
           } catch (error) {
             sendJson(res, 500, { error: error instanceof Error ? error.message : 'Estimate failed' })
           }

@@ -12,6 +12,8 @@ import {
 import './garimpo.css'
 import FlipCard from './FlipCard'
 import SettingsModal from './SettingsModal'
+import DeskLoginPanel from './DeskLoginPanel'
+import { useDeskSignedIn } from '../../lib/supabase'
 import { fetchEstimate, fetchHunt, fetchScrape, humanizeErrorMessage } from '../../lib/garimpo/api'
 import {
   CATEGORIES,
@@ -47,6 +49,7 @@ export default function Garimpo() {
   const [showSettings, setShowSettings] = useState(false)
   const [sortBy, setSortBy] = useState<'score' | 'roi' | 'profit'>('score')
   const [mode, setMode] = useState<Mode>('hunt')
+  const signedIn = useDeskSignedIn()
 
   const [brief, setBrief] = useState<HuntBrief>({
     what: '',
@@ -277,6 +280,8 @@ export default function Garimpo() {
           </button>
         </div>
       </header>
+
+      {!signedIn && <DeskLoginPanel />}
 
       <div className="grid">
         <section className="panel form-panel">

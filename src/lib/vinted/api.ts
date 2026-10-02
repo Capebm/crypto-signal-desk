@@ -1,4 +1,5 @@
 import type { SearchRequest, SearchResponse } from '../../../server/types'
+import { deskApiFetch } from '../supabase'
 
 const API_PATH = '/api/search'
 
@@ -11,7 +12,7 @@ export async function fetchOpportunities(request: SearchRequest): Promise<Search
   if (request.packagingCost !== undefined) params.set('packagingCost', String(request.packagingCost))
   if (request.limit !== undefined) params.set('limit', String(request.limit))
 
-  const response = await fetch(`${API_PATH}?${params}`)
+  const response = await deskApiFetch(`${API_PATH}?${params}`)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error ?? `Pesquisa falhou (${response.status})`)

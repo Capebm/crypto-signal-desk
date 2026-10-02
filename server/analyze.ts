@@ -96,16 +96,20 @@ async function analyzeListings(
 }
 
 export async function searchOpportunities(request: SearchRequest): Promise<SearchResponse> {
-  const query = request.query.trim()
+  // Limites: cada listing gera um pedido de preço à Vinted PT (limit × 3).
+  const query = (request.query ?? '').trim().slice(0, 100)
+  const finite = (value: number | undefined, fallback: number) => (Number.isFinite(value) ? Number(value) : fallback)
   const options = {
     bundlesOnly: request.bundlesOnly ?? false,
-    minProfitPct: request.minProfitPct ?? 25,
-    maxBuyPrice: request.maxBuyPrice ?? 0,
-    packagingCost: request.packagingCost ?? 2,
-    limit: request.limit ?? 20,
+    minProfitPct: finite(request.minProfitPct, 25),
+    maxBuyPrice: Math.max(0, finite(request.maxBuyPrice, 0)),
+    packagingCost: Math.max(0, finite(request.packagingCost, 2)),
+    limit: Math.min(50, Math.max(1, Math.round(finite(request.limit, 20)))),
   }
 
-  const sourceIds = request.sourceIds?.length ? request.sourceIds : BUY_SOURCES.map((s) => s.id)
+  const knownIds = new Set(BUY_SOURCES.map((s) => s.id))
+  const requested = request.sourceIds?.filter((id) => knownIds.has(id)) ?? []
+  const sourceIds = requested.length ? requested : [...knownIds]
   const queries = query ? [query] : PRESET_QUERIES
   const allListings: RawListing[] = []
   const errors: string[] = []

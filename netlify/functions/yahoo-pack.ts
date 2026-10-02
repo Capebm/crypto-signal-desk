@@ -1,10 +1,7 @@
-import type { Handler, HandlerEvent } from '@netlify/functions'
+import type { HandlerEvent } from '@netlify/functions'
+import { API_HEADERS, withDeskAuth } from '../../server/desk-auth'
 
-const headers = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-}
+const headers = API_HEADERS
 
 const YAHOO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -32,10 +29,7 @@ async function fetchChart(symbol: string, interval: string, range: string) {
   return { ok: response.ok, status: response.status, payload }
 }
 
-export const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' }
-  }
+export const handler = withDeskAuth(async (event: HandlerEvent) => {
   if (event.httpMethod !== 'GET') {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) }
   }
@@ -81,4 +75,4 @@ export const handler: Handler = async (event: HandlerEvent) => {
     const message = error instanceof Error ? error.message : 'Yahoo pack failed'
     return { statusCode: 500, headers, body: JSON.stringify({ error: message }) }
   }
-}
+})
