@@ -67,7 +67,7 @@ import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
-import { INDEX_FOCUS_IDS } from '../../lib/index-exchanges'
+import { exchangeFor, INDEX_FOCUS_IDS } from '../../lib/index-exchanges'
 import { hasDeskSession } from '../../lib/supabase'
 
 const RISK_KEY = 't212-risk-index'
@@ -177,6 +177,8 @@ export default function T212Dashboard() {
         : cfdPractical,
       tjrVideoStrict,
       sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
+      // Índices: killzones da bolsa de cada um (GER40 → Frankfurt, JP225 → Tóquio…).
+      ...(instrument.kind === 'index' || instrument.kind === 'future' ? { exchange: exchangeFor(instrument.short) } : {}),
       killzoneQualityOnly: instrument.kind === 'forex' || instrument.kind === 'crypto',
       instrumentMarketOpen: market.open,
       instrumentMarketNote: market.reason,

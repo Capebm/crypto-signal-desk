@@ -1,3 +1,4 @@
+import type { ExchangeSession } from './index-exchanges'
 export type SessionWindow = 'ny_open' | 'ny' | 'ny_close' | 'london' | 'quiet' | 'off'
 
 export type MarketId = 'asia' | 'london' | 'newyork'
@@ -45,6 +46,36 @@ export type SessionMarket = 'cfd' | 'crypto'
 export type SessionOptions = {
   /** CFD: fecha fim de semana. Crypto Spot: 24/7 — só killzones TJR. Default: cfd. */
   market?: SessionMarket
+  /** Índice de outra bolsa (Frankfurt, Londres, Tóquio…): killzones no relógio dessa bolsa. Sem isto → NY. */
+  exchange?: ExchangeSession
+}
+
+const hhmm = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+
+/**
+ * As mesmas regras da NY open, no relógio da bolsa do índice:
+ * abertura → +90 min = JÁ · meio = só AGUARDAR · última hora = sem entradas · 2 h antes = pré-abertura (AGUARDAR).
+ */
+function exchangeSessionStatus(
+  exchange: ExchangeSession,
+  local: { mins: number },
+  base: { nowLisbon: string; nowNy: string },
+): TradingSessionStatus {
+  const { openMinutes: open, closeMinutes: close, label } = exchange
+  const m = local.mins
+  if (m >= open && m < open + 90) {
+    return { ...base, window: 'ny_open', inIdealWindow: true, allowEnterNow: true, blockEntries: false, badge: `${label} open (${hhmm(open)}–${hhmm(open + 90)} local)` }
+  }
+  if (m >= open + 90 && m < close - 60) {
+    return { ...base, window: 'ny', inIdealWindow: false, allowEnterNow: false, blockEntries: false, badge: `${label} — meio da sessão, só AGUARDAR` }
+  }
+  if (m >= close - 60 && m < close) {
+    return { ...base, window: 'ny_close', inIdealWindow: false, allowEnterNow: false, blockEntries: true, badge: `${label} fecho — sem entradas` }
+  }
+  if (m >= open - 120 && m < open) {
+    return { ...base, window: 'london', inIdealWindow: false, allowEnterNow: false, blockEntries: false, badge: `${label} pré-abertura (${hhmm(open)} local)` }
+  }
+  return { ...base, window: 'off', inIdealWindow: false, allowEnterNow: false, blockEntries: true, badge: `Fora da sessão de ${label}` }
 }
 
 /** Forex/Crypto podem usar a killzone como qualidade, sem bloquear um setup completo. */
@@ -148,6 +179,10 @@ function computeTradingSessionStatus(date = new Date(), options: SessionOptions 
     }
   }
 
+  if (options.exchange && options.exchange.timeZone !== 'America/New_York') {
+    return exchangeSessionStatus(options.exchange, zoneParts(options.exchange.timeZone, date), base)
+  }
+
   // NY cash open window (prime TJR)
   if (ny.mins >= 9 * 60 + 30 && ny.mins < 11 * 60) {
     return {
@@ -216,11 +251,12 @@ function computeTradingSessionStatus(date = new Date(), options: SessionOptions 
 const tradingSessionCache = new Map<string, TradingSessionStatus>()
 export function getTradingSessionStatus(date = new Date(), options: SessionOptions = {}): TradingSessionStatus {
   const market = options.market ?? 'cfd'
-  const key = `${market}:${Math.floor(date.getTime() / 60_000)}`
+  const key = `${market}:${options.exchange?.timeZone ?? 'ny'}:${Math.floor(date.getTime() / 60_000)}`
   const cached = tradingSessionCache.get(key)
   if (cached) return cached
   const value = computeTradingSessionStatus(date, options)
-  tradingSessionCache.clear()
+  // Um scan avalia vários índices no mesmo minuto: guarda uma entrada por bolsa.
+  if (tradingSessionCache.size > 32) tradingSessionCache.clear()
   tradingSessionCache.set(key, value)
   return value
 }

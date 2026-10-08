@@ -60,7 +60,10 @@
 - Cryptos do catálogo T212 (XRP, BTC, ETH, …) entram sempre no refine MTF do Agente.
 - `A_AGUARDAR` só aparece em setups executáveis à espera de retrace; progresso parcial com `ESPERAR` fica `BLOQUEADA`.
 
-## Sessões (America/New_York)
+## Sessões (America/New_York; índices: bolsa de cada um)
+- Índices fora dos EUA usam as mesmas killzones no relógio da sua bolsa (`index-exchanges.ts`): abertura → +90 min = JÁ · meio = AGUARDAR · última hora = sem entradas · 2 h antes = pré-abertura. GER40/EU50 Frankfurt 09:00, UK100 Londres 08:00, FRA40/SPA35/ITA40/SWISS20/NETH25 09:00 local, JP225 Tóquio 09:00, HK50 Hong Kong 09:30.
+- Janela de entrada (aviso `fora_janela`) = abertura da bolsa do ativo + 2h30; sem bolsa conhecida → NY 09:30–12:00 ET.
+- Índices US: histórico dos futuros (Yahoo, ~10 min atraso) + cauda ao vivo do índice à vista (^GSPC/^NDX/^DJI) deslocada pela diferença futuro − índice. A T212 cota estes CFDs pelos futuros.
 - `ny_open` 09:30–11:00 → allowEnterNow
 - Índices US mantêm janela rígida 09:30–10:30 ET.
 - Forex/Crypto tratam killzone como qualidade/score, não bloqueio.

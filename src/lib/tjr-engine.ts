@@ -3,6 +3,7 @@ import { BTC_REFERENCE_SYMBOL } from './binance'
 import { buildTradeLevels, type InstrumentKind, type TradeLevelPlan } from './trade-levels'
 import { MIN_RR_FLOOR, riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
 import { computeDrawBalance, type DrawBalance } from './draw-balance'
+import type { ExchangeSession } from './index-exchanges'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   hasDisplacement,
@@ -120,6 +121,8 @@ export type EvaluateOptions = {
   cfdPractical?: boolean
   /** Sessão: crypto Spot ignora fecho CFD de fim de semana. Default cfd. */
   sessionMarket?: 'cfd' | 'crypto'
+  /** Bolsa do índice (killzones no relógio local dela); sem isto → NY. */
+  exchange?: ExchangeSession
   /** Só com posição aberta: stop/alvo teóricos podem disparar SAIR / REALIZAR. */
   openPosition?: boolean
   /**
@@ -382,7 +385,7 @@ function evaluate(
     ...gatesBase,
     requireSmtAlign: options.requireSmtAlign ?? gatesBase.requireSmtAlign,
   }
-  const session = getTradingSessionStatus(new Date(), { market: options.sessionMarket ?? 'cfd' })
+  const session = getTradingSessionStatus(new Date(), { market: options.sessionMarket ?? 'cfd', exchange: options.exchange })
   const swings1h = findTjrSwings(primary1h)
   const extraDraws: DrawLevel[] = h4.swings.slice(-4).map((s) => ({
     price: s.price,

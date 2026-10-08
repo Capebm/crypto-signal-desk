@@ -3,18 +3,18 @@
  * A janela de entrada de cada índice começa na abertura da sua bolsa, em hora local
  * (segue sozinha as mudanças de hora de cada país).
  */
-export type ExchangeSession = { label: string; timeZone: string; openMinutes: number }
+export type ExchangeSession = { label: string; timeZone: string; openMinutes: number; closeMinutes: number }
 
-export const NY_SESSION: ExchangeSession = { label: 'Nova Iorque', timeZone: 'America/New_York', openMinutes: 9 * 60 + 30 }
-const FRANKFURT: ExchangeSession = { label: 'Frankfurt', timeZone: 'Europe/Berlin', openMinutes: 9 * 60 }
-const LONDON: ExchangeSession = { label: 'Londres', timeZone: 'Europe/London', openMinutes: 8 * 60 }
-const PARIS: ExchangeSession = { label: 'Paris', timeZone: 'Europe/Paris', openMinutes: 9 * 60 }
-const MADRID: ExchangeSession = { label: 'Madrid', timeZone: 'Europe/Madrid', openMinutes: 9 * 60 }
-const MILAN: ExchangeSession = { label: 'Milão', timeZone: 'Europe/Rome', openMinutes: 9 * 60 }
-const ZURICH: ExchangeSession = { label: 'Zurique', timeZone: 'Europe/Zurich', openMinutes: 9 * 60 }
-const AMSTERDAM: ExchangeSession = { label: 'Amesterdão', timeZone: 'Europe/Amsterdam', openMinutes: 9 * 60 }
-const TOKYO: ExchangeSession = { label: 'Tóquio', timeZone: 'Asia/Tokyo', openMinutes: 9 * 60 }
-const HONG_KONG: ExchangeSession = { label: 'Hong Kong', timeZone: 'Asia/Hong_Kong', openMinutes: 9 * 60 + 30 }
+export const NY_SESSION: ExchangeSession = { label: 'Nova Iorque', timeZone: 'America/New_York', openMinutes: 9 * 60 + 30, closeMinutes: 16 * 60 }
+const FRANKFURT: ExchangeSession = { label: 'Frankfurt', timeZone: 'Europe/Berlin', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const LONDON: ExchangeSession = { label: 'Londres', timeZone: 'Europe/London', openMinutes: 8 * 60, closeMinutes: 16 * 60 + 30 }
+const PARIS: ExchangeSession = { label: 'Paris', timeZone: 'Europe/Paris', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const MADRID: ExchangeSession = { label: 'Madrid', timeZone: 'Europe/Madrid', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const MILAN: ExchangeSession = { label: 'Milão', timeZone: 'Europe/Rome', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const ZURICH: ExchangeSession = { label: 'Zurique', timeZone: 'Europe/Zurich', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const AMSTERDAM: ExchangeSession = { label: 'Amesterdão', timeZone: 'Europe/Amsterdam', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30 }
+const TOKYO: ExchangeSession = { label: 'Tóquio', timeZone: 'Asia/Tokyo', openMinutes: 9 * 60, closeMinutes: 15 * 60 + 30 }
+const HONG_KONG: ExchangeSession = { label: 'Hong Kong', timeZone: 'Asia/Hong_Kong', openMinutes: 9 * 60 + 30, closeMinutes: 16 * 60 }
 
 /** Por ticker T212 (scan) e pelos nomes que aparecem nos extratos da T212 (diário). */
 const BY_SYMBOL: Record<string, ExchangeSession> = {
