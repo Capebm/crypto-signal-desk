@@ -40,6 +40,7 @@ import {
   DEFAULT_T212_INSTRUMENT,
   T212_BTC_INSTRUMENT,
   T212_CATALOG,
+  t212IndexOnCashScale,
   T212_CORE_IDS,
   T212_EXECUTABLE_CATALOG,
   T212_EXTRA_INSTRUMENTS,
@@ -106,6 +107,21 @@ const isSellNow = isEnterShortNow
 const isAguardar = isAwaitingEntry
 const isInvalidated = (row: TjrDecision) =>
   row.positionGuidance === 'SAIR' || row.positionGuidance === 'REALIZAR_ALVO'
+
+/**
+ * Índice com preços do índice à vista: a T212 cota pelo futuro (GER40 ≈ +0,5%), por isso
+ * entrada/stop/TP não batem com a app. Sem JÁ e sem registo de sinal até haver preço do futuro.
+ */
+function blockCashScaleIndex(decision: TjrDecision): TjrDecision {
+  const actionable = decision.entryTiming === 'AGORA' || decision.positionGuidance === 'ENTRAR_AGORA' || decision.positionGuidance === 'AGUARDAR_ENTRADA'
+  const reason = 'Preço do índice à vista; a T212 usa o futuro (≈ 0,5% acima) — níveis não batem, sem JÁ.'
+  return {
+    ...decision,
+    ...(actionable ? { action: 'ESPERAR' as const, entryTiming: 'NENHUM' as const, positionGuidance: 'NEUTRO' as const, setupStatus: 'BLOQUEADA' as const } : {}),
+    reasons: [reason, ...decision.reasons],
+    checklist: [...decision.checklist, { label: 'Escala T212 (futuro)', complete: false, note: reason }],
+  }
+}
 
 export default function T212Dashboard() {
   const profiles: RiskProfile[] = ['conservador', 'equilibrado', 'agressivo']
@@ -255,6 +271,7 @@ export default function T212Dashboard() {
       }
     }
     decision = requireLiveConfirmationForStaleLtf(decision, data)
+    if (t212IndexOnCashScale(instrument.id)) decision = blockCashScaleIndex(decision)
     const price = data['1m'].at(-1)?.close ?? data['5m'].at(-1)?.close ?? 0
     return { ...decision, instrument, price }
   }
@@ -658,13 +675,17 @@ export default function T212Dashboard() {
           })}`
         : ''
       // Índices/forex/ações vêm das /api/* (só com sessão); crypto CFD vem da Binance e funciona sem login.
+      const cashScale = sorted.filter((row) => t212IndexOnCashScale(row.instrument.id)).map((row) => row.instrument.short)
+      const scaleNote = cashScale.length
+        ? ` Sem preço do futuro (escala da T212) → sem JÁ: ${cashScale.join(', ')}.`
+        : ''
       const failedNote = failed.length
         ? `${hasDeskSession() ? '' : ' Sem login: índices, forex e ações não carregam — entra na tab Sinais.'} Falhou: ${failed.join(', ')}.`
         : ''
       setStatus(
         buyNow + sellNow > 0
-          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 6 setups)' : ''}.${weekendNote}${feedNote}${esNqNote}${failedNote}`
-          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${esNqNote}${whyNone}${failedNote}`,
+          ? `${sorted.length} ok · ${buyNow} LONG · ${sellNow} SHORT${scanAllSetups ? ' (melhor dos 6 setups)' : ''}.${weekendNote}${feedNote}${scaleNote}${esNqNote}${failedNote}`
+          : `${sorted.length} ok · 0 agora · ${aguardar} aguardar.${weekendNote}${feedNote}${scaleNote}${esNqNote}${whyNone}${failedNote}`,
       )
       // Não esconder linhas quando a fase dos 6 setups termina.
       // Os contadores permitem ao utilizador filtrar LONG/SHORT manualmente.

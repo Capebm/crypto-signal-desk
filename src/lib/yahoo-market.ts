@@ -175,6 +175,16 @@ export type T212FeedPreference = 'yahoo' | 'twelve'
 let feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: false, capitalFailed: [] as string[] }
 /** Sem credenciais na Netlify: não volta a tentar a Capital.com nesta sessão. */
 let capitalUnavailable = false
+
+/**
+ * Escala dos preços de cada índice face à T212 (que cota índices pelos futuros).
+ * 'cash' = índice à vista (≈ 0,4–0,6% abaixo da T212 na Europa) → o Desk não dá JÁ nesse índice.
+ */
+const priceScale = new Map<string, 'futures' | 'cash'>()
+
+export function t212IndexOnCashScale(instrumentId: string): boolean {
+  return priceScale.get(instrumentId) === 'cash'
+}
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
@@ -1237,12 +1247,13 @@ async function fetchPlaybookLegacy(yahooSymbol: string): Promise<PlaybookPack> {
 }
 
 type CapitalPackResponse = {
+  scale?: 'futures' | 'cash'
   candles?: Partial<Record<'1h' | '15m' | '5m' | '1m', Candle[]>>
   error?: string
   skip?: boolean
 }
 
-async function fetchPlaybookViaCapital(epic: string, name: string): Promise<PlaybookPack> {
+async function fetchPlaybookViaCapital(epic: string, name: string): Promise<PlaybookPack & { scale: 'futures' | 'cash' }> {
   // name = «Switzerland 20»: se o epic não existir, a função procura-o pelo nome.
   const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}&name=${encodeURIComponent(name)}`, {
     signal: AbortSignal.timeout(25_000),
@@ -1257,7 +1268,7 @@ async function fetchPlaybookViaCapital(epic: string, name: string): Promise<Play
   if (!c?.['1h']?.length || !c['15m']?.length || !c['5m']?.length || !c['1m']?.length) {
     throw new Error(payload.error || `Capital.com incompleto (${epic})`)
   }
-  return { '4h': aggregateTo4h(c['1h']), '1h': c['1h'], '15m': c['15m'], '5m': c['5m'], '1m': c['1m'] }
+  return { '4h': aggregateTo4h(c['1h']), '1h': c['1h'], '15m': c['15m'], '5m': c['5m'], '1m': c['1m'], scale: payload.scale ?? 'cash' }
 }
 
 type TwelvePackResponse = {
@@ -1344,7 +1355,9 @@ export async function getT212PlaybookCandles(
     const capitalEpic = T212_CAPITAL_EPIC[instrument.id]
     if (!data && capitalEpic && !capitalUnavailable) {
       try {
-        data = await fetchPlaybookViaCapital(capitalEpic, instrument.t212Label)
+        const capital = await fetchPlaybookViaCapital(capitalEpic, instrument.t212Label)
+        priceScale.set(instrument.id, capital.scale)
+        data = capital
         source = 'capital'
       } catch (error) {
         // Visível no estado do scan: um «epic» errado não pode cair no Yahoo em silêncio.
@@ -1371,6 +1384,8 @@ export async function getT212PlaybookCandles(
     if (!data) {
       data = await fetchYahooPlaybook(instrument.yahooSymbol)
       source = 'yahoo'
+      // Índices fora dos EUA no Yahoo = índice à vista (^GDAXI…), não a escala dos futuros da T212.
+      if (capitalEpic) priceScale.set(instrument.id, 'cash')
       // Índices US: futuros com ~10 min de atraso + cauda ao vivo do índice à vista.
       const liveSymbol = US_INDEX_LIVE_SYMBOL[instrument.id]
       if (liveSymbol) {

@@ -139,6 +139,46 @@ export async function fetchCapitalPackResolving(env: CapitalEnv, epic: string, n
   }
 }
 
+/** Meses dos contratos (Z2026 = dezembro 2026). */
+const MONTH_CODES = 'FGHJKMNQUVXZ'
+
+function contractOrder(epic: string): number {
+  const match = /([FGHJKMNQUVXZ])(\d{4})$/.exec(epic)
+  return match ? Number(match[2]) * 12 + MONTH_CODES.indexOf(match[1]) : Number.MAX_SAFE_INTEGER
+}
+
+const FUTURES_TTL_MS = 6 * 3_600_000
+const futuresByName = new Map<string, { epic?: string; at: number }>()
+
+/** O futuro mais próximo («Germany 40 Future») — a mesma referência que a T212 usa nos índices. */
+async function findCapitalFuture(env: CapitalEnv, name: string): Promise<string | undefined> {
+  const cached = futuresByName.get(name)
+  if (cached && Date.now() - cached.at < FUTURES_TTL_MS) return cached.epic
+  const markets = await searchCapitalMarkets(env, name)
+  const futures = markets
+    .filter((market) => market.instrumentType === 'INDICES' && /future/i.test(market.instrumentName))
+    .filter((market) => !market.marketStatus || market.marketStatus === 'TRADEABLE' || market.marketStatus === 'CLOSED')
+    .sort((a, b) => contractOrder(a.epic) - contractOrder(b.epic))
+  const epic = futures[0]?.epic
+  futuresByName.set(name, { epic, at: Date.now() })
+  return epic
+}
+
+export type CapitalScale = 'futures' | 'cash'
+
+/**
+ * A T212 cota os índices pelos futuros. Usa o futuro da Capital.com quando existe (escala = T212);
+ * senão o índice à vista, marcado 'cash' para o Desk não dar JÁ com níveis desfasados.
+ */
+export async function fetchCapitalIndexPack(env: CapitalEnv, cashEpic: string, name?: string) {
+  if (name) {
+    const future = await findCapitalFuture(env, name).catch(() => undefined)
+    if (future) return { epic: future, scale: 'futures' as CapitalScale, candles: await fetchCapitalPack(env, future) }
+  }
+  const cash = await fetchCapitalPackResolving(env, cashEpic, name)
+  return { ...cash, scale: 'cash' as CapitalScale }
+}
+
 /** Para encontrar o «epic» de um mercado (ex. «Germany 40» → DE40). */
 export async function searchCapitalMarkets(env: CapitalEnv, term: string) {
   const body = await capitalGet<{ markets?: { epic: string; instrumentName: string; instrumentType: string; marketStatus?: string }[] }>(
