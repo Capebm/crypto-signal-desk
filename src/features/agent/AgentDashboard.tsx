@@ -497,6 +497,7 @@ export default function AgentDashboard() {
       score: row.score,
       profile: row.tradeSetup?.profile ?? riskProfile,
       tpMode: row.tradeSetup?.tpMode ?? tpMode,
+      draws: row.drawBalance,
     })),
     [rows, riskProfile, tpMode],
   )

@@ -697,6 +697,7 @@ export default function T212Dashboard() {
       score: row.score,
       profile: row.tradeSetup?.profile ?? riskProfile,
       tpMode: row.tradeSetup?.tpMode ?? tpMode,
+      draws: row.drawBalance,
     })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows, riskProfile, tpMode],

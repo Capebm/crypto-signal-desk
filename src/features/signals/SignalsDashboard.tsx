@@ -326,7 +326,7 @@ export default function SignalsDashboard() {
             <article>
               <span>Resolvidos</span>
               <strong>{stats.resolved}</strong>
-              <small>{stats.open} abertos</small>
+              <small>{stats.open} abertos{stats.repeats > 0 ? ` · ${stats.repeats} repetidos fora` : ''}</small>
             </article>
             <article>
               <span>R médio</span>

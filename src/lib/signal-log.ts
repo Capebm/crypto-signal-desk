@@ -1,4 +1,5 @@
 import { APP_VERSION } from './app-version'
+import type { DrawBalance } from './draw-balance'
 import { currentDeskUser, hasDeskSession, supabase } from './supabase'
 import type { RiskWarningCode } from './risk-rules'
 import { resolveT212BinancePair } from './t212-binance-feed'
@@ -31,6 +32,8 @@ export type SignalRecord = {
   tp_mode?: string
   session?: string
   warnings: RiskWarningCode[]
+  /** Draws por tomar acima/abaixo no momento do sinal (hipótese «cookies», não é regra). */
+  draws?: DrawBalance
   app_version: string
   signal_at: string
 }
@@ -63,6 +66,29 @@ export function signalKey(venue: string, base: string, side: string, at: number)
   return `${venue}|${base.toUpperCase()}|${side}|${Math.floor(at / BUCKET_MS)}`
 }
 
+/** Mesmo ativo + lado a menos de 15 min = o mesmo setup (a chave por bloco falha na fronteira: 17:23 vs 17:36). */
+export const REPEAT_WINDOW_MS = BUCKET_MS
+
+type SetupRef = Pick<SignalRecord, 'venue' | 'base' | 'side' | 'signal_at'>
+
+const setupId = (signal: SetupRef) => `${signal.venue}|${signal.base.toUpperCase()}|${signal.side}`
+
+/** Mantém o primeiro sinal de cada setup e larga as repetições dentro de REPEAT_WINDOW_MS desse primeiro. */
+export function dropRepeatSignals<T extends SetupRef>(signals: T[]): T[] {
+  const firstAt = new Map<string, number>()
+  const kept: T[] = []
+  const sorted = [...signals].sort((a, b) => Date.parse(a.signal_at) - Date.parse(b.signal_at))
+  for (const signal of sorted) {
+    const id = setupId(signal)
+    const at = Date.parse(signal.signal_at)
+    const first = firstAt.get(id)
+    if (first !== undefined && at - first < REPEAT_WINDOW_MS) continue
+    firstAt.set(id, at)
+    kept.push(signal)
+  }
+  return kept
+}
+
 export type BuildSignalInput = {
   venue: 'spot' | 't212'
   symbol: string
@@ -79,6 +105,7 @@ export type BuildSignalInput = {
   tpMode?: string
   session?: string
   warnings: RiskWarningCode[]
+  draws?: DrawBalance
   at: Date
 }
 
@@ -106,6 +133,7 @@ export function buildSignalRecord(input: BuildSignalInput): SignalRecord | undef
     tp_mode: input.tpMode,
     session: input.session,
     warnings: input.warnings,
+    draws: input.draws,
     app_version: APP_VERSION ?? 'dev',
     signal_at: input.at.toISOString(),
   }
@@ -129,11 +157,15 @@ export function resolveSignalOutcome(
   let mfe = 0
   let mae = 0
   let last: Candle | undefined
+  let pastExpiry = false
   const sorted = [...candles].sort((a, b) => a.openTime - b.openTime)
   for (const candle of sorted) {
     // Só velas que abrem depois do sinal: a parte da vela antes do sinal não conta.
     if (candle.openTime < start) continue
-    if (candle.openTime >= expiry) break
+    if (candle.openTime >= expiry) {
+      pastExpiry = true
+      break
+    }
     last = candle
     const favorable = toR(long ? candle.high : candle.low)
     const adverse = toR(long ? candle.low : candle.high)
@@ -154,7 +186,8 @@ export function resolveSignalOutcome(
     }
   }
   const lastClose = last ? last.openTime + candleMs : 0
-  if (last && lastClose >= expiry - candleMs) {
+  // Há velas depois da expiração (ações: as 48h acabaram com o mercado fechado) → fecha no último preço dentro da janela.
+  if (last && (pastExpiry || lastClose >= expiry - candleMs)) {
     return {
       status: 'expired',
       resolved_at: new Date(expiry).toISOString(),
@@ -171,6 +204,8 @@ export type SignalBucket = { n: number; wins: number; sumR: number }
 
 export type SignalStats = {
   total: number
+  /** Repetições do mesmo setup (< 15 min) gravadas antes do dedupe por janela móvel; fora das contas. */
+  repeats: number
   open: number
   resolved: number
   winRate: number
@@ -192,9 +227,11 @@ const add = (map: Record<string, SignalBucket>, key: string, r: number) => {
   map[key] = row
 }
 
-export function computeSignalStats(signals: StoredSignal[]): SignalStats {
+export function computeSignalStats(allSignals: StoredSignal[]): SignalStats {
+  const signals = dropRepeatSignals(allSignals)
   const stats: SignalStats = {
     total: signals.length,
+    repeats: allSignals.length - signals.length,
     open: 0,
     resolved: 0,
     winRate: 0,
@@ -232,6 +269,7 @@ export function computeSignalStats(signals: StoredSignal[]): SignalStats {
 
 const QUEUE_KEY = 'desk-signal-queue-v1'
 const SENT_KEYS_KEY = 'desk-signal-sent-v1'
+const LAST_SETUP_KEY = 'desk-signal-last-setup-v1'
 
 export type DbState = 'ok' | 'signed-out' | 'forbidden' | 'offline'
 
@@ -284,11 +322,21 @@ export async function logSignals(records: SignalRecord[]): Promise<{ sent: numbe
   const sentKeys = new Set(readJson<string[]>(SENT_KEYS_KEY, []))
   const queue = readJson<SignalRecord[]>(QUEUE_KEY, [])
   const queuedKeys = new Set(queue.map((row) => row.signal_key))
+  // Primeiro registo de cada setup: um sinal igual nos 15 min seguintes não volta a entrar.
+  const lastSetup = readJson<Record<string, number>>(LAST_SETUP_KEY, {})
+  const now = Date.now()
+  for (const [id, at] of Object.entries(lastSetup)) if (now - at > REPEAT_WINDOW_MS * 4) delete lastSetup[id]
   for (const record of records) {
     if (sentKeys.has(record.signal_key) || queuedKeys.has(record.signal_key)) continue
+    const id = setupId(record)
+    const at = Date.parse(record.signal_at)
+    const first = lastSetup[id]
+    if (first !== undefined && at - first >= 0 && at - first < REPEAT_WINDOW_MS) continue
+    lastSetup[id] = at
     queue.push(record)
     queuedKeys.add(record.signal_key)
   }
+  writeJson(LAST_SETUP_KEY, lastSetup)
   writeJson(QUEUE_KEY, queue.slice(-500))
   return flushSignalQueue()
 }

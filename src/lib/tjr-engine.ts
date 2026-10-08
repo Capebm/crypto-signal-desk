@@ -2,6 +2,7 @@ import type { Action, Decision } from './decision-engine'
 import { BTC_REFERENCE_SYMBOL } from './binance'
 import { buildTradeLevels, type InstrumentKind, type TradeLevelPlan } from './trade-levels'
 import { MIN_RR_FLOOR, riskProfiles, tjrGates, type RiskProfile } from './risk-profile'
+import { computeDrawBalance, type DrawBalance } from './draw-balance'
 import { latestSessionLevels, previousDayLevels } from './sessions'
 import {
   hasDisplacement,
@@ -74,6 +75,8 @@ export type TjrDecision = Decision & {
   tradeSetup?: SetupHit
   /** Swings 4h/1h para markup no gráfico. */
   htfLevels?: { price: number; title: string; kind: 'high' | 'low' }[]
+  /** Draws por tomar acima/abaixo (só medição, gravado no sinal). */
+  drawBalance?: DrawBalance
   /** Candle 1m/5m demasiado antigo: exige validação visual no feed live do T212. */
   liveConfirmationRequired?: boolean
   /** Idade observada do candle 1m mais recente. */
@@ -878,6 +881,12 @@ function evaluate(
     ...h4.swings.slice(-4).map((s) => ({ price: s.price, title: s.type === 'high' ? '4h H' : '4h L', kind: s.type })),
     ...swings1h.slice(-6).map((s) => ({ price: s.price, title: s.type === 'high' ? '1h H' : '1h L', kind: s.type })),
   ]
+  // Os mesmos draws que o sweep usa (sessões, dia anterior, swings 1h/4h).
+  const drawBalance = computeDrawBalance(entry ?? primary1h.at(-1)?.close ?? 0, [
+    ...latestSessionLevels(primary1h),
+    ...previousDayLevels(primary1h),
+    ...htfLevels,
+  ])
 
   return finalize({
     action,
@@ -913,6 +922,7 @@ function evaluate(
     softOpposed,
     riskyHighLong,
     htfLevels,
+    drawBalance,
     exitPlan: buildExitPlan(
       side,
       stop,
