@@ -644,8 +644,8 @@ export default function T212Dashboard() {
       }
       const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
       const feed = getT212FeedStats()
-      const feedNote = feed.twelve + feed.yahoo + feed.binance > 0
-        ? ` Feed: Binance×${feed.binance}${feed.twelve ? ` + Twelve×${feed.twelve}` : ''}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.liveIndex ? ` (${feed.liveIndex} índices US ao vivo)` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
+      const feedNote = feed.twelve + feed.yahoo + feed.binance + feed.capital > 0
+        ? ` Feed: Binance×${feed.binance}${feed.twelve ? ` + Twelve×${feed.twelve}` : ''}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.capital ? ` + Capital.com×${feed.capital} (ao vivo)` : ''}${feed.capitalFailed.length ? ` · Capital.com falhou: ${feed.capitalFailed.join(', ')} → Yahoo` : ''}${feed.liveIndex ? ` (${feed.liveIndex} índices US ao vivo)` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
         : ''
       const esNqNote = esNq
         ? ` ES↔NQ: ${esNq.smt.note} Tendência ${esNq.esTrend}/${esNq.nqTrend}.`

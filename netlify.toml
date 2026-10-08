@@ -27,6 +27,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/capital-pack"
+  to = "/.netlify/functions/capital-pack"
+  status = 200
+
+[[redirects]]
   from = "/api/twelve-pack"
   to = "/.netlify/functions/twelve-pack"
   status = 200

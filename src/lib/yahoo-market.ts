@@ -147,24 +147,43 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   cadjpy: 'CAD/JPY',
 }
 
+/**
+ * Índices fora dos EUA: CFD ao vivo pela Capital.com (demo). «Epic» = nome do mercado na Capital.com,
+ * confirmado com /api/capital-pack?search=. Sem credenciais ou erro → Yahoo (15 min de atraso).
+ */
+export const T212_CAPITAL_EPIC: Record<string, string> = {
+  ger40: 'DE40',
+  uk100: 'UK100',
+  fra40: 'FR40',
+  eu50: 'EU50',
+  spa35: 'SP35',
+  ita40: 'IT40',
+  swiss20: 'SWI20',
+  neth25: 'NL25',
+  jp225: 'J225',
+  hk50: 'HK50',
+}
+
 export function twelveSymbolFor(instrument: T212Instrument): string | undefined {
   return T212_TWELVE_SYMBOL[instrument.id]
 }
 
-export type T212FeedSource = 'twelve' | 'yahoo' | 'binance'
+export type T212FeedSource = 'twelve' | 'yahoo' | 'binance' | 'capital'
 /** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). Crypto T212 usa Binance quando o par existe. */
 export type T212FeedPreference = 'yahoo' | 'twelve'
 
-let feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: false }
+let feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: false, capitalFailed: [] as string[] }
+/** Sem credenciais na Netlify: não volta a tentar a Capital.com nesta sessão. */
+let capitalUnavailable = false
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
 export function resetT212FeedStats() {
-  feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
+  feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now(), capitalFailed: [] }
 }
 
 export function getT212FeedStats() {
-  return { ...feedStats, twelveCooldownUntil }
+  return { ...feedStats, capitalFailed: [...feedStats.capitalFailed], twelveCooldownUntil }
 }
 
 export const T212_INSTRUMENTS: T212Instrument[] = [
@@ -1217,6 +1236,29 @@ async function fetchPlaybookLegacy(yahooSymbol: string): Promise<PlaybookPack> {
   }
 }
 
+type CapitalPackResponse = {
+  candles?: Partial<Record<'1h' | '15m' | '5m' | '1m', Candle[]>>
+  error?: string
+  skip?: boolean
+}
+
+async function fetchPlaybookViaCapital(epic: string): Promise<PlaybookPack> {
+  const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}`, {
+    signal: AbortSignal.timeout(25_000),
+  })
+  const payload = (await response.json().catch(() => ({}))) as CapitalPackResponse
+  if (response.status === 503 && payload.skip) {
+    capitalUnavailable = true
+    throw new Error('capital-skip')
+  }
+  if (!response.ok) throw new Error(payload.error || `Capital.com ${response.status}`)
+  const c = payload.candles
+  if (!c?.['1h']?.length || !c['15m']?.length || !c['5m']?.length || !c['1m']?.length) {
+    throw new Error(payload.error || `Capital.com incompleto (${epic})`)
+  }
+  return { '4h': aggregateTo4h(c['1h']), '1h': c['1h'], '15m': c['15m'], '5m': c['5m'], '1m': c['1m'] }
+}
+
 type TwelvePackResponse = {
   source?: string
   symbol?: string
@@ -1298,6 +1340,17 @@ export async function getT212PlaybookCandles(
       }
     }
 
+    const capitalEpic = T212_CAPITAL_EPIC[instrument.id]
+    if (!data && capitalEpic && !capitalUnavailable) {
+      try {
+        data = await fetchPlaybookViaCapital(capitalEpic)
+        source = 'capital'
+      } catch (error) {
+        // Visível no estado do scan: um «epic» errado não pode cair no Yahoo em silêncio.
+        if (!capitalUnavailable) feedStats.capitalFailed.push(`${instrument.short} (${capitalEpic}: ${error instanceof Error ? error.message : 'erro'})`)
+      }
+    }
+
     if (!data && feed === 'twelve') {
       const twelveSymbol = twelveSymbolFor(instrument)
       if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
@@ -1332,7 +1385,8 @@ export async function getT212PlaybookCandles(
       }
     }
 
-    if (source === 'twelve') feedStats.twelve += 1
+    if (source === 'capital') feedStats.capital += 1
+    else if (source === 'twelve') feedStats.twelve += 1
     else if (source === 'binance') feedStats.binance += 1
     else feedStats.yahoo += 1
 
