@@ -119,6 +119,26 @@ export async function fetchCapitalPack(env: CapitalEnv, epic: string) {
   return candles
 }
 
+const resolvedEpics = new Map<string, string>()
+
+/**
+ * Velas por «epic»; se a Capital.com não o conhecer (404), procura pelo nome do instrumento
+ * (ex. «Switzerland 20») e usa o primeiro índice encontrado. Devolve o epic usado.
+ */
+export async function fetchCapitalPackResolving(env: CapitalEnv, epic: string, name?: string) {
+  const known = resolvedEpics.get(epic) ?? epic
+  try {
+    return { epic: known, candles: await fetchCapitalPack(env, known) }
+  } catch (error) {
+    const notFound = error instanceof Error && /not-found\.epic|404/.test(error.message)
+    if (!notFound || !name) throw error
+    const match = (await searchCapitalMarkets(env, name)).find((market) => market.instrumentType === 'INDICES')
+    if (!match) throw new Error(`Capital.com: sem índice para «${name}»`)
+    resolvedEpics.set(epic, match.epic)
+    return { epic: match.epic, candles: await fetchCapitalPack(env, match.epic) }
+  }
+}
+
 /** Para encontrar o «epic» de um mercado (ex. «Germany 40» → DE40). */
 export async function searchCapitalMarkets(env: CapitalEnv, term: string) {
   const body = await capitalGet<{ markets?: { epic: string; instrumentName: string; instrumentType: string; marketStatus?: string }[] }>(

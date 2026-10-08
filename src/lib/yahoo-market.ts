@@ -1242,8 +1242,9 @@ type CapitalPackResponse = {
   skip?: boolean
 }
 
-async function fetchPlaybookViaCapital(epic: string): Promise<PlaybookPack> {
-  const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}`, {
+async function fetchPlaybookViaCapital(epic: string, name: string): Promise<PlaybookPack> {
+  // name = «Switzerland 20»: se o epic não existir, a função procura-o pelo nome.
+  const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}&name=${encodeURIComponent(name)}`, {
     signal: AbortSignal.timeout(25_000),
   })
   const payload = (await response.json().catch(() => ({}))) as CapitalPackResponse
@@ -1343,7 +1344,7 @@ export async function getT212PlaybookCandles(
     const capitalEpic = T212_CAPITAL_EPIC[instrument.id]
     if (!data && capitalEpic && !capitalUnavailable) {
       try {
-        data = await fetchPlaybookViaCapital(capitalEpic)
+        data = await fetchPlaybookViaCapital(capitalEpic, instrument.t212Label)
         source = 'capital'
       } catch (error) {
         // Visível no estado do scan: um «epic» errado não pode cair no Yahoo em silêncio.

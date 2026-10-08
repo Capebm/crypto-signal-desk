@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { searchOpportunities } from './server/analyze'
-import { capitalEnv, fetchCapitalPack, searchCapitalMarkets } from './server/capital'
+import { capitalEnv, fetchCapitalPackResolving, searchCapitalMarkets } from './server/capital'
 import { verifyDeskOwner } from './server/desk-auth'
 import { cleanEstimateCandidate, estimateResale } from './server/hunt'
 import type { SearchRequest } from './server/types'
@@ -219,7 +219,8 @@ export function garimpoApiPlugin(): Plugin {
             if (search) {
               sendJson(res, 200, { markets: await searchCapitalMarkets(capital, search.slice(0, 40)) })
             } else if (epic && /^[A-Z0-9_.]{2,24}$/.test(epic)) {
-              sendJson(res, 200, { source: 'capital', epic, candles: await fetchCapitalPack(capital, epic) })
+              const resolved = await fetchCapitalPackResolving(capital, epic, url.searchParams.get('name')?.trim().slice(0, 40))
+              sendJson(res, 200, { source: 'capital', epic: resolved.epic, requested: epic, candles: resolved.candles })
             } else {
               sendJson(res, 400, { error: 'epic inválido' })
             }
