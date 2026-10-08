@@ -50,6 +50,7 @@ import {
   readT212WatchlistIds,
   resetT212FeedStats,
   resolveT212Watchlist,
+  T212_INSTRUMENTS,
   type T212FeedPreference,
   t212KindLabel,
   writeT212WatchlistIds,
@@ -76,6 +77,9 @@ const WIDE_NET_KEY = 't212-wide-net'
 const CFD_PRACTICAL_KEY = 't212-cfd-practical'
 const VIDEO_STRICT_KEY = 't212-video-strict'
 const FEED_KEY = 't212-data-feed'
+const US_INDEX_FOCUS_KEY = 't212-focus-us-indices'
+/** O que o TJR opera: ES e NQ na abertura de NY → US500 e TECH100 no T212. */
+const US_INDEX_FOCUS_IDS = ['us500', 'tech100']
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -136,7 +140,12 @@ export default function T212Dashboard() {
   const [watchQuery, setWatchQuery] = useState('')
   const [watchKind, setWatchKind] = useState<'all' | T212Instrument['kind']>('all')
   const [binancePairs, setBinancePairs] = useState<Map<string, string>>(() => new Map())
-  const watchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
+  const [usIndexFocus, setUsIndexFocus] = useState(() => readBool(US_INDEX_FOCUS_KEY, false))
+  const fullWatchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
+  const watchlist = useMemo(
+    () => (usIndexFocus ? T212_INSTRUMENTS.filter((item) => US_INDEX_FOCUS_IDS.includes(item.id)) : fullWatchlist),
+    [usIndexFocus, fullWatchlist],
+  )
   const visibleWatchExtras = useMemo(() => {
     const needle = watchQuery.trim().toUpperCase()
     return T212_WATCH_EXTRAS.filter((item) => {
@@ -422,6 +431,7 @@ export default function T212Dashboard() {
       localStorage.setItem(CFD_PRACTICAL_KEY, cfdPractical ? '1' : '0')
       localStorage.setItem(VIDEO_STRICT_KEY, tjrVideoStrict ? '1' : '0')
       localStorage.setItem(FEED_KEY, dataFeed)
+      localStorage.setItem(US_INDEX_FOCUS_KEY, usIndexFocus ? '1' : '0')
       writeT212WatchlistIds(watchIds)
     } catch {
       /* ignore */
@@ -429,7 +439,7 @@ export default function T212Dashboard() {
     const matched = matchT212Preset({ riskIndex, tpMode, wideNet, cfdPractical, scanAllSetups, tjrVideoStrict })
     setPresetId(matched)
     writeT212PresetId(matched)
-  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed, watchIds])
+  }, [riskIndex, tpMode, scanAllSetups, wideNet, cfdPractical, tjrVideoStrict, dataFeed, watchIds, usIndexFocus])
 
   const applyPreset = (id: Exclude<T212PresetId, 'custom'>) => {
     const { config } = T212_PRESETS[id]
@@ -603,7 +613,8 @@ export default function T212Dashboard() {
       }
 
       if (results.length === 0) {
-        throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}` : 'Sem candles (Binance/Twelve/Yahoo).')
+        const loginNote = hasDeskSession() ? '' : ' Sem login: índices, forex e ações não carregam — entra na tab Sinais.'
+        throw new Error(failed.length ? `Dados falharam: ${failed.join(', ')}.${loginNote}` : 'Sem candles (Binance/Twelve/Yahoo).')
       }
 
       const sorted = sortRows(results)
@@ -936,6 +947,20 @@ export default function T212Dashboard() {
             }}
           />
           <span>Alertas</span>
+        </label>
+        <label className="tv-setup-toggle" title="Só US500 e TECH100 (≈ ES e NQ, o que o TJR opera). A watchlist fica guardada.">
+          <input
+            type="checkbox"
+            checked={usIndexFocus}
+            onChange={(event) => {
+              setUsIndexFocus(event.target.checked)
+              setRows([])
+              setStatus(event.target.checked
+                ? 'Foco Índices US: só US500 e TECH100. Melhor na abertura de NY (janela de entrada).'
+                : 'Watchlist completa — aplica + scan.')
+            }}
+          />
+          <span>Só índices US</span>
         </label>
         <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}

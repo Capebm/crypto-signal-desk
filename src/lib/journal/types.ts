@@ -138,8 +138,10 @@ export type JournalStats = {
   /** TP / SL / manual / trailing (T212 directo; Spot só com sinal ligado). */
   byExitType: Record<string, BucketStats>
   byAssetClass: Record<string, BucketStats>
-  /** Hora UTC de entrada — compara com a killzone 13:30–16:00 UTC. */
+  /** Hora UTC de entrada (a janela de entrada usa hora de NY: ver outsideWindow). */
   byHourUtc: Record<string, BucketStats>
+  /** Entradas fora da janela NY open–12:00 ET (segue a mudança de hora dos EUA). */
+  outsideWindow: BucketStats
   overnightTotal: number
   /** Média de R realizado (só trades com stop planeado). */
   avgRealizedR: number

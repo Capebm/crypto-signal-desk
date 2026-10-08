@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_RISK_SETTINGS, inEntryWindow, riskBasedStake, riskWarnings } from './risk-rules'
 
 describe('risk rules', () => {
-  it('entry window is 13:30–16:00 UTC', () => {
+  it('entry window is 13:30–16:00 UTC in US summer time', () => {
     expect(inEntryWindow(new Date(Date.UTC(2026, 9, 1, 13, 29)))).toBe(false)
     expect(inEntryWindow(new Date(Date.UTC(2026, 9, 1, 13, 30)))).toBe(true)
     expect(inEntryWindow(new Date(Date.UTC(2026, 9, 1, 15, 59)))).toBe(true)
     expect(inEntryWindow(new Date(Date.UTC(2026, 9, 1, 16, 0)))).toBe(false)
+  })
+
+  it('entry window follows New York time after the US clock change (14:30–17:00 UTC in winter)', () => {
+    expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 13, 45)))).toBe(false)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 14, 30)))).toBe(true)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 16, 59)))).toBe(true)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 17, 0)))).toBe(false)
   })
 
   it('sizes the position so the stop costs riskPct of capital', () => {

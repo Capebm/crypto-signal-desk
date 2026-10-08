@@ -1,3 +1,4 @@
+import { inEntryWindow } from '../risk-rules'
 import { ASSET_CLASS_LABEL } from './asset-class'
 import type { BucketStats, ClosedTrade, DayStats, EquityPoint, JournalStats, SessionStats, SymbolStats } from './types'
 
@@ -54,6 +55,7 @@ const emptyStats = (): JournalStats => ({
   byExitType: {},
   byAssetClass: {},
   byHourUtc: {},
+  outsideWindow: { trades: 0, pnl: 0, wins: 0 },
   overnightTotal: 0,
   avgRealizedR: 0,
   rTrades: 0,
@@ -117,6 +119,7 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
   const byExitType: Record<string, BucketStats> = {}
   const byAssetClass: Record<string, BucketStats> = {}
   const byHourUtc: Record<string, BucketStats> = {}
+  const outsideWindow: BucketStats = { trades: 0, pnl: 0, wins: 0 }
   let overnightTotal = 0
   let rSum = 0
   let rTrades = 0
@@ -198,6 +201,11 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     bump(byHour, `${String(new Date(trade.entryTime).getHours()).padStart(2, '0')}h`, trade)
     bump(byDuration, durationBucket(trade.durationMs), trade)
     bump(byHourUtc, `${String(new Date(trade.entryTime).getUTCHours()).padStart(2, '0')}h UTC`, trade)
+    if (!inEntryWindow(new Date(trade.entryTime))) {
+      outsideWindow.trades += 1
+      outsideWindow.pnl += trade.pnlUsdc
+      if (trade.pnlUsdc > 0) outsideWindow.wins += 1
+    }
     if (trade.assetClass) bump(byAssetClass, ASSET_CLASS_LABEL[trade.assetClass], trade)
     if (trade.exitType) bump(byExitType, EXIT_TYPE_LABEL[trade.exitType] ?? trade.exitType, trade)
     overnightTotal += trade.overnight ?? 0
@@ -278,6 +286,7 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     byExitType,
     byAssetClass,
     byHourUtc,
+    outsideWindow,
     overnightTotal,
     avgRealizedR: rTrades > 0 ? rSum / rTrades : 0,
     rTrades,
@@ -395,17 +404,9 @@ export function diagnoseJournal(stats: JournalStats, money: (value: number) => s
     }
   }
 
-  let outsidePnl = 0
-  let outsideTrades = 0
-  for (const [key, row] of Object.entries(stats.byHourUtc)) {
-    const hour = Number(key.slice(0, 2))
-    if (hour < 13 || hour >= 16) {
-      outsidePnl += row.pnl
-      outsideTrades += row.trades
-    }
-  }
-  if (outsideTrades >= 5 && outsidePnl < 0) {
-    insights.push({ tone: 'warn', text: `Entradas fora de 13:30–16:00 UTC: ${outsideTrades} trades, ${money(outsidePnl)}.` })
+  const outside = stats.outsideWindow
+  if (outside.trades >= 5 && outside.pnl < 0) {
+    insights.push({ tone: 'warn', text: `Entradas fora da janela (abertura de NY até 12:00 de NY): ${outside.trades} trades, ${money(outside.pnl)}.` })
   }
   if (stats.overnightTotal < 0 && Math.abs(stats.overnightTotal) >= Math.abs(stats.totalPnlUsdc) * 0.1) {
     insights.push({ tone: 'warn', text: `Overnight custou ${money(stats.overnightTotal)}. Fecha os CFDs no próprio dia.` })

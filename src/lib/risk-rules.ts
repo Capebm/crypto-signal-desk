@@ -74,27 +74,50 @@ export type RiskWarningCode = 'fora_janela' | 'acao_cfd' | 'alt_sub_1' | 'max_po
 
 export type RiskWarning = { code: RiskWarningCode; label: string; detail: string }
 
-/** Janela com melhor resultado no diário: NY open até 12:00 ET. */
-export const ENTRY_WINDOW_UTC = { startMinutes: 13 * 60 + 30, endMinutes: 16 * 60 }
+/**
+ * Janela com melhor resultado no diário: NY open até 12:00 em Nova Iorque.
+ * Em hora de NY para seguir a mudança de hora dos EUA (13:30–16:00 UTC no verão, 14:30–17:00 no inverno).
+ */
+export const ENTRY_WINDOW_NY = { startMinutes: 9 * 60 + 30, endMinutes: 12 * 60 }
+
+const nyClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
+
+/** Minutos que NY está à frente (negativo: atrás) de UTC nesse instante. */
+function nyOffsetMinutes(at: Date): number {
+  const parts = nyClock.formatToParts(at)
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'))
+  return Math.round((asUtc - Math.floor(at.getTime() / 60_000) * 60_000) / 60_000)
+}
 
 export function inEntryWindow(at: Date): boolean {
-  const minutes = at.getUTCHours() * 60 + at.getUTCMinutes()
-  return minutes >= ENTRY_WINDOW_UTC.startMinutes && minutes < ENTRY_WINDOW_UTC.endMinutes
+  const utcMinutes = at.getUTCHours() * 60 + at.getUTCMinutes()
+  const minutes = (((utcMinutes + nyOffsetMinutes(at)) % 1440) + 1440) % 1440
+  return minutes >= ENTRY_WINDOW_NY.startMinutes && minutes < ENTRY_WINDOW_NY.endMinutes
 }
 
 /** Janela em hora local (ex. "14:30–17:00") para mostrar ao utilizador. */
 export function entryWindowLocalLabel(reference = new Date()): string {
-  const at = (minutes: number) => {
-    const date = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate(), 0, minutes))
+  const offset = nyOffsetMinutes(reference)
+  const at = (nyMinutes: number) => {
+    const date = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate(), 0, nyMinutes - offset))
     return date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
   }
-  return `${at(ENTRY_WINDOW_UTC.startMinutes)}–${at(ENTRY_WINDOW_UTC.endMinutes)}`
+  return `${at(ENTRY_WINDOW_NY.startMinutes)}–${at(ENTRY_WINDOW_NY.endMinutes)}`
 }
 
 export const RISK_WARNING_TEXT: Record<RiskWarningCode, { label: string; detail: string }> = {
   fora_janela: {
     label: 'Fora da janela',
-    detail: 'Entradas depois das 16:00 UTC deram −35 € no T212 e −22 $ no Spot.',
+    detail: 'Entradas depois das 12:00 de NY (16:00 UTC no verão) deram −35 € no T212 e −22 $ no Spot.',
   },
   acao_cfd: {
     label: 'Ação CFD',
