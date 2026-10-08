@@ -1,5 +1,6 @@
 import type { Candle, Interval } from './types'
 import { getT212BinancePlaybook } from './t212-binance-feed'
+import { US_INDEX_LIVE_SYMBOL, withLiveIndexTail } from './us-index-live'
 import { t212IsCfdListed } from './t212-crypto-cfd'
 import { deskApiFetch } from './supabase'
 
@@ -21,7 +22,7 @@ export type T212Instrument = {
  * por engano para uma acção/ETF com o mesmo ticker (ex.: NG, ES).
  */
 export const T212_TWELVE_SYMBOL: Record<string, string> = {
-  us500: 'SPX',
+  // us500 sem Twelve: SPX é o índice à vista (~50 pts abaixo); a T212 segue o futuro ES.
   ger40: 'GDAXI',
   uk100: 'FTSE',
   eurusd: 'EUR/USD',
@@ -154,12 +155,12 @@ export type T212FeedSource = 'twelve' | 'yahoo' | 'binance'
 /** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). Crypto T212 usa Binance quando o par existe. */
 export type T212FeedPreference = 'yahoo' | 'twelve'
 
-let feedStats = { twelve: 0, yahoo: 0, binance: 0, twelveExhausted: false }
+let feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: false }
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
 export function resetT212FeedStats() {
-  feedStats = { twelve: 0, yahoo: 0, binance: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
+  feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
 }
 
 export function getT212FeedStats() {
@@ -1316,6 +1317,19 @@ export async function getT212PlaybookCandles(
     if (!data) {
       data = await fetchYahooPlaybook(instrument.yahooSymbol)
       source = 'yahoo'
+      // Índices US: futuros com ~10 min de atraso + cauda ao vivo do índice à vista.
+      const liveSymbol = US_INDEX_LIVE_SYMBOL[instrument.id]
+      if (liveSymbol) {
+        try {
+          const live = withLiveIndexTail(data, await fetchPlaybookViaPack(liveSymbol))
+          if (live) {
+            data = { ...live, '4h': aggregateTo4h(live['1h']) }
+            feedStats.liveIndex += 1
+          }
+        } catch {
+          /* sem cauda ao vivo: fica o futuro atrasado (sem JÁ, pede confirmação live) */
+        }
+      }
     }
 
     if (source === 'twelve') feedStats.twelve += 1

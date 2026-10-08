@@ -644,7 +644,7 @@ export default function T212Dashboard() {
       const weekendNote = cryptoOnly ? ' (só crypto — resto CFD fechado).' : ''
       const feed = getT212FeedStats()
       const feedNote = feed.twelve + feed.yahoo + feed.binance > 0
-        ? ` Feed: Binance×${feed.binance}${feed.twelve ? ` + Twelve×${feed.twelve}` : ''}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
+        ? ` Feed: Binance×${feed.binance}${feed.twelve ? ` + Twelve×${feed.twelve}` : ''}${feed.yahoo ? ` + Yahoo×${feed.yahoo}` : ''}${feed.liveIndex ? ` (${feed.liveIndex} índices US ao vivo)` : ''}${feed.twelveExhausted ? ' (créditos Twelve esgotados)' : ''}.`
         : ''
       const esNqNote = esNq
         ? ` ES↔NQ: ${esNq.smt.note} Tendência ${esNq.esTrend}/${esNq.nqTrend}.`
@@ -1019,7 +1019,10 @@ export default function T212Dashboard() {
       </section>
 
       <details className="t212-watchlist-panel">
-        <summary>Watchlist · {watchlist.length} activos ({T212_CORE_IDS.length} core + {watchlist.length - T212_CORE_IDS.length} extras)</summary>
+        <summary>
+          Watchlist · {fullWatchlist.length} activos ({T212_CORE_IDS.length} core + {fullWatchlist.length - T212_CORE_IDS.length} extras)
+          {usIndexFocus ? ' · em pausa: «Só índices US» ligado' : ''}
+        </summary>
         <p className="desk-sub">Crypto: só os CFDs que a T212 lista (BTC, ETH, SOL, XRP, MATIC, …). JUP/ATOM/INJ/SUI não são crypto CFD — JUP na pesquisa é um fundo. Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
         <div className="t212-watchlist-tools">
           <input

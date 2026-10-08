@@ -1,4 +1,4 @@
-import { getInstrumentMarketStatus } from './trading-session'
+import { getInstrumentMarketStatus, getTradingSessionStatus } from './trading-session'
 import type { TjrDecision } from './tjr-engine'
 import { isAwaitingEntry, isEnterLongNow, isEnterShortNow } from './tjr-engine'
 
@@ -52,7 +52,8 @@ export function explainNoAgora(rows: RowLike[], opts?: {
   if (opts?.cfdPractical === false) parts.push('CFD prático off')
 
   if (parts.length === 0) {
-    return 'Nenhum setup completo nos 4 passos TJR neste scan. Normal fora da NY open.'
+    const offHours = !getTradingSessionStatus(new Date()).inIdealWindow
+    return `Nenhum setup completo nos 4 passos TJR neste scan.${offHours ? ' Normal fora da NY open.' : ''}`
   }
   return `Porquê 0 JÁ: ${parts.join(' · ')}.`
 }
