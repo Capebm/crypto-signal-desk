@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { exchangeFor } from './index-exchanges'
 import { DEFAULT_RISK_SETTINGS, inEntryWindow, riskBasedStake, riskWarnings } from './risk-rules'
 
 describe('risk rules', () => {
@@ -14,6 +15,17 @@ describe('risk rules', () => {
     expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 14, 30)))).toBe(true)
     expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 16, 59)))).toBe(true)
     expect(inEntryWindow(new Date(Date.UTC(2026, 10, 10, 17, 0)))).toBe(false)
+  })
+
+  it('each index uses the open of its own exchange', () => {
+    const ger = exchangeFor('GER40') // Frankfurt 09:00 CEST = 07:00 UTC → 07:00–09:30 UTC
+    expect(inEntryWindow(new Date(Date.UTC(2026, 9, 8, 6, 59)), ger)).toBe(false)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 9, 8, 7, 0)), ger)).toBe(true)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 9, 8, 9, 30)), ger)).toBe(false)
+    expect(inEntryWindow(new Date(Date.UTC(2026, 9, 8, 14, 0)), ger)).toBe(false)
+    const tokyo = exchangeFor('jpn225') // 09:00 JST = 00:00 UTC
+    expect(inEntryWindow(new Date(Date.UTC(2026, 9, 8, 0, 30)), tokyo)).toBe(true)
+    expect(exchangeFor('BTCUSDC').label).toBe('Nova Iorque')
   })
 
   it('sizes the position so the stop costs riskPct of capital', () => {

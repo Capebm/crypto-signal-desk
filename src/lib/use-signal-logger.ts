@@ -26,7 +26,7 @@ export function useSignalLogger(signals: LoggableSignal[]): { state?: DbState; l
         ...signal,
         session,
         at,
-        warnings: warningsFor(signal.venue, signal.instrumentKind, signal.entry, snapshot, at).map((w) => w.code),
+        warnings: warningsFor(signal.venue, signal.instrumentKind, signal.entry, snapshot, at, signal.base).map((w) => w.code),
       }))
       .filter((record): record is NonNullable<typeof record> => Boolean(record))
       .filter((record) => !seen.current.has(record.signal_key))

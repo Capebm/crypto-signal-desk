@@ -1,3 +1,4 @@
+import { exchangeFor } from '../index-exchanges'
 import { inEntryWindow } from '../risk-rules'
 import { ASSET_CLASS_LABEL } from './asset-class'
 import type { BucketStats, ClosedTrade, DayStats, EquityPoint, JournalStats, SessionStats, SymbolStats } from './types'
@@ -201,7 +202,7 @@ export function computeJournalStats(trades: ClosedTrade[]): JournalStats {
     bump(byHour, `${String(new Date(trade.entryTime).getHours()).padStart(2, '0')}h`, trade)
     bump(byDuration, durationBucket(trade.durationMs), trade)
     bump(byHourUtc, `${String(new Date(trade.entryTime).getUTCHours()).padStart(2, '0')}h UTC`, trade)
-    if (!inEntryWindow(new Date(trade.entryTime))) {
+    if (!inEntryWindow(new Date(trade.entryTime), exchangeFor(trade.base || trade.symbol))) {
       outsideWindow.trades += 1
       outsideWindow.pnl += trade.pnlUsdc
       if (trade.pnlUsdc > 0) outsideWindow.wins += 1
@@ -406,7 +407,7 @@ export function diagnoseJournal(stats: JournalStats, money: (value: number) => s
 
   const outside = stats.outsideWindow
   if (outside.trades >= 5 && outside.pnl < 0) {
-    insights.push({ tone: 'warn', text: `Entradas fora da janela (abertura de NY até 12:00 de NY): ${outside.trades} trades, ${money(outside.pnl)}.` })
+    insights.push({ tone: 'warn', text: `Entradas fora da janela (abertura da bolsa + 2h30; NY 09:30–12:00): ${outside.trades} trades, ${money(outside.pnl)}.` })
   }
   if (stats.overnightTotal < 0 && Math.abs(stats.overnightTotal) >= Math.abs(stats.totalPnlUsdc) * 0.1) {
     insights.push({ tone: 'warn', text: `Overnight custou ${money(stats.overnightTotal)}. Fecha os CFDs no próprio dia.` })

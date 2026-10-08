@@ -1,3 +1,4 @@
+import { exchangeFor, NY_SESSION, type ExchangeSession } from './index-exchanges'
 import type { InstrumentKind } from './trade-levels'
 
 /**
@@ -75,49 +76,54 @@ export type RiskWarningCode = 'fora_janela' | 'acao_cfd' | 'alt_sub_1' | 'max_po
 export type RiskWarning = { code: RiskWarningCode; label: string; detail: string }
 
 /**
- * Janela com melhor resultado no diário: NY open até 12:00 em Nova Iorque.
- * Em hora de NY para seguir a mudança de hora dos EUA (13:30–16:00 UTC no verão, 14:30–17:00 no inverno).
+ * Janela com melhor resultado no diário: abertura da bolsa + 2h30 (NY: 09:30–12:00 ET).
+ * Em hora local de cada bolsa, para seguir as mudanças de hora (NY: 13:30–16:00 UTC no verão, 14:30–17:00 no inverno).
  */
-export const ENTRY_WINDOW_NY = { startMinutes: 9 * 60 + 30, endMinutes: 12 * 60 }
+export const ENTRY_WINDOW_MINUTES = 150
 
-const nyClock = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'America/New_York',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-})
+const zoneClocks = new Map<string, Intl.DateTimeFormat>()
 
-/** Minutos que NY está à frente (negativo: atrás) de UTC nesse instante. */
-function nyOffsetMinutes(at: Date): number {
-  const parts = nyClock.formatToParts(at)
+/** Minutos que o fuso está à frente (negativo: atrás) de UTC nesse instante. */
+function zoneOffsetMinutes(at: Date, timeZone: string): number {
+  let clock = zoneClocks.get(timeZone)
+  if (!clock) {
+    clock = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    zoneClocks.set(timeZone, clock)
+  }
+  const parts = clock.formatToParts(at)
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
   const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'))
   return Math.round((asUtc - Math.floor(at.getTime() / 60_000) * 60_000) / 60_000)
 }
 
-export function inEntryWindow(at: Date): boolean {
+export function inEntryWindow(at: Date, session: ExchangeSession = NY_SESSION): boolean {
   const utcMinutes = at.getUTCHours() * 60 + at.getUTCMinutes()
-  const minutes = (((utcMinutes + nyOffsetMinutes(at)) % 1440) + 1440) % 1440
-  return minutes >= ENTRY_WINDOW_NY.startMinutes && minutes < ENTRY_WINDOW_NY.endMinutes
+  const minutes = (((utcMinutes + zoneOffsetMinutes(at, session.timeZone)) % 1440) + 1440) % 1440
+  return minutes >= session.openMinutes && minutes < session.openMinutes + ENTRY_WINDOW_MINUTES
 }
 
 /** Janela em hora local (ex. "14:30–17:00") para mostrar ao utilizador. */
-export function entryWindowLocalLabel(reference = new Date()): string {
-  const offset = nyOffsetMinutes(reference)
-  const at = (nyMinutes: number) => {
-    const date = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate(), 0, nyMinutes - offset))
+export function entryWindowLocalLabel(reference = new Date(), session: ExchangeSession = NY_SESSION): string {
+  const offset = zoneOffsetMinutes(reference, session.timeZone)
+  const at = (localMinutes: number) => {
+    const date = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate(), 0, localMinutes - offset))
     return date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
   }
-  return `${at(ENTRY_WINDOW_NY.startMinutes)}–${at(ENTRY_WINDOW_NY.endMinutes)}`
+  return `${at(session.openMinutes)}–${at(session.openMinutes + ENTRY_WINDOW_MINUTES)}`
 }
 
 export const RISK_WARNING_TEXT: Record<RiskWarningCode, { label: string; detail: string }> = {
   fora_janela: {
     label: 'Fora da janela',
-    detail: 'Entradas depois das 12:00 de NY (16:00 UTC no verão) deram −35 € no T212 e −22 $ no Spot.',
+    detail: 'Fora da abertura da bolsa do ativo + 2h30 (NY: 09:30–12:00). Entradas depois das 12:00 de NY deram −35 € no T212 e −22 $ no Spot.',
   },
   acao_cfd: {
     label: 'Ação CFD',
@@ -142,6 +148,8 @@ export type RiskContext = {
   venue: 'spot' | 't212'
   instrumentKind: InstrumentKind
   entry?: number
+  /** Ticker (ex. GER40): define a bolsa da janela de entrada; sem bolsa conhecida → NY. */
+  symbol?: string
   openPositions: number
   /** PnL realizado hoje (negativo = perda). */
   todayPnl: number
@@ -150,7 +158,7 @@ export type RiskContext = {
 
 export function riskWarnings(context: RiskContext): RiskWarning[] {
   const codes: RiskWarningCode[] = []
-  if (!inEntryWindow(context.at)) codes.push('fora_janela')
+  if (!inEntryWindow(context.at, exchangeFor(context.symbol))) codes.push('fora_janela')
   if (context.venue === 't212' && context.instrumentKind === 'stock') codes.push('acao_cfd')
   if (context.venue === 'spot' && context.entry !== undefined && context.entry < 1) codes.push('alt_sub_1')
   if (context.openPositions >= context.settings.maxOpenPositions) codes.push('max_posicoes')

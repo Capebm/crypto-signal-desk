@@ -30,6 +30,7 @@ export function warningsFor(
   entry: number | undefined,
   snapshot: DeskRiskSnapshot,
   at = new Date(),
+  symbol?: string,
 ): RiskWarning[] {
-  return riskWarnings({ at, venue, instrumentKind, entry, settings: readRiskSettings(), ...snapshot })
+  return riskWarnings({ at, venue, instrumentKind, entry, symbol, settings: readRiskSettings(), ...snapshot })
 }

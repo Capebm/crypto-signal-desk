@@ -50,7 +50,6 @@ import {
   readT212WatchlistIds,
   resetT212FeedStats,
   resolveT212Watchlist,
-  T212_INSTRUMENTS,
   type T212FeedPreference,
   t212KindLabel,
   writeT212WatchlistIds,
@@ -68,6 +67,7 @@ import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
+import { INDEX_FOCUS_IDS } from '../../lib/index-exchanges'
 import { hasDeskSession } from '../../lib/supabase'
 
 const RISK_KEY = 't212-risk-index'
@@ -77,9 +77,8 @@ const WIDE_NET_KEY = 't212-wide-net'
 const CFD_PRACTICAL_KEY = 't212-cfd-practical'
 const VIDEO_STRICT_KEY = 't212-video-strict'
 const FEED_KEY = 't212-data-feed'
+/** Chave antiga mantida: quem tinha o foco ligado continua com ele. */
 const US_INDEX_FOCUS_KEY = 't212-focus-us-indices'
-/** O que o TJR opera: ES e NQ na abertura de NY → US500 e TECH100 no T212. */
-const US_INDEX_FOCUS_IDS = ['us500', 'tech100']
 
 const readBool = (key: string, fallback = false) => {
   try {
@@ -143,7 +142,7 @@ export default function T212Dashboard() {
   const [usIndexFocus, setUsIndexFocus] = useState(() => readBool(US_INDEX_FOCUS_KEY, false))
   const fullWatchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const watchlist = useMemo(
-    () => (usIndexFocus ? T212_INSTRUMENTS.filter((item) => US_INDEX_FOCUS_IDS.includes(item.id)) : fullWatchlist),
+    () => (usIndexFocus ? T212_CATALOG.filter((item) => INDEX_FOCUS_IDS.includes(item.id)) : fullWatchlist),
     [usIndexFocus, fullWatchlist],
   )
   const visibleWatchExtras = useMemo(() => {
@@ -948,7 +947,7 @@ export default function T212Dashboard() {
           />
           <span>Alertas</span>
         </label>
-        <label className="tv-setup-toggle" title="Só US500 e TECH100 (≈ ES e NQ, o que o TJR opera). A watchlist fica guardada.">
+        <label className="tv-setup-toggle" title="Só os 13 índices (o TJR opera índices: ES e NQ na abertura de NY). Cada índice usa a abertura da sua bolsa. A watchlist fica guardada.">
           <input
             type="checkbox"
             checked={usIndexFocus}
@@ -956,11 +955,11 @@ export default function T212Dashboard() {
               setUsIndexFocus(event.target.checked)
               setRows([])
               setStatus(event.target.checked
-                ? 'Foco Índices US: só US500 e TECH100. Melhor na abertura de NY (janela de entrada).'
+                ? 'Foco Índices: 13 índices. EUA ao vivo; Europa e Ásia com ~15 min de atraso no Yahoo → sem JÁ (pedem confirmação live). Janela = abertura de cada bolsa + 2h30.'
                 : 'Watchlist completa — aplica + scan.')
             }}
           />
-          <span>Só índices US</span>
+          <span>Só índices</span>
         </label>
         <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}
@@ -1021,7 +1020,7 @@ export default function T212Dashboard() {
       <details className="t212-watchlist-panel">
         <summary>
           Watchlist · {fullWatchlist.length} activos ({T212_CORE_IDS.length} core + {fullWatchlist.length - T212_CORE_IDS.length} extras)
-          {usIndexFocus ? ' · em pausa: «Só índices US» ligado' : ''}
+          {usIndexFocus ? ' · em pausa: «Só índices» ligado' : ''}
         </summary>
         <p className="desk-sub">Crypto: só os CFDs que a T212 lista (BTC, ETH, SOL, XRP, MATIC, …). JUP/ATOM/INJ/SUI não são crypto CFD — JUP na pesquisa é um fundo. Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
         <div className="t212-watchlist-tools">
@@ -1224,7 +1223,7 @@ export default function T212Dashboard() {
                             </div>
                           )}
                           {isActionableNow(row) && (
-                            <RiskWarningChips warnings={warningsFor('t212', row.instrument.kind, row.entry, riskSnapshot)} />
+                            <RiskWarningChips warnings={warningsFor('t212', row.instrument.kind, row.entry, riskSnapshot, new Date(), row.instrument.short)} />
                           )}
                         </td>
                         <td>
