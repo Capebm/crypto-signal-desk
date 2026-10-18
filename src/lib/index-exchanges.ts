@@ -19,8 +19,10 @@ const HONG_KONG: ExchangeSession = { label: 'Hong Kong', timeZone: 'Asia/Hong_Ko
 /** Por ticker T212 (scan) e pelos nomes que aparecem nos extratos da T212 (diário). */
 const BY_SYMBOL: Record<string, ExchangeSession> = {
   US500: NY_SESSION,
+  USA500: NY_SESSION,
   TECH100: NY_SESSION,
   US30: NY_SESSION,
+  USA30: NY_SESSION,
   ES: NY_SESSION,
   NQ: NY_SESSION,
   YM: NY_SESSION,

@@ -41,7 +41,7 @@ describe('T212 app search tickers', () => {
     expect(t212ExecuteTicker(instrumentById('neth25')!)).toBe('NL25')
     expect(t212ExecuteTicker(instrumentById('spa35')!)).toBe('SPAIN35')
     expect(t212ExecuteTicker(instrumentById('jp225')!)).toBe('JPN225')
-    expect(t212ExecuteTicker(instrumentById('es')!)).toBe('US500')
+    expect(t212ExecuteTicker(instrumentById('es')!)).toBe('USA500')
     expect(t212ExecuteTicker(instrumentById('nq')!)).toBe('TECH100')
     expect(t212ExecuteTicker(instrumentById('oil')!)).toBe('CRUDE')
     expect(t212ExecuteTicker(instrumentById('xauusd')!)).toBe('XAUUSD')
@@ -49,5 +49,21 @@ describe('T212 app search tickers', () => {
     expect(t212ExecuteTicker(instrumentById('platinum')!)).toBe('XPTUSD')
     expect(t212ExecuteTicker(instrumentById('palladium')!)).toBe('PALLADIUM')
     expect(T212_APP_TICKER.volx).toBe('VOLX')
+  })
+})
+
+describe('tickers oficiais dos índices US', () => {
+  it('usa USA500 / USA30, que são os shortName reais da T212', () => {
+    // US500 e US30 não existem no catálogo CFD da T212 (0 de 9302 instrumentos).
+    expect(T212_APP_TICKER.us500).toBe('USA500')
+    expect(T212_APP_TICKER.us30).toBe('USA30')
+    expect(T212_APP_TICKER.es).toBe('USA500')
+    expect(T212_APP_TICKER.ym).toBe('USA30')
+    expect(T212_APP_TICKER.nq).toBe('TECH100')
+  })
+
+  it('nenhum ticker de execução usa as formas inexistentes', () => {
+    expect(Object.values(T212_APP_TICKER)).not.toContain('US500')
+    expect(Object.values(T212_APP_TICKER)).not.toContain('US30')
   })
 })

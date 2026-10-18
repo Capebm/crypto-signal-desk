@@ -208,7 +208,7 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
   {
     id: 'us500',
     t212Label: 'USA 500',
-    t212Search: 'US500',
+    t212Search: 'USA500',
     yahooSymbol: 'ES=F',
     kind: 'index',
     short: 'US500',
@@ -216,7 +216,7 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
   {
     id: 'us30',
     t212Label: 'USA 30',
-    t212Search: 'US30',
+    t212Search: 'USA30',
     yahooSymbol: 'YM=F',
     kind: 'index',
     short: 'US30',
@@ -396,7 +396,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   {
     id: 'es',
     t212Label: 'E-mini S&P 500 (ES)',
-    t212Search: 'US500',
+    t212Search: 'USA500',
     yahooSymbol: 'ES=F',
     kind: 'future',
     short: 'ES',
@@ -412,7 +412,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   {
     id: 'ym',
     t212Label: 'E-mini Dow (YM)',
-    t212Search: 'US30',
+    t212Search: 'USA30',
     yahooSymbol: 'YM=F',
     kind: 'future',
     short: 'YM',
