@@ -7,7 +7,12 @@
  * Commodities verificadas: CRUDE, NATGAS, COPPER, BRENT, PALLADIUM.
  * Metais forex: XAUUSD / XAGUSD (docs T212: Gold (XAUUSD); página XAGUSD).
  *   GOLD/SILVER na pesquisa = acções (Gold.com, mineiras) — não o metal.
- * Crypto CFD verificadas (categoria Cryptocurrencies). POL na T212 = MATIC.
+ * Crypto CFD verificadas contra o catálogo CFD da T212 (categoria Cryptocurrencies):
+ * são exactamente 22 e estão todas aqui. POL na T212 = MATIC.
+ * Fora: XRP, BNB, SHIB, TRX, XLM e AAVE não são CFD na T212 (0 de 9302
+ *   instrumentos, nem por nome: Ripple / Binance / Shiba / Stellar / Aave).
+ *   Pesquisá-las devolve acções — SHIB dá Zhejiang Shibao e Toshiba TEC,
+ *   TRX dá Lantronix e Matrix Service. Mesma armadilha do ATOM/JUP.
  * ATOM/JUP ficam de fora: na pesquisa T212 são acções (Atomera / fundo LSE),
  * não o crypto CFD — o utilizador confirmou "No crypto found" para Jupiter.
  *
@@ -47,20 +52,16 @@ export const T212_CRYPTO_CFD_TICKER: Record<string, string> = {
   btc: 'BTC',
   eth: 'ETH',
   sol: 'SOL',
-  xrp: 'XRP',
   doge: 'DOGE',
   ada: 'ADA',
   link: 'LINK',
   avax: 'AVAX',
   ltc: 'LTC',
-  bnb: 'BNB',
   dot: 'DOT',
-  xlm: 'XLM',
-  trx: 'TRX',
-  shib: 'SHIB',
   uni: 'UNI',
-  aave: 'AAVE',
   algo: 'ALGO',
+  bat: 'BAT',
+  enj: 'ENJ',
   pol: 'MATIC',
   etc: 'ETC',
   bch: 'BCH',

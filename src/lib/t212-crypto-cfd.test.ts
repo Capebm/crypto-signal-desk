@@ -67,3 +67,26 @@ describe('tickers oficiais dos índices US', () => {
     expect(Object.values(T212_APP_TICKER)).not.toContain('US30')
   })
 })
+
+describe('crypto CFDs espelham o catálogo real da T212', () => {
+  /** As 22 crypto CFD da T212, lidas do catálogo oficial deles. */
+  const T212_REAL = ['ADA', 'ALGO', 'AVAX', 'BAT', 'BCH', 'BTC', 'CRV', 'DOGE', 'DOT',
+    'ENJ', 'EOS', 'ETC', 'ETH', 'FIL', 'LINK', 'LTC', 'MANA', 'MATIC', 'SAND', 'SOL', 'UNI', 'ZEC']
+
+  it('é exactamente a lista da T212, sem faltas nem extras', () => {
+    expect(Object.values(T212_CRYPTO_CFD_TICKER).sort()).toEqual([...T212_REAL].sort())
+  })
+
+  it('não oferece as que não são CFD na T212', () => {
+    // Pesquisá-las na app devolve acções, não crypto.
+    for (const phantom of ['XRP', 'BNB', 'SHIB', 'TRX', 'XLM', 'AAVE']) {
+      expect(Object.values(T212_CRYPTO_CFD_TICKER)).not.toContain(phantom)
+    }
+  })
+
+  it('cada id tem instrumento no catálogo, para o cartão poder abrir', () => {
+    for (const id of Object.keys(T212_CRYPTO_CFD_TICKER)) {
+      expect(instrumentById(id), `instrumento em falta: ${id}`).toBeDefined()
+    }
+  })
+})

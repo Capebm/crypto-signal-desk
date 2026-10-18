@@ -64,10 +64,12 @@ describe('t212 watchlist + smt policy', () => {
 
   it('maps T212 cryptos to Agent spot symbols', () => {
     const symbols = t212CryptoAgentSymbols('USDC')
-    expect(symbols).toContain('XRPUSDC')
     expect(symbols).toContain('BTCUSDC')
+    expect(symbols).toContain('SOLUSDC')
     expect(symbols).not.toContain('INJUSDC')
     expect(symbols).not.toContain('JUPUSDC')
+    // Spot na Binance, mas sem CFD na T212: não ganha prioridade de execução.
+    expect(symbols).not.toContain('XRPUSDC')
     expect(symbols.every((symbol) => symbol.endsWith('USDC'))).toBe(true)
   })
 })

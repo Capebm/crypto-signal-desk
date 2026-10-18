@@ -780,6 +780,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'egld', t212Label: 'MultiversX', t212Search: 'EGLD', yahooSymbol: 'EGLD-USD', kind: 'crypto', short: 'EGLD' },
   { id: 'axs', t212Label: 'Axie Infinity', t212Search: 'AXS', yahooSymbol: 'AXS-USD', kind: 'crypto', short: 'AXS' },
   { id: 'enj', t212Label: 'Enjin', t212Search: 'ENJ', yahooSymbol: 'ENJ-USD', kind: 'crypto', short: 'ENJ' },
+  { id: 'bat', t212Label: 'Basic Attention Token', t212Search: 'BAT', yahooSymbol: 'BAT-USD', kind: 'crypto', short: 'BAT' },
   { id: 'chz', t212Label: 'Chiliz', t212Search: 'CHZ', yahooSymbol: 'CHZ-USD', kind: 'crypto', short: 'CHZ' },
   { id: 'rune', t212Label: 'THORChain', t212Search: 'RUNE', yahooSymbol: 'RUNE-USD', kind: 'crypto', short: 'RUNE' },
   { id: 'fet', t212Label: 'Fetch.ai', t212Search: 'FET', yahooSymbol: 'FET-USD', kind: 'crypto', short: 'FET' },
