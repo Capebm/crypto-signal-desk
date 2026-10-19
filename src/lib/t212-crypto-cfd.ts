@@ -2,7 +2,7 @@
  * Ticker exacto a escrever na pesquisa CFD da app T212.
  * Fonte: páginas /trading-instruments/cfd/… (não Yahoo, não inventar).
  *
- * Índices verificados: TECH100, USA500, USA30, GER40, UK100, FR40, EU50,
+ * Índices verificados: TECH100, USA500, USA30, USA2000, GER40, UK100, FR40, EU50,
  * JPN225, SPAIN35, ITA40, HK50, NL25, SWISS20, VOLX.
  * Commodities verificadas: CRUDE, NATGAS, COPPER, BRENT, PALLADIUM.
  * Metais forex: XAUUSD / XAGUSD (docs T212: Gold (XAUUSD); página XAGUSD).
@@ -22,6 +22,7 @@ export const T212_APP_TICKER: Record<string, string> = {
   tech100: 'TECH100',
   us500: 'USA500',
   us30: 'USA30',
+  usa2000: 'USA2000',
   ger40: 'GER40',
   uk100: 'UK100',
   fra40: 'FR40',

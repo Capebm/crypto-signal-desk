@@ -23,6 +23,7 @@ const BY_SYMBOL: Record<string, ExchangeSession> = {
   TECH100: NY_SESSION,
   US30: NY_SESSION,
   USA30: NY_SESSION,
+  USA2000: NY_SESSION,
   ES: NY_SESSION,
   NQ: NY_SESSION,
   YM: NY_SESSION,

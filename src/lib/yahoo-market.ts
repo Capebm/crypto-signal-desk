@@ -825,6 +825,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'usdtry', t212Label: 'USD/TRY', t212Search: 'USDTRY', yahooSymbol: 'USDTRY=X', kind: 'forex', short: 'USDTRY' },
   { id: 'usdcnh', t212Label: 'USD/CNH', t212Search: 'USDCNH', yahooSymbol: 'CNH=X', kind: 'forex', short: 'USDCNH' },
   { id: 'neth25', t212Label: 'Netherlands 25', t212Search: 'NL25', yahooSymbol: '^AEX', kind: 'index', short: 'NETH25' },
+  { id: 'usa2000', t212Label: 'USA Small Cap 2000', t212Search: 'USA2000', yahooSymbol: 'RTY=F', kind: 'index', short: 'USA2000' },
   { id: 'volx', t212Label: 'Volatility', t212Search: 'VOLX', yahooSymbol: '^VIX', kind: 'index', short: 'VOLX' },
   { id: 'palladium', t212Label: 'Palladium', t212Search: 'PALLADIUM', yahooSymbol: 'PA=F', kind: 'metal', short: 'XPDUSD' },
   { id: 'brkb', t212Label: 'Berkshire B', t212Search: 'BRK.B', yahooSymbol: 'BRK-B', kind: 'stock', short: 'BRK.B' },

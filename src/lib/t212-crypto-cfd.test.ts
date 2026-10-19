@@ -90,3 +90,21 @@ describe('crypto CFDs espelham o catálogo real da T212', () => {
     }
   })
 })
+
+describe('USA2000 (Russell 2000)', () => {
+  it('existe no catálogo, como extra opcional', () => {
+    const rty = instrumentById('usa2000')
+    expect(rty).toBeDefined()
+    expect(T212_EXTRA_INSTRUMENTS.some((item) => item.id === 'usa2000')).toBe(true)
+  })
+
+  it('lê o futuro RTY, para ficar na escala de futuros da T212', () => {
+    // T212 cota-o como «USA Index Futures»; o ^RUT à vista bloquearia o JÁ.
+    expect(instrumentById('usa2000')?.yahooSymbol).toBe('RTY=F')
+    expect(instrumentById('usa2000')?.kind).toBe('index')
+  })
+
+  it('executa-se com o ticker oficial USA2000', () => {
+    expect(t212ExecuteTicker(instrumentById('usa2000')!)).toBe('USA2000')
+  })
+})

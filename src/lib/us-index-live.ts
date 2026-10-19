@@ -13,6 +13,7 @@ export const US_INDEX_LIVE_SYMBOL: Record<string, string> = {
   es: '^GSPC',
   us30: '^DJI',
   ym: '^DJI',
+  usa2000: '^RUT',
 }
 
 /** A cauda do índice só serve se tiver uma vela 1m própria e recente (sessão de NY aberta). */
