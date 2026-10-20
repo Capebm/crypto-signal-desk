@@ -2,8 +2,10 @@
  * Ticker exacto a escrever na pesquisa CFD da app T212.
  * Fonte: páginas /trading-instruments/cfd/… (não Yahoo, não inventar).
  *
- * Índices verificados: TECH100, USA500, USA30, USA2000, GER40, UK100, FR40, EU50,
- * JPN225, SPAIN35, ITA40, HK50, NL25, SWISS20, VOLX.
+ * Índices verificados: TECH100, USA500, USA30, USA2000 — só os US.
+ * Europeus/asiáticos saíram: nenhuma fonte dá o futuro, logo os níveis nunca
+ * batiam com a T212 e o Desk recusava sempre o JÁ. VOLX saiu pela mesma razão
+ * (lê ^VIX à vista; a T212 cota o futuro do VIX).
  * Commodities verificadas: CRUDE, NATGAS, COPPER, BRENT, PALLADIUM.
  * Metais forex: XAUUSD / XAGUSD (docs T212: Gold (XAUUSD); página XAGUSD).
  *   GOLD/SILVER na pesquisa = acções (Gold.com, mineiras) — não o metal.
@@ -23,17 +25,6 @@ export const T212_APP_TICKER: Record<string, string> = {
   us500: 'USA500',
   us30: 'USA30',
   usa2000: 'USA2000',
-  ger40: 'GER40',
-  uk100: 'UK100',
-  fra40: 'FR40',
-  eu50: 'EU50',
-  jp225: 'JPN225',
-  spa35: 'SPAIN35',
-  ita40: 'ITA40',
-  hk50: 'HK50',
-  swiss20: 'SWISS20',
-  neth25: 'NL25',
-  volx: 'VOLX',
   es: 'USA500',
   nq: 'TECH100',
   ym: 'USA30',

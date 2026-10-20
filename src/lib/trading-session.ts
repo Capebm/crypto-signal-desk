@@ -355,7 +355,7 @@ export function getMarketClocks(date = new Date()): MarketClocksSnapshot {
  *
  * This is intentionally conservative and avoids external APIs; good enough for gating scans.
  */
-export function getInstrumentMarketStatus(kind: 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock', date = new Date()) {
+export function getInstrumentMarketStatus(kind: 'index' | 'future' | 'bond' | 'agri' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock', date = new Date()) {
   const ny = zoneParts('America/New_York', date)
 
   if (kind === 'crypto') {

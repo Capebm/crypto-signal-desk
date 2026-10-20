@@ -37,18 +37,18 @@ describe('T212 app search tickers', () => {
   it('maps T212 app tickers the user can type in search', () => {
     expect(t212ExecuteTicker(instrumentById('pol')!)).toBe('MATIC')
     expect(T212_CRYPTO_CFD_TICKER.pol).toBe('MATIC')
-    expect(t212ExecuteTicker(instrumentById('fra40')!)).toBe('FR40')
-    expect(t212ExecuteTicker(instrumentById('neth25')!)).toBe('NL25')
-    expect(t212ExecuteTicker(instrumentById('spa35')!)).toBe('SPAIN35')
-    expect(t212ExecuteTicker(instrumentById('jp225')!)).toBe('JPN225')
     expect(t212ExecuteTicker(instrumentById('es')!)).toBe('USA500')
     expect(t212ExecuteTicker(instrumentById('nq')!)).toBe('TECH100')
     expect(t212ExecuteTicker(instrumentById('oil')!)).toBe('CRUDE')
+    expect(t212ExecuteTicker(instrumentById('us10yr')!)).toBe('US10YR')
+    expect(t212ExecuteTicker(instrumentById('coffee')!)).toBe('COFFEE')
     expect(t212ExecuteTicker(instrumentById('xauusd')!)).toBe('XAUUSD')
     expect(t212ExecuteTicker(instrumentById('xagusd')!)).toBe('XAGUSD')
     expect(t212ExecuteTicker(instrumentById('platinum')!)).toBe('XPTUSD')
     expect(t212ExecuteTicker(instrumentById('palladium')!)).toBe('PALLADIUM')
-    expect(T212_APP_TICKER.volx).toBe('VOLX')
+    // Índices europeus/asiáticos e VOLX saíram: sem futuro, nunca davam JÁ.
+    expect(T212_APP_TICKER.volx).toBeUndefined()
+    expect(T212_APP_TICKER.ger40).toBeUndefined()
   })
 })
 
@@ -106,5 +106,33 @@ describe('USA2000 (Russell 2000)', () => {
 
   it('executa-se com o ticker oficial USA2000', () => {
     expect(t212ExecuteTicker(instrumentById('usa2000')!)).toBe('USA2000')
+  })
+})
+
+describe('universo só em escala da T212', () => {
+  const EUROPEUS = ['ger40', 'uk100', 'fra40', 'eu50', 'spa35', 'ita40', 'swiss20', 'neth25', 'jp225', 'hk50', 'volx']
+
+  it('não restou nenhum índice sem futuro', () => {
+    for (const id of EUROPEUS) expect(instrumentById(id), `${id} devia ter saído`).toBeUndefined()
+  })
+
+  it('todos os índices lêem um contrato de futuros', () => {
+    const indices = T212_CATALOG.filter((item) => item.kind === 'index')
+    expect(indices.length).toBeGreaterThan(0)
+    for (const item of indices) {
+      expect(item.yahooSymbol, `${item.short} não é futuro`).toMatch(/=F$/)
+    }
+  })
+
+  it('obrigações e agrícolas novas lêem futuros e existem na T212', () => {
+    for (const id of ['us2yr', 'us5yr', 'us10yr', 'usbond', 'ubond', 'gasoline', 'heatoil',
+      'corn', 'soybean', 'soymeal', 'soyoil', 'chwheat', 'rice', 'sugar', 'coffee',
+      'cocoa', 'cotton', 'lumber', 'lcattle', 'fcattle', 'leanhog']) {
+      const item = instrumentById(id)
+      expect(item, `${id} em falta`).toBeDefined()
+      expect(item!.yahooSymbol).toMatch(/=F$/)
+      // O ticker de pesquisa é o shortName oficial da T212.
+      expect(t212ExecuteTicker(item!)).toBe(item!.t212Search)
+    }
   })
 })

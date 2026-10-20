@@ -12,7 +12,7 @@ export type T212Instrument = {
   /** Pesquisa T212. */
   t212Search: string
   yahooSymbol: string
-  kind: 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'
+  kind: 'index' | 'future' | 'bond' | 'agri' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'
   short: string
 }
 
@@ -23,16 +23,12 @@ export type T212Instrument = {
  */
 export const T212_TWELVE_SYMBOL: Record<string, string> = {
   // us500 sem Twelve: SPX é o índice à vista (~50 pts abaixo); a T212 segue o futuro ES.
-  ger40: 'GDAXI',
-  uk100: 'FTSE',
   eurusd: 'EUR/USD',
   gbpusd: 'GBP/USD',
   usdjpy: 'USD/JPY',
   xauusd: 'XAU/USD',
   xagusd: 'XAG/USD',
   oil: 'WTI/USD',
-  fra40: 'FCHI',
-  eu50: 'STOXX50E',
   audusd: 'AUD/USD',
   usdchf: 'USD/CHF',
   eurjpy: 'EUR/JPY',
@@ -53,9 +49,6 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   googl: 'GOOGL',
   eurgbp: 'EUR/GBP',
   nzdusd: 'NZD/USD',
-  spa35: 'IBEX',
-  ita40: 'FTSEMIB',
-  hk50: 'HSI',
   usdcad: 'USD/CAD',
   euraud: 'EUR/AUD',
   gbpjpy: 'GBP/JPY',
@@ -147,53 +140,25 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   cadjpy: 'CAD/JPY',
 }
 
-/**
- * Índices fora dos EUA: CFD ao vivo pela Capital.com (demo). «Epic» = nome do mercado na Capital.com,
- * confirmado com /api/capital-pack?search=. Sem credenciais ou erro → Yahoo (15 min de atraso).
- */
-export const T212_CAPITAL_EPIC: Record<string, string> = {
-  ger40: 'DE40',
-  uk100: 'UK100',
-  fra40: 'FR40',
-  eu50: 'EU50',
-  spa35: 'SP35',
-  ita40: 'IT40',
-  swiss20: 'SWI20',
-  neth25: 'NL25',
-  jp225: 'J225',
-  hk50: 'HK50',
-}
-
 export function twelveSymbolFor(instrument: T212Instrument): string | undefined {
   return T212_TWELVE_SYMBOL[instrument.id]
 }
 
-export type T212FeedSource = 'twelve' | 'yahoo' | 'binance' | 'capital'
+export type T212FeedSource = 'twelve' | 'yahoo' | 'binance'
 /** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). Crypto T212 usa Binance quando o par existe. */
 export type T212FeedPreference = 'yahoo' | 'twelve'
 
-let feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: false, capitalFailed: [] as string[] }
-/** Sem credenciais na Netlify: não volta a tentar a Capital.com nesta sessão. */
-let capitalUnavailable = false
+let feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: false }
 
-/**
- * Escala dos preços de cada índice face à T212 (que cota índices pelos futuros).
- * 'cash' = índice à vista (≈ 0,4–0,6% abaixo da T212 na Europa) → o Desk não dá JÁ nesse índice.
- */
-const priceScale = new Map<string, 'futures' | 'cash'>()
-
-export function t212IndexOnCashScale(instrumentId: string): boolean {
-  return priceScale.get(instrumentId) === 'cash'
-}
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
 export function resetT212FeedStats() {
-  feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now(), capitalFailed: [] }
+  feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
 }
 
 export function getT212FeedStats() {
-  return { ...feedStats, capitalFailed: [...feedStats.capitalFailed], twelveCooldownUntil }
+  return { ...feedStats, twelveCooldownUntil }
 }
 
 export const T212_INSTRUMENTS: T212Instrument[] = [
@@ -220,22 +185,6 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
     yahooSymbol: 'YM=F',
     kind: 'index',
     short: 'US30',
-  },
-  {
-    id: 'ger40',
-    t212Label: 'Germany 40',
-    t212Search: 'GER40',
-    yahooSymbol: '^GDAXI',
-    kind: 'index',
-    short: 'GER40',
-  },
-  {
-    id: 'uk100',
-    t212Label: 'UK 100',
-    t212Search: 'UK100',
-    yahooSymbol: '^FTSE',
-    kind: 'index',
-    short: 'UK100',
   },
   {
     id: 'eurusd',
@@ -289,30 +238,6 @@ export const T212_INSTRUMENTS: T212Instrument[] = [
 
 /** Extras opcionais (utilizador liga na watchlist). */
 export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
-  {
-    id: 'fra40',
-    t212Label: 'France 40',
-    t212Search: 'FR40',
-    yahooSymbol: '^FCHI',
-    kind: 'index',
-    short: 'FRA40',
-  },
-  {
-    id: 'eu50',
-    t212Label: 'EU 50',
-    t212Search: 'EU50',
-    yahooSymbol: '^STOXX50E',
-    kind: 'index',
-    short: 'EU50',
-  },
-  {
-    id: 'jp225',
-    t212Label: 'Japan 225',
-    t212Search: 'JPN225',
-    yahooSymbol: '^N225',
-    kind: 'index',
-    short: 'JP225',
-  },
   {
     id: 'audusd',
     t212Label: 'AUD/USD',
@@ -496,38 +421,6 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
     yahooSymbol: 'NZDUSD=X',
     kind: 'forex',
     short: 'NZDUSD',
-  },
-  {
-    id: 'spa35',
-    t212Label: 'Spain 35',
-    t212Search: 'SPAIN35',
-    yahooSymbol: '^IBEX',
-    kind: 'index',
-    short: 'SPA35',
-  },
-  {
-    id: 'ita40',
-    t212Label: 'Italy 40',
-    t212Search: 'ITA40',
-    yahooSymbol: 'FTSEMIB.MI',
-    kind: 'index',
-    short: 'ITA40',
-  },
-  {
-    id: 'hk50',
-    t212Label: 'Hong Kong 50',
-    t212Search: 'HK50',
-    yahooSymbol: '^HSI',
-    kind: 'index',
-    short: 'HK50',
-  },
-  {
-    id: 'swiss20',
-    t212Label: 'Switzerland 20',
-    t212Search: 'SWISS20',
-    yahooSymbol: '^SSMI',
-    kind: 'index',
-    short: 'SWISS20',
   },
   {
     id: 'usdcad',
@@ -824,9 +717,33 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'usdzar', t212Label: 'USD/ZAR', t212Search: 'USDZAR', yahooSymbol: 'USDZAR=X', kind: 'forex', short: 'USDZAR' },
   { id: 'usdtry', t212Label: 'USD/TRY', t212Search: 'USDTRY', yahooSymbol: 'USDTRY=X', kind: 'forex', short: 'USDTRY' },
   { id: 'usdcnh', t212Label: 'USD/CNH', t212Search: 'USDCNH', yahooSymbol: 'CNH=X', kind: 'forex', short: 'USDCNH' },
-  { id: 'neth25', t212Label: 'Netherlands 25', t212Search: 'NL25', yahooSymbol: '^AEX', kind: 'index', short: 'NETH25' },
   { id: 'usa2000', t212Label: 'USA Small Cap 2000', t212Search: 'USA2000', yahooSymbol: 'RTY=F', kind: 'index', short: 'USA2000' },
-  { id: 'volx', t212Label: 'Volatility', t212Search: 'VOLX', yahooSymbol: '^VIX', kind: 'index', short: 'VOLX' },
+  /**
+   * Futuros CME/ICE do catálogo CFD da T212, todos com contrato no Yahoo (escala da T212).
+   * Obrigações e energia seguem o fluxo da sessão de NY; os agrícolas movem-se sobretudo
+   * por meteorologia e colheitas — entram porque existem e têm escala, não por serem TJR.
+   */
+  { id: 'us2yr', t212Label: 'USA 2Y T-Note', t212Search: 'US2YR', yahooSymbol: 'ZT=F', kind: 'bond', short: 'US2YR' },
+  { id: 'us5yr', t212Label: 'USA 5Y T-Note', t212Search: 'US5YR', yahooSymbol: 'ZF=F', kind: 'bond', short: 'US5YR' },
+  { id: 'us10yr', t212Label: 'USA 10Y T-Note', t212Search: 'US10YR', yahooSymbol: 'ZN=F', kind: 'bond', short: 'US10YR' },
+  { id: 'usbond', t212Label: 'USA T-Bond 30Y', t212Search: 'USBOND', yahooSymbol: 'ZB=F', kind: 'bond', short: 'USBOND' },
+  { id: 'ubond', t212Label: 'USA Ultra Bond', t212Search: 'UBOND', yahooSymbol: 'UB=F', kind: 'bond', short: 'UBOND' },
+  { id: 'gasoline', t212Label: 'Gasoline', t212Search: 'GASOLINE', yahooSymbol: 'RB=F', kind: 'energy', short: 'GASOLINE' },
+  { id: 'heatoil', t212Label: 'Heating Oil', t212Search: 'HEATOIL', yahooSymbol: 'HO=F', kind: 'energy', short: 'HEATOIL' },
+  { id: 'corn', t212Label: 'Corn', t212Search: 'CORN', yahooSymbol: 'ZC=F', kind: 'agri', short: 'CORN' },
+  { id: 'soybean', t212Label: 'Soybean', t212Search: 'SOYBEAN', yahooSymbol: 'ZS=F', kind: 'agri', short: 'SOYBEAN' },
+  { id: 'soymeal', t212Label: 'Soybean Meal', t212Search: 'SOYMEAL', yahooSymbol: 'ZM=F', kind: 'agri', short: 'SOYMEAL' },
+  { id: 'soyoil', t212Label: 'Soybean Oil', t212Search: 'SOYOIL', yahooSymbol: 'ZL=F', kind: 'agri', short: 'SOYOIL' },
+  { id: 'chwheat', t212Label: 'Chicago Wheat', t212Search: 'CHWHEAT', yahooSymbol: 'ZW=F', kind: 'agri', short: 'CHWHEAT' },
+  { id: 'rice', t212Label: 'Rice', t212Search: 'RICE', yahooSymbol: 'ZR=F', kind: 'agri', short: 'RICE' },
+  { id: 'sugar', t212Label: 'Sugar', t212Search: 'SUGAR', yahooSymbol: 'SB=F', kind: 'agri', short: 'SUGAR' },
+  { id: 'coffee', t212Label: 'Coffee', t212Search: 'COFFEE', yahooSymbol: 'KC=F', kind: 'agri', short: 'COFFEE' },
+  { id: 'cocoa', t212Label: 'Cocoa', t212Search: 'COCOA', yahooSymbol: 'CC=F', kind: 'agri', short: 'COCOA' },
+  { id: 'cotton', t212Label: 'Cotton', t212Search: 'COTTON', yahooSymbol: 'CT=F', kind: 'agri', short: 'COTTON' },
+  { id: 'lumber', t212Label: 'Lumber', t212Search: 'LUMBER', yahooSymbol: 'LBR=F', kind: 'agri', short: 'LUMBER' },
+  { id: 'lcattle', t212Label: 'Live Cattle', t212Search: 'LCATTLE', yahooSymbol: 'LE=F', kind: 'agri', short: 'LCATTLE' },
+  { id: 'fcattle', t212Label: 'Feeder Cattle', t212Search: 'FCATTLE', yahooSymbol: 'GF=F', kind: 'agri', short: 'FCATTLE' },
+  { id: 'leanhog', t212Label: 'Lean Hogs', t212Search: 'LEANHOG', yahooSymbol: 'HE=F', kind: 'agri', short: 'LEANHOG' },
   { id: 'palladium', t212Label: 'Palladium', t212Search: 'PALLADIUM', yahooSymbol: 'PA=F', kind: 'metal', short: 'XPDUSD' },
   { id: 'brkb', t212Label: 'Berkshire B', t212Search: 'BRK.B', yahooSymbol: 'BRK-B', kind: 'stock', short: 'BRK.B' },
   { id: 'jnj', t212Label: 'Johnson & Johnson', t212Search: 'JNJ', yahooSymbol: 'JNJ', kind: 'stock', short: 'JNJ' },
@@ -1088,6 +1005,8 @@ export function t212KindLabel(kind: T212Instrument['kind']): string {
   if (kind === 'forex') return 'Forex'
   if (kind === 'metal') return 'Metal'
   if (kind === 'energy') return 'Energia'
+  if (kind === 'bond') return 'Obrigação'
+  if (kind === 'agri') return 'Agrícola'
   if (kind === 'stock') return 'Acção'
   return 'Crypto'
 }
@@ -1248,31 +1167,6 @@ async function fetchPlaybookLegacy(yahooSymbol: string): Promise<PlaybookPack> {
   }
 }
 
-type CapitalPackResponse = {
-  scale?: 'futures' | 'cash'
-  candles?: Partial<Record<'1h' | '15m' | '5m' | '1m', Candle[]>>
-  error?: string
-  skip?: boolean
-}
-
-async function fetchPlaybookViaCapital(epic: string, name: string): Promise<PlaybookPack & { scale: 'futures' | 'cash' }> {
-  // name = «Switzerland 20»: se o epic não existir, a função procura-o pelo nome.
-  const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}&name=${encodeURIComponent(name)}`, {
-    signal: AbortSignal.timeout(25_000),
-  })
-  const payload = (await response.json().catch(() => ({}))) as CapitalPackResponse
-  if (response.status === 503 && payload.skip) {
-    capitalUnavailable = true
-    throw new Error('capital-skip')
-  }
-  if (!response.ok) throw new Error(payload.error || `Capital.com ${response.status}`)
-  const c = payload.candles
-  if (!c?.['1h']?.length || !c['15m']?.length || !c['5m']?.length || !c['1m']?.length) {
-    throw new Error(payload.error || `Capital.com incompleto (${epic})`)
-  }
-  return { '4h': aggregateTo4h(c['1h']), '1h': c['1h'], '15m': c['15m'], '5m': c['5m'], '1m': c['1m'], scale: payload.scale ?? 'cash' }
-}
-
 type TwelvePackResponse = {
   source?: string
   symbol?: string
@@ -1354,19 +1248,6 @@ export async function getT212PlaybookCandles(
       }
     }
 
-    const capitalEpic = T212_CAPITAL_EPIC[instrument.id]
-    if (!data && capitalEpic && !capitalUnavailable) {
-      try {
-        const capital = await fetchPlaybookViaCapital(capitalEpic, instrument.t212Label)
-        priceScale.set(instrument.id, capital.scale)
-        data = capital
-        source = 'capital'
-      } catch (error) {
-        // Visível no estado do scan: um «epic» errado não pode cair no Yahoo em silêncio.
-        if (!capitalUnavailable) feedStats.capitalFailed.push(`${instrument.short} (${capitalEpic}: ${error instanceof Error ? error.message : 'erro'})`)
-      }
-    }
-
     if (!data && feed === 'twelve') {
       const twelveSymbol = twelveSymbolFor(instrument)
       if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
@@ -1386,8 +1267,6 @@ export async function getT212PlaybookCandles(
     if (!data) {
       data = await fetchYahooPlaybook(instrument.yahooSymbol)
       source = 'yahoo'
-      // Índices fora dos EUA no Yahoo = índice à vista (^GDAXI…), não a escala dos futuros da T212.
-      if (capitalEpic) priceScale.set(instrument.id, 'cash')
       // Índices US: futuros com ~10 min de atraso + cauda ao vivo do índice à vista.
       const liveSymbol = US_INDEX_LIVE_SYMBOL[instrument.id]
       if (liveSymbol) {
@@ -1403,8 +1282,7 @@ export async function getT212PlaybookCandles(
       }
     }
 
-    if (source === 'capital') feedStats.capital += 1
-    else if (source === 'twelve') feedStats.twelve += 1
+    if (source === 'twelve') feedStats.twelve += 1
     else if (source === 'binance') feedStats.binance += 1
     else feedStats.yahoo += 1
 

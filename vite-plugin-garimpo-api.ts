@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { searchOpportunities } from './server/analyze'
-import { capitalEnv, fetchCapitalIndexPack, searchCapitalMarkets } from './server/capital'
 import { verifyDeskOwner } from './server/desk-auth'
 import { cleanEstimateCandidate, estimateResale } from './server/hunt'
 import type { SearchRequest } from './server/types'
@@ -203,29 +202,6 @@ export function garimpoApiPlugin(): Plugin {
             sendJson(res, 200, { symbol, charts, warnings: errors.length ? errors : undefined })
           } catch (error) {
             sendJson(res, 500, { error: error instanceof Error ? error.message : 'Yahoo pack failed' })
-          }
-          return
-        }
-
-        if (url.pathname === '/api/capital-pack' && req.method === 'GET') {
-          const capital = capitalEnv(env)
-          if (!capital) {
-            sendJson(res, 503, { error: 'Capital.com não configurada', skip: true })
-            return
-          }
-          const search = url.searchParams.get('search')?.trim()
-          const epic = url.searchParams.get('epic')?.trim().toUpperCase()
-          try {
-            if (search) {
-              sendJson(res, 200, { markets: await searchCapitalMarkets(capital, search.slice(0, 40)) })
-            } else if (epic && /^[A-Z0-9_.]{2,24}$/.test(epic)) {
-              const resolved = await fetchCapitalIndexPack(capital, epic, url.searchParams.get('name')?.trim().slice(0, 40))
-              sendJson(res, 200, { source: 'capital', epic: resolved.epic, requested: epic, scale: resolved.scale, candles: resolved.candles })
-            } else {
-              sendJson(res, 400, { error: 'epic inválido' })
-            }
-          } catch (error) {
-            sendJson(res, 502, { error: error instanceof Error ? error.message : 'Capital.com falhou', epic })
           }
           return
         }

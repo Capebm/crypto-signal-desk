@@ -3,7 +3,7 @@ import type { TjrDecision } from './tjr-engine'
 import { isAwaitingEntry, isEnterLongNow, isEnterShortNow } from './tjr-engine'
 
 type RowLike = Pick<TjrDecision, 'checklist' | 'entryTiming' | 'reasons' | 'action' | 'positionGuidance'> & {
-  instrument?: { kind: 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'; short?: string }
+  instrument?: { kind: 'index' | 'future' | 'bond' | 'agri' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'; short?: string }
 }
 
 /**

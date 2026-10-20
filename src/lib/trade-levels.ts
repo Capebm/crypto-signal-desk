@@ -2,7 +2,7 @@ import type { Candle } from './types'
 
 /** Stop/target math — shared by TJR engine and tests. */
 
-export type InstrumentKind = 'index' | 'future' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'
+export type InstrumentKind = 'index' | 'future' | 'bond' | 'agri' | 'forex' | 'metal' | 'energy' | 'crypto' | 'stock'
 
 export function averageTrueRange(candles: Candle[], period = 14): number | undefined {
   if (candles.length < 2) return undefined
@@ -43,11 +43,14 @@ export function computeShortStop(entry: number, rawStop: number): number {
   return Math.min(entry * (1 + maxStopPct), Math.max(rawStop, entry * (1 + minStopPct)))
 }
 
-/** Mínimo de risco: forex 0,15%; índices 0,20%. Crypto: 0,8% líquidos / 3,5–8% alts. */
+/** Mínimo de risco: forex 0,15%; índices 0,20%; obrigações 0,10%; agrícolas 0,50%. Crypto: 0,8% líquidos / 3,5–8% alts. */
 export function instrumentMinStopPct(kind: InstrumentKind, entry: number): number {
   if (kind === 'crypto') return cryptoStopBand(entry).minStopPct
   if (kind === 'forex') return 0.0015
   if (kind === 'energy') return 0.003
+  // Obrigações andam em frações de ponto; agrícolas têm ruído intradiário largo.
+  if (kind === 'bond') return 0.001
+  if (kind === 'agri') return 0.005
   if (kind === 'stock') return 0.004
   if (kind === 'metal') return 0.002
   return 0.002

@@ -10,11 +10,11 @@ import { t212IsCfdListed } from './t212-crypto-cfd'
 
 describe('t212 watchlist + smt policy', () => {
   it('always keeps core instruments when resolving watchlist', () => {
-    const list = resolveT212Watchlist(['audusd', 'eu50', 'missing'])
+    const list = resolveT212Watchlist(['audusd', 'us10yr', 'missing'])
     const ids = list.map((item) => item.id)
     for (const id of T212_CORE_IDS) expect(ids).toContain(id)
     expect(ids).toContain('audusd')
-    expect(ids).toContain('eu50')
+    expect(ids).toContain('us10yr')
     expect(ids).not.toContain('missing')
   })
 
