@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { t212ExecuteTicker, t212IsCfdListed, T212_APP_TICKER, T212_CRYPTO_CFD_TICKER } from './t212-crypto-cfd'
-import { instrumentById, resolveT212Watchlist, T212_CATALOG, T212_EXTRA_INSTRUMENTS } from './yahoo-market'
+import { instrumentById, resolveT212Watchlist, T212_CAPITAL_SPOT, T212_CATALOG, T212_EXTRA_INSTRUMENTS } from './yahoo-market'
 
 describe('T212 app search tickers', () => {
   it('never invents composite search strings or fake index tickers', () => {
@@ -44,7 +44,8 @@ describe('T212 app search tickers', () => {
     expect(t212ExecuteTicker(instrumentById('coffee')!)).toBe('COFFEE')
     expect(t212ExecuteTicker(instrumentById('xauusd')!)).toBe('XAUUSD')
     expect(t212ExecuteTicker(instrumentById('xagusd')!)).toBe('XAGUSD')
-    expect(t212ExecuteTicker(instrumentById('platinum')!)).toBe('XPTUSD')
+    // XPTUSD não tem página na T212; a página é /cfd/PLATINUM (Platinum-23Dec26).
+    expect(t212ExecuteTicker(instrumentById('platinum')!)).toBe('PLATINUM')
     expect(t212ExecuteTicker(instrumentById('palladium')!)).toBe('PALLADIUM')
     // Índices europeus/asiáticos e VOLX saíram: sem futuro, nunca davam JÁ.
     expect(T212_APP_TICKER.volx).toBeUndefined()
@@ -133,6 +134,21 @@ describe('universo só em escala da T212', () => {
       expect(item!.yahooSymbol).toMatch(/=F$/)
       // O ticker de pesquisa é o shortName oficial da T212.
       expect(t212ExecuteTicker(item!)).toBe(item!.t212Search)
+    }
+  })
+})
+
+describe('ouro e prata lêem o spot, não o futuro', () => {
+  it('T212 cota XAUUSD/XAGUSD a spot — medido GC=F +0,45% acima', () => {
+    expect(T212_CAPITAL_SPOT.xauusd).toBe('GOLD')
+    expect(T212_CAPITAL_SPOT.xagusd).toBe('SILVER')
+  })
+
+  it('as commodities de contrato datado ficam no Yahoo', () => {
+    // Crude Oil-18Nov26, Copper-16Nov26, Palladium-23Nov26: o Yahoo bate a <0,1%.
+    for (const id of ['oil', 'brent', 'ngas', 'copper', 'palladium', 'platinum']) {
+      expect(T212_CAPITAL_SPOT[id], `${id} não devia usar spot`).toBeUndefined()
+      expect(instrumentById(id)?.yahooSymbol).toMatch(/=F$/)
     }
   })
 })

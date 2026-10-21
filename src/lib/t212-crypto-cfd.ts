@@ -6,8 +6,11 @@
  * Europeus/asiáticos saíram: nenhuma fonte dá o futuro, logo os níveis nunca
  * batiam com a T212 e o Desk recusava sempre o JÁ. VOLX saiu pela mesma razão
  * (lê ^VIX à vista; a T212 cota o futuro do VIX).
- * Commodities verificadas: CRUDE, NATGAS, COPPER, BRENT, PALLADIUM.
- * Metais forex: XAUUSD / XAGUSD (docs T212: Gold (XAUUSD); página XAGUSD).
+ * Commodities verificadas (páginas com mês: Crude Oil-18Nov26, Copper-16Nov26…):
+ *   CRUDE, NATGAS, COPPER, BRENT, PALLADIUM, PLATINUM — contratos datados, Yahoo bate.
+ *   XPTUSD não existe na T212; a página é /cfd/PLATINUM.
+ * Ouro e prata: XAUUSD / XAGUSD são SPOT na T212 (páginas «Gold» e «Silver», sem mês),
+ *   por isso lêem o spot da Capital.com e não GC=F/SI=F — ver T212_CAPITAL_SPOT.
  *   GOLD/SILVER na pesquisa = acções (Gold.com, mineiras) — não o metal.
  * Crypto CFD verificadas contra o catálogo CFD da T212 (categoria Cryptocurrencies):
  * são exactamente 22 e estão todas aqui. POL na T212 = MATIC.
@@ -33,7 +36,7 @@ export const T212_APP_TICKER: Record<string, string> = {
   brent: 'BRENT',
   xauusd: 'XAUUSD',
   xagusd: 'XAGUSD',
-  platinum: 'XPTUSD',
+  platinum: 'PLATINUM',
   palladium: 'PALLADIUM',
   copper: 'COPPER',
   pol: 'MATIC',

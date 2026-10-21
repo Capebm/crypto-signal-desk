@@ -140,25 +140,37 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
   cadjpy: 'CAD/JPY',
 }
 
+/**
+ * Metais que a T212 cota a SPOT, não por contrato datado: as páginas são
+ * /cfd/XAUUSD e /cfd/XAGUSD («Gold», «Silver»), sem mês no título ao contrário
+ * de Copper-16Nov26 ou Palladium-23Nov26. O Yahoo só tem os futuros (GC=F/SI=F),
+ * que trazem ~0,45% de prémio — medido: T212 4117,78 vs GC=F 4136,20.
+ * A Capital.com dá o spot ao minuto e bate com a T212 (ouro −0,03%, prata −0,09%).
+ */
+export const T212_CAPITAL_SPOT: Record<string, string> = {
+  xauusd: 'GOLD',
+  xagusd: 'SILVER',
+}
+
 export function twelveSymbolFor(instrument: T212Instrument): string | undefined {
   return T212_TWELVE_SYMBOL[instrument.id]
 }
 
-export type T212FeedSource = 'twelve' | 'yahoo' | 'binance'
+export type T212FeedSource = 'twelve' | 'yahoo' | 'binance' | 'capital'
 /** Preferência do utilizador: Yahoo (defeito) ou Twelve (fallback Yahoo se falhar). Crypto T212 usa Binance quando o par existe. */
 export type T212FeedPreference = 'yahoo' | 'twelve'
 
-let feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: false }
+let feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: false, capitalFailed: [] as string[] }
 
 let twelveCooldownUntil = 0
 let twelveQueue: Promise<unknown> = Promise.resolve()
 
 export function resetT212FeedStats() {
-  feedStats = { twelve: 0, yahoo: 0, binance: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now() }
+  feedStats = { twelve: 0, yahoo: 0, binance: 0, capital: 0, liveIndex: 0, twelveExhausted: twelveCooldownUntil > Date.now(), capitalFailed: [] }
 }
 
 export function getT212FeedStats() {
-  return { ...feedStats, twelveCooldownUntil }
+  return { ...feedStats, capitalFailed: [...feedStats.capitalFailed], twelveCooldownUntil }
 }
 
 export const T212_INSTRUMENTS: T212Instrument[] = [
@@ -497,7 +509,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   {
     id: 'platinum',
     t212Label: 'Platinum',
-    t212Search: 'XPTUSD',
+    t212Search: 'PLATINUM',
     yahooSymbol: 'PL=F',
     kind: 'metal',
     short: 'XPTUSD',
@@ -1123,6 +1135,33 @@ type YahooPackResponse = {
   error?: string
 }
 
+type CapitalPackResponse = {
+  candles?: Record<'1h' | '15m' | '5m' | '1m', Candle[]>
+  error?: string
+  skip?: boolean
+}
+
+/** Sem credenciais na Netlify: não volta a tentar a Capital.com nesta sessão. */
+let capitalUnavailable = false
+
+/** Spot ao vivo da Capital.com. Sem `name` de propósito: não procura contrato de futuro. */
+async function fetchPlaybookViaCapitalSpot(epic: string): Promise<PlaybookPack> {
+  const response = await deskApiFetch(`/api/capital-pack?epic=${encodeURIComponent(epic)}`, {
+    signal: AbortSignal.timeout(25_000),
+  })
+  const payload = (await response.json().catch(() => ({}))) as CapitalPackResponse
+  if (response.status === 503 && payload.skip) {
+    capitalUnavailable = true
+    throw new Error('capital-skip')
+  }
+  if (!response.ok) throw new Error(payload.error || `Capital.com ${response.status}`)
+  const c = payload.candles
+  if (!c?.['1h']?.length || !c['15m']?.length || !c['5m']?.length || !c['1m']?.length) {
+    throw new Error(payload.error || `Capital.com incompleto (${epic})`)
+  }
+  return { '4h': aggregateTo4h(c['1h']), '1h': c['1h'], '15m': c['15m'], '5m': c['5m'], '1m': c['1m'] }
+}
+
 async function fetchPlaybookViaPack(yahooSymbol: string): Promise<PlaybookPack> {
   const response = await deskApiFetch(`/api/yahoo-pack?symbol=${encodeURIComponent(yahooSymbol)}`, {
     signal: AbortSignal.timeout(22_000),
@@ -1248,6 +1287,17 @@ export async function getT212PlaybookCandles(
       }
     }
 
+    const spotEpic = T212_CAPITAL_SPOT[instrument.id]
+    if (!data && spotEpic && !capitalUnavailable) {
+      try {
+        data = await fetchPlaybookViaCapitalSpot(spotEpic)
+        source = 'capital'
+      } catch (error) {
+        // Visível no estado do scan: cair no Yahoo aqui significa ~0,45% de desvio.
+        if (!capitalUnavailable) feedStats.capitalFailed.push(`${instrument.short} (${spotEpic}: ${error instanceof Error ? error.message : 'erro'})`)
+      }
+    }
+
     if (!data && feed === 'twelve') {
       const twelveSymbol = twelveSymbolFor(instrument)
       if (twelveSymbol && Date.now() >= twelveCooldownUntil) {
@@ -1282,7 +1332,8 @@ export async function getT212PlaybookCandles(
       }
     }
 
-    if (source === 'twelve') feedStats.twelve += 1
+    if (source === 'capital') feedStats.capital += 1
+    else if (source === 'twelve') feedStats.twelve += 1
     else if (source === 'binance') feedStats.binance += 1
     else feedStats.yahoo += 1
 
