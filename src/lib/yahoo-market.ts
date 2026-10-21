@@ -147,6 +147,23 @@ export const T212_TWELVE_SYMBOL: Record<string, string> = {
  * que trazem ~0,45% de prémio — medido: T212 4117,78 vs GC=F 4136,20.
  * A Capital.com dá o spot ao minuto e bate com a T212 (ouro −0,03%, prata −0,09%).
  */
+/**
+ * Cauda ao vivo dos índices US pela Capital.com. O ^GSPC/^NDX/^DJI só existe
+ * durante a sessão de caixa de NY; estes CFDs negoceiam ~24h, por isso a cauda
+ * passa a cobrir a sessão asiática e a de Londres. São o índice à vista (medido:
+ * US500 7731,1 contra 7772,63 na T212, −0,53%), mas withLiveIndexTail desloca-os
+ * pela base medida contra o futuro — é para isso que a base existe.
+ */
+export const T212_CAPITAL_INDEX_TAIL: Record<string, string> = {
+  tech100: 'US100',
+  nq: 'US100',
+  us500: 'US500',
+  es: 'US500',
+  us30: 'US30',
+  ym: 'US30',
+  usa2000: 'RTY',
+}
+
 export const T212_CAPITAL_SPOT: Record<string, string> = {
   xauusd: 'GOLD',
   xagusd: 'SILVER',
@@ -724,7 +741,7 @@ export const T212_EXTRA_INSTRUMENTS: T212Instrument[] = [
   { id: 'cadchf', t212Label: 'CAD/CHF', t212Search: 'CADCHF', yahooSymbol: 'CADCHF=X', kind: 'forex', short: 'CADCHF' },
   { id: 'chfjpy', t212Label: 'CHF/JPY', t212Search: 'CHFJPY', yahooSymbol: 'CHFJPY=X', kind: 'forex', short: 'CHFJPY' },
   { id: 'eurnzd', t212Label: 'EUR/NZD', t212Search: 'EURNZD', yahooSymbol: 'EURNZD=X', kind: 'forex', short: 'EURNZD' },
-  { id: 'usdnok', t212Label: 'USD/NOK', t212Search: 'USDNOK', yahooSymbol: 'USDNOK=X', kind: 'forex', short: 'USDNOK' },
+  { id: 'usdnok', t212Label: 'USD/NOK', t212Search: 'USD/NOK', yahooSymbol: 'USDNOK=X', kind: 'forex', short: 'USDNOK' },
   { id: 'usdsek', t212Label: 'USD/SEK', t212Search: 'USDSEK', yahooSymbol: 'USDSEK=X', kind: 'forex', short: 'USDSEK' },
   { id: 'usdzar', t212Label: 'USD/ZAR', t212Search: 'USDZAR', yahooSymbol: 'USDZAR=X', kind: 'forex', short: 'USDZAR' },
   { id: 'usdtry', t212Label: 'USD/TRY', t212Search: 'USDTRY', yahooSymbol: 'USDTRY=X', kind: 'forex', short: 'USDTRY' },
@@ -907,6 +924,34 @@ export const T212_DEFAULT_FUTURE_IDS = ['es', 'nq'] as const
 export const T212_DEFAULT_STOCK_IDS = ['nvda', 'meta', 'aapl', 'tsla'] as const
 
 export const T212_BTC_INSTRUMENT = T212_EXTRA_INSTRUMENTS.find((item) => item.id === 'btc')!
+
+/**
+ * Par de referência para o SMT. A divergência só significa alguma coisa entre
+ * dois instrumentos que medem o mesmo — é por isso que o TJR usa ES↔NQ.
+ * Comparar EUR/USD com o US500, como se fazia, não media nada.
+ *   xxxUSD  → outro major com USD na cotação (sobem e descem juntos)
+ *   USDxxx  → outro par com USD na base
+ *   cruzados → EUR/USD como referência de risco (mais fraco; fica informativo)
+ */
+export function t212ReferenceId(instrument: Pick<T212Instrument, 'id' | 'kind' | 'short'>): string {
+  if (instrument.kind === 'crypto') return 'btc'
+  if (instrument.kind !== 'forex') return 'us500'
+  const pair = instrument.short.replace('/', '')
+  if (pair.endsWith('USD')) return pair === 'EURUSD' ? 'gbpusd' : 'eurusd'
+  if (pair.startsWith('USD')) return pair === 'USDJPY' ? 'usdchf' : 'usdjpy'
+  return 'eurusd'
+}
+
+export function t212ReferenceInstrument(instrument: Pick<T212Instrument, 'id' | 'kind' | 'short'>): T212Instrument {
+  const id = t212ReferenceId(instrument)
+  return T212_CATALOG.find((item) => item.id === id)
+    ?? T212_CATALOG.find((item) => item.id === 'us500')
+    ?? T212_BTC_INSTRUMENT
+}
+
+export function t212ReferenceLabel(instrument: Pick<T212Instrument, 'id' | 'kind' | 'short'>): string {
+  return t212ReferenceInstrument(instrument).short
+}
 
 /** Catálogo completo (core + extras). */
 export const T212_CATALOG: T212Instrument[] = [...T212_INSTRUMENTS, ...T212_EXTRA_INSTRUMENTS]
@@ -1319,17 +1364,36 @@ export async function getT212PlaybookCandles(
       source = 'yahoo'
       // Índices US: futuros com ~10 min de atraso + cauda ao vivo do índice à vista.
       const liveSymbol = US_INDEX_LIVE_SYMBOL[instrument.id]
-      if (liveSymbol) {
+      const tailEpic = T212_CAPITAL_INDEX_TAIL[instrument.id]
+      let tailed = false
+
+      // 1ª escolha: CFD da Capital.com — negoceia ~24h, logo cobre Ásia e Londres.
+      if (tailEpic && !capitalUnavailable) {
+        try {
+          const live = withLiveIndexTail(data, await fetchPlaybookViaCapitalSpot(tailEpic))
+          if (live) {
+            data = { ...live, '4h': aggregateTo4h(live['1h']) }
+            tailed = true
+            feedStats.capital += 1
+          }
+        } catch {
+          if (!capitalUnavailable) feedStats.capitalFailed.push(`${instrument.short} (cauda ${tailEpic})`)
+        }
+      }
+
+      // Recurso: índice à vista do Yahoo, só durante a sessão de caixa de NY.
+      if (!tailed && liveSymbol) {
         try {
           const live = withLiveIndexTail(data, await fetchPlaybookViaPack(liveSymbol))
           if (live) {
             data = { ...live, '4h': aggregateTo4h(live['1h']) }
-            feedStats.liveIndex += 1
+            tailed = true
           }
         } catch {
           /* sem cauda ao vivo: fica o futuro atrasado (sem JÁ, pede confirmação live) */
         }
       }
+      if (tailed) feedStats.liveIndex += 1
     }
 
     if (source === 'capital') feedStats.capital += 1

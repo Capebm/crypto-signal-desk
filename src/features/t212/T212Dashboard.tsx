@@ -39,6 +39,8 @@ import type { Direction, Interval } from '../../lib/types'
 import {
   DEFAULT_T212_INSTRUMENT,
   T212_BTC_INSTRUMENT,
+  t212ReferenceInstrument,
+  t212ReferenceLabel,
   T212_CATALOG,
   T212_CORE_IDS,
   T212_EXECUTABLE_CATALOG,
@@ -67,7 +69,7 @@ import { useScrollToScanOnRun } from '../../lib/use-scroll-to-scan'
 import { requireLiveConfirmationForStaleLtf } from '../../lib/t212-live-confirm'
 import { getT212BinanceCandles, t212BinanceMatchIds } from '../../lib/t212-binance-feed'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
-import { exchangeFor, INDEX_FOCUS_IDS } from '../../lib/index-exchanges'
+import { exchangeFor, TJR_FOCUS_IDS } from '../../lib/index-exchanges'
 import { hasDeskSession } from '../../lib/supabase'
 
 const RISK_KEY = 't212-risk-index'
@@ -146,7 +148,7 @@ export default function T212Dashboard() {
   const [usIndexFocus, setUsIndexFocus] = useState(() => readBool(US_INDEX_FOCUS_KEY, false))
   const fullWatchlist = useMemo(() => resolveT212Watchlist(watchIds), [watchIds])
   const watchlist = useMemo(
-    () => (usIndexFocus ? T212_CATALOG.filter((item) => INDEX_FOCUS_IDS.includes(item.id)) : fullWatchlist),
+    () => (usIndexFocus ? T212_CATALOG.filter((item) => TJR_FOCUS_IDS.includes(item.id)) : fullWatchlist),
     [usIndexFocus, fullWatchlist],
   )
   const visibleWatchExtras = useMemo(() => {
@@ -174,7 +176,7 @@ export default function T212Dashboard() {
     const market = getInstrumentMarketStatus(instrument.kind)
     return {
       instrumentKind: instrument.kind,
-      referenceLabel: instrument.kind === 'crypto' ? 'BTC' : 'US500',
+      referenceLabel: t212ReferenceLabel(instrument),
       wideNet,
       cfdPractical: instrument.kind === 'crypto'
         ? agentUsesPracticalConfirm(tjrVideoStrict, scanAllSetups)
@@ -182,7 +184,9 @@ export default function T212Dashboard() {
       tjrVideoStrict,
       sessionMarket: instrument.kind === 'crypto' ? 'crypto' as const : 'cfd' as const,
       // Índices: killzones da bolsa de cada um (GER40 → Frankfurt, JP225 → Tóquio…).
-      ...(instrument.kind === 'index' || instrument.kind === 'future' ? { exchange: exchangeFor(instrument.short) } : {}),
+      ...(instrument.kind === 'index' || instrument.kind === 'future' || instrument.kind === 'forex'
+        ? { exchange: exchangeFor(instrument.short, instrument.kind) }
+        : {}),
       killzoneQualityOnly: instrument.kind === 'forex' || instrument.kind === 'crypto',
       instrumentMarketOpen: market.open,
       instrumentMarketNote: market.reason,
@@ -285,9 +289,7 @@ export default function T212Dashboard() {
         }
       }
     }
-    const refInstrument = instrument.kind === 'crypto'
-      ? T212_BTC_INSTRUMENT
-      : instrumentByIdSafe()
+    const refInstrument = t212ReferenceInstrument(instrument)
     const [data, reference] = await Promise.all([
       getT212PlaybookCandles(instrument, { feed: dataFeed, bypassCache }),
       getT212PlaybookCandles(refInstrument, { feed: dataFeed, bypassCache }),
@@ -965,7 +967,7 @@ export default function T212Dashboard() {
                 : 'Watchlist completa — aplica + scan.')
             }}
           />
-          <span>Só índices</span>
+          <span>Foco TJR</span>
         </label>
         <button type="button" className="setup-reapply" onClick={() => void analyzeAll()} disabled={running || !canScan}>
           {running ? '…' : 'Aplicar + scan'}
@@ -1026,7 +1028,7 @@ export default function T212Dashboard() {
       <details className="t212-watchlist-panel">
         <summary>
           Watchlist · {fullWatchlist.length} activos ({T212_CORE_IDS.length} core + {fullWatchlist.length - T212_CORE_IDS.length} extras)
-          {usIndexFocus ? ' · em pausa: «Só índices» ligado' : ''}
+          {usIndexFocus ? ' · em pausa: «Foco TJR» ligado' : ''}
         </summary>
         <p className="desk-sub">Crypto: só os CFDs que a T212 lista (BTC, ETH, SOL, XRP, MATIC, …). JUP/ATOM/INJ/SUI não são crypto CFD — JUP na pesquisa é um fundo. Índices/commodities: FR40, NL25, CRUDE, XAUUSD, PALLADIUM. Nunca SWE30, OIL, GOLD, AUS200.</p>
         <div className="t212-watchlist-tools">

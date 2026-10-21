@@ -43,10 +43,34 @@ const BY_SYMBOL: Record<string, ExchangeSession> = {
   HK50: HONG_KONG,
 }
 
-/** Índices do foco «Só índices» (ids do catálogo; VOLX fica de fora — é volatilidade, não um índice de bolsa). */
-export const INDEX_FOCUS_IDS = ['us500', 'tech100', 'us30', 'ger40', 'uk100', 'fra40', 'eu50', 'spa35', 'ita40', 'swiss20', 'neth25', 'jp225', 'hk50']
+/**
+ * Foco TJR: só o que o Desk consegue mesmo levar a JÁ, por ordem de aderência ao método.
+ *  - Índices US: escala de futuros da T212 + cauda ao vivo + SMT ES↔NQ a sério.
+ *  - Majors de forex: sessões reais (Londres/NY), liquidez profunda, feed Yahoo FX ao vivo.
+ *  - Ouro e prata: spot da Capital.com, alinhado com a T212 e ao minuto.
+ *  - BTC/ETH: Binance ao vivo.
+ * Fora: commodities, obrigações e agrícolas — o Yahoo entrega-as com 10-12 min
+ * e a barra de 3 min do requireLiveConfirmationForStaleLtf nunca as deixa chegar a JÁ.
+ */
+export const TJR_FOCUS_IDS = [
+  'us500', 'tech100', 'us30', 'usa2000',
+  'eurusd', 'gbpusd', 'usdjpy', 'audusd', 'usdchf', 'usdcad', 'nzdusd', 'eurjpy', 'gbpjpy', 'eurgbp',
+  'xauusd', 'xagusd',
+  'btc', 'eth',
+]
 
-/** Sem bolsa conhecida (crypto, forex, ações US, …) → abertura de Nova Iorque. */
-export function exchangeFor(symbol?: string): ExchangeSession {
-  return (symbol && BY_SYMBOL[symbol.toUpperCase()]) || NY_SESSION
+/** @deprecated Mantido para compatibilidade; usa TJR_FOCUS_IDS. */
+export const INDEX_FOCUS_IDS = TJR_FOCUS_IDS
+
+/** Pares com EUR, GBP ou CHF fazem o seu volume na sessão de Londres; o resto segue NY. */
+const LONDON_CURRENCIES = /EUR|GBP|CHF/
+
+/** Sem bolsa conhecida (crypto, ações US, …) → abertura de Nova Iorque. */
+export function exchangeFor(symbol?: string, kind?: string): ExchangeSession {
+  if (!symbol) return NY_SESSION
+  const upper = symbol.toUpperCase()
+  const known = BY_SYMBOL[upper]
+  if (known) return known
+  if (kind === 'forex' && LONDON_CURRENCIES.test(upper.replace('/', ''))) return LONDON
+  return NY_SESSION
 }

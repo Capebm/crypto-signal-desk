@@ -47,6 +47,7 @@ import {
   instrumentById,
   type T212FeedPreference,
   type T212Instrument,
+  t212ReferenceLabel,
 } from '../../lib/yahoo-market'
 import { t212ExecuteTicker } from '../../lib/t212-crypto-cfd'
 import type { Interval } from '../../lib/types'
@@ -171,7 +172,7 @@ export default function PositionsDashboard() {
     const market = getInstrumentMarketStatus(item.kind)
     return {
       instrumentKind: item.kind,
-      referenceLabel: item.kind === 'crypto' ? 'BTC' : 'US500',
+      referenceLabel: t212ReferenceLabel(item),
       wideNet,
       cfdPractical,
       tjrVideoStrict,

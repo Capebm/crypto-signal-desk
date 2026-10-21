@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { t212ExecuteTicker, t212IsCfdListed, T212_APP_TICKER, T212_CRYPTO_CFD_TICKER } from './t212-crypto-cfd'
-import { instrumentById, resolveT212Watchlist, T212_CAPITAL_SPOT, T212_CATALOG, T212_EXTRA_INSTRUMENTS } from './yahoo-market'
+import { instrumentById, resolveT212Watchlist, t212ReferenceId, T212_CAPITAL_SPOT, T212_CATALOG, T212_EXTRA_INSTRUMENTS } from './yahoo-market'
+import { TJR_FOCUS_IDS } from './index-exchanges'
 
 describe('T212 app search tickers', () => {
   it('never invents composite search strings or fake index tickers', () => {
@@ -149,6 +150,48 @@ describe('ouro e prata lêem o spot, não o futuro', () => {
     for (const id of ['oil', 'brent', 'ngas', 'copper', 'palladium', 'platinum']) {
       expect(T212_CAPITAL_SPOT[id], `${id} não devia usar spot`).toBeUndefined()
       expect(instrumentById(id)?.yahooSymbol).toMatch(/=F$/)
+    }
+  })
+})
+
+describe('forex verificado contra o catálogo da T212', () => {
+  it('USD/NOK leva barra — é o único par USD assim na T212', () => {
+    expect(instrumentById('usdnok')?.t212Search).toBe('USD/NOK')
+  })
+
+  it('os outros majors não levam barra', () => {
+    for (const id of ['eurusd', 'gbpusd', 'usdjpy', 'audusd', 'usdchf', 'usdcad']) {
+      expect(instrumentById(id)?.t212Search).not.toContain('/')
+    }
+  })
+})
+
+describe('referência SMT por família', () => {
+  it('forex compara-se com um par do mesmo lado do dólar, não com o US500', () => {
+    expect(t212ReferenceId(instrumentById('eurusd')!)).toBe('gbpusd')
+    expect(t212ReferenceId(instrumentById('gbpusd')!)).toBe('eurusd')
+    expect(t212ReferenceId(instrumentById('audusd')!)).toBe('eurusd')
+    expect(t212ReferenceId(instrumentById('usdjpy')!)).toBe('usdchf')
+    expect(t212ReferenceId(instrumentById('usdcad')!)).toBe('usdjpy')
+  })
+
+  it('crypto continua no BTC e o resto no US500', () => {
+    expect(t212ReferenceId(instrumentById('eth')!)).toBe('btc')
+    expect(t212ReferenceId(instrumentById('tech100')!)).toBe('us500')
+    expect(t212ReferenceId(instrumentById('xauusd')!)).toBe('us500')
+  })
+})
+
+describe('foco TJR', () => {
+  it('só contém instrumentos que conseguem chegar a JÁ', () => {
+    for (const id of TJR_FOCUS_IDS) {
+      expect(instrumentById(id), `${id} não existe no catálogo`).toBeDefined()
+    }
+  })
+
+  it('deixa de fora o que o Yahoo entrega com 10-12 min', () => {
+    for (const id of ['us10yr', 'corn', 'coffee', 'oil', 'ngas', 'copper']) {
+      expect(TJR_FOCUS_IDS).not.toContain(id)
     }
   })
 })
